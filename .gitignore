@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.env.*
+.venv
+env/
+venv/
+ENV/
+
+# VS Code
+.vscode/
+
+# Project Specific
+**/piper/
+
+# Data folder internals
+**/data/*
+!**/data/.gitkeep

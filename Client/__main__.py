@@ -1,0 +1,303 @@
+import random
+import os
+import wave
+import threading
+from config import USER_NAME, ASSISTANT_NAME
+from core.generate import generate_response
+from core.messageHandler import add_message, reset_messages
+import time
+from core.AppStates import main_runner, stop_event
+from core.FuncHandler import handle_tool_call
+from utils import stt_hybrid as stt, tts
+from utils.tts import SPEECH_FILE
+from core.TaskManager import CompletionQueue, check_and_format_completions
+from knowledge.ConversationManager import start_new_conversation, save_current_conversation
+
+SHUTUP_COMMANDS = {"shutup", "shut up", "exit", "quiet", "stop", "bye", "goodbye"}
+EXIT_RESPONSES = [
+    "Goodbye, sir.",
+    "Alright, I'll be quiet.",
+    "Got it, stepping back!",
+    "I'll give you some space.",
+    "Okay, I'll stop talking now.",
+    "Message received, going silent.",
+    "As you wish, sir!",
+    "No problem, I'll leave you alone.",
+    "Alright, I'll go away now.",
+    "Sorry if I bothered you, I'll stop."
+]
+
+main_running = threading.Event()
+
+def speak(text):
+    stop_event.set()
+    def animate_and_speak(string):
+        for char in string:
+            print(char, end="", flush=True)
+            time.sleep(0.001)
+        print(" ")
+
+    animate_and_speak(f"{ASSISTANT_NAME.upper()}: " + text)
+    stop_event.clear()
+    speak_thread = threading.Thread(target=tts.run_tts_command, args=(text, stop_event), daemon=True)
+    speak_thread.start()
+
+def main():
+    """
+    Main response generation loop.
+    Also monitors for completed background tasks and announces them.
+    """
+    while True:
+        # Check for completed background tasks even when idle
+        if not main_runner.is_set():
+            completion_queue = CompletionQueue()
+            if completion_queue.has_notifications():
+                # There are completed tasks - announce them!
+                completed_summary = check_and_format_completions()
+                if completed_summary:
+                    # Inject as a system notification and trigger response
+                    add_message(
+                        role='user',
+                        content=f"[SYSTEM NOTIFICATION] {completed_summary}",
+                        tool_id=''
+                    )
+                    # This will trigger main_runner via add_message
+            time.sleep(0.1)  # Small sleep to prevent tight loop
+            continue
+            
+        if main_runner.is_set():
+            main_running.set()
+            main_runner.clear()
+            try:
+                response = generate_response()
+                tool_calls = response.get('tool_calls')
+                if tool_calls:
+                    # print(f"[DEBUG] Tool call: {tool_calls[0]}")
+                    func_resp, tool_id = handle_tool_call(tool_calls[0])
+                    add_message(role='tool', content=func_resp, tool_id=tool_id)  # type: ignore
+                else:
+                    speak(response.get('content'))
+            finally:
+                # Ensure we always clear even if tool calls or errors happen
+                main_running.clear()
+
+def get_duration_wave(file_path, timeout=15.0):
+    """Wait for a wave file to appear and return its duration in seconds.
+    Returns 0.0 if file not found within timeout or unreadable.
+    """
+    start = time.time()
+    while not os.path.exists(file_path):
+        if timeout is not None and (time.time() - start) > timeout:
+            return 0.0
+        time.sleep(0.05)
+    try:
+        with wave.open(file_path, 'rb') as audio_file:
+            frame_rate = audio_file.getframerate() or 1
+            n_frames = audio_file.getnframes()
+            return n_frames / float(frame_rate)
+    except Exception:
+        return 0.0
+
+def wake():
+    """
+    Original wake mode: Always listening, transcribes everything,
+    checks if wake word is in the transcription.
+    """
+    recorder = stt.VoiceRecorder()
+    while True:
+        success, filename = recorder.record()
+        if success:
+            prompt = stt.transcribe_whisper(filename)
+            transcription = prompt if prompt is not None else ""
+            if any(word in transcription.lower() for word in ["ava", "assistant", "eva", "ayva", "evaa"]):
+                # Invoke
+                while True:
+                    if not main_runner.is_set():
+                        transcription = f"{USER_NAME}: " + transcription
+                        print(transcription)
+                        # Speak thread shutup
+                        if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
+                            print(random.choice(EXIT_RESPONSES))
+                            break
+                        else:
+                            # New data extraction
+                            add_message(role="user", content=transcription, tool_id='')
+                            # Avoid tight spin while waiting for main to finish
+                            while main_running.is_set():
+                                time.sleep(0.01)
+                            timeout = get_duration_wave(SPEECH_FILE) + 7
+                            continued_convo, filename = recorder.record(timeout=timeout)
+                            if continued_convo:
+                                stop_event.clear()
+                                transcription = str(stt.transcribe_whisper(filename))
+                                continue
+                            else:
+                                stop_event.clear()
+                                break
+
+def wake_vosk():
+    """
+    New wake mode using Vosk: Lightweight wake word detection,
+    only activates full transcription after wake word is heard.
+    Each wakeword starts a NEW conversation thread.
+    """
+    from utils.wakeword import WakeWordDetector
+    
+    print(f"[{ASSISTANT_NAME.upper()}] Initializing wake word detector...")
+    try:
+        detector = WakeWordDetector()
+    except FileNotFoundError as e:
+        print(f"[ERROR] {e}")
+        print(f"[{ASSISTANT_NAME.upper()}] Falling back to continuous listening mode...")
+        wake()
+        return
+    
+    recorder = stt.VoiceRecorder()
+    
+    print(f"[{ASSISTANT_NAME.upper()}] Ready. Say '{ASSISTANT_NAME}', 'Ava', or 'Assistant' to wake me up.")
+    
+    while True:
+        # Phase 1: Wait for wake word (low CPU)
+        detector.listen_for_wakeword()
+        
+        # Wake word detected!
+        # Start a NEW conversation thread
+        start_new_conversation()
+        reset_messages()  # Clear old messages from context
+        
+        print(f"[{ASSISTANT_NAME.upper()}] Yes, sir?")
+        
+        # Phase 2: Listen for the actual command
+        success, filename = recorder.record(timeout=5)
+        
+        if not success:
+            print(f"[{ASSISTANT_NAME.upper()}] I didn't catch that. Going back to sleep.")
+            save_current_conversation()  # Save even empty conversations
+            detector.reset()
+            continue
+        
+        transcription = stt.transcribe_whisper(filename)
+        transcription = transcription if transcription else ""
+        
+        if not transcription.strip():
+            print(f"[{ASSISTANT_NAME.upper()}] I didn't hear anything. Going back to sleep.")
+            save_current_conversation()
+            detector.reset()
+            continue
+        
+        # Phase 3: Conversation loop
+        while True:
+            if not main_runner.is_set():
+                full_transcription = f"{USER_NAME}: " + transcription
+                print(full_transcription)
+                
+                # Check for exit commands
+                if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
+                    response = random.choice(EXIT_RESPONSES)
+                    print(f"{ASSISTANT_NAME.upper()}: {response}")
+                    speak(response)
+                    break
+                
+                # Process the command
+                add_message(role="user", content=full_transcription, tool_id='')
+                
+                # Wait for response to complete
+                while main_running.is_set():
+                    time.sleep(0.01)
+                
+                # Wait for continued conversation
+                timeout = get_duration_wave(SPEECH_FILE) + 7
+                continued_convo, filename = recorder.record(timeout=timeout)
+                
+                if continued_convo:
+                    stop_event.clear()
+                    transcription = str(stt.transcribe_whisper(filename))
+                    if transcription and transcription.strip():
+                        continue
+                    else:
+                        break
+                else:
+                    stop_event.clear()
+                    break
+        
+        # Conversation ended - SAVE it before going back to listening
+        save_current_conversation()
+        detector.reset()
+        print(f"[{ASSISTANT_NAME.upper()}] Going back to sleep. Say my name when you need me.")
+
+def wake_temp():
+    """Text input mode for testing without microphone."""
+    print(f"[{ASSISTANT_NAME.upper()}] Text mode. Type '{ASSISTANT_NAME.lower()}' followed by your command.")
+    
+    while True:
+        transcription = input("You: ").strip()
+        if not transcription:
+            continue
+        
+        if any(word in transcription.lower() for word in ["ava"]):
+            # Start a NEW conversation thread
+            start_new_conversation()
+            reset_messages()
+            
+            while True:
+                # Check for exit commands on raw input
+                if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
+                    response = random.choice(EXIT_RESPONSES)
+                    print(response)
+                    break
+                
+                # Send to AI (add user name prefix for context)
+                user_msg = f"{USER_NAME}: {transcription}"
+                add_message(role="user", content=user_msg, tool_id='')
+                
+                # Wait for the response to fully complete
+                while main_running.is_set() or main_runner.is_set():
+                    time.sleep(0.05)
+                
+                # Prompt for next input
+                transcription = input("You: ").strip()
+                if not transcription:
+                    break
+            
+            # Conversation ended - SAVE it
+            save_current_conversation()
+            print(f"[{ASSISTANT_NAME.upper()}] Conversation saved. Say my name when you need me.")
+            
+        elif transcription.lower() == "print messages":
+            from core.messageHandler import messages
+            print(messages)
+        elif transcription.lower() == "print memories":
+            from knowledge.memory import retrieve_memories
+            print(retrieve_memories())
+        elif transcription.lower() == "print conversations":
+            from knowledge.ConversationManager import get_manager
+            mgr = get_manager()
+            for conv_id, info in mgr.conversations_index.items():
+                print(f"- {info.get('name', conv_id)}: {info.get('summary', 'No summary')}")
+
+
+# ============================================================================
+# CONFIGURATION: Choose wake mode here
+# ============================================================================
+WAKE_MODE = "continuous" 
+
+
+def start():
+    main_runner.clear()
+    threading.Thread(target=main, daemon=True).start()
+    
+    print(f"[{ASSISTANT_NAME.upper()}] Starting in '{WAKE_MODE}' wake mode...")
+    
+    if WAKE_MODE == "vosk":
+        wake_vosk()
+    elif WAKE_MODE == "continuous":
+        wake()
+    elif WAKE_MODE == "text":
+        wake_temp()
+    else:
+        print(f"[ERROR] Unknown wake mode: {WAKE_MODE}. Using 'continuous'.")
+        wake()
+
+
+if __name__ == "__main__":
+    start()
