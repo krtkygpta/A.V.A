@@ -13,6 +13,7 @@ from utils.tts import SPEECH_FILE
 from core.TaskManager import CompletionQueue, check_and_format_completions
 from knowledge.ConversationManager import start_new_conversation, save_current_conversation
 
+# Commands that end the conversation
 SHUTUP_COMMANDS = {"shutup", "shut up", "exit", "quiet", "stop", "bye", "goodbye"}
 EXIT_RESPONSES = [
     "Goodbye, sir.",
@@ -27,9 +28,14 @@ EXIT_RESPONSES = [
     "Sorry if I bothered you, I'll stop."
 ]
 
+# Event to track whether main() is actively processing a response
 main_running = threading.Event()
 
 def speak(text):
+    """
+    Print text with a typing animation and play TTS audio in a background thread.
+    Sets stop_event to interrupt any currently playing audio first.
+    """
     stop_event.set()
     def animate_and_speak(string):
         for char in string:
@@ -44,27 +50,37 @@ def speak(text):
 
 def main():
     """
-    Main response generation loop.
-    Also monitors for completed background tasks and announces them.
+    Main response generation loop (runs in a background thread).
+
+    Waits for main_runner to be set (triggered by add_message), then:
+    1. Generates an LLM response
+    2. Handles tool calls if present, or speaks the response
+
+    Also periodically checks for completed background tasks and announces them.
+
+    Uses Event.wait(timeout=0.5) instead of time.sleep(0.1) polling —
+    responds to messages near-instantly while still checking completions every 500ms.
     """
     while True:
-        # Check for completed background tasks even when idle
+        # Efficient wait: returns True immediately when main_runner is set,
+        # or returns False after 500ms timeout (used to check completion queue)
+        signaled = main_runner.wait(timeout=0.5)
+
         if not main_runner.is_set():
+            # Timed out — check for completed background tasks while idle
             completion_queue = CompletionQueue()
             if completion_queue.has_notifications():
-                # There are completed tasks - announce them!
                 completed_summary = check_and_format_completions()
                 if completed_summary:
-                    # Inject as a system notification and trigger response
+                    # Inject background task results as a system notification
                     add_message(
                         role='user',
                         content=f"[SYSTEM NOTIFICATION] {completed_summary}",
                         tool_id=''
                     )
-                    # This will trigger main_runner via add_message
-            time.sleep(0.1)  # Small sleep to prevent tight loop
             continue
             
+        # main_runner was set — a new message is ready for processing
         if main_runner.is_set():
             main_running.set()
             main_runner.clear()
@@ -72,17 +88,22 @@ def main():
                 response = generate_response()
                 tool_calls = response.get('tool_calls')
                 if tool_calls:
-                    # print(f"[DEBUG] Tool call: {tool_calls[0]}")
+                    # Execute the tool and feed its result back into the conversation
                     func_resp, tool_id = handle_tool_call(tool_calls[0])
                     add_message(role='tool', content=func_resp, tool_id=tool_id)  # type: ignore
                 else:
+                    # Direct text response — speak it
                     speak(response.get('content'))
             finally:
-                # Ensure we always clear even if tool calls or errors happen
+                # Always clear main_running, even if an error occurred
                 main_running.clear()
 
 def get_duration_wave(file_path, timeout=15.0):
-    """Wait for a wave file to appear and return its duration in seconds.
+    """
+    Wait for a WAV file to appear on disk and return its duration in seconds.
+    Used to estimate how long the TTS response will play, so we know how long
+    to keep the microphone open for continued conversation.
+
     Returns 0.0 if file not found within timeout or unreadable.
     """
     start = time.time()
@@ -98,48 +119,88 @@ def get_duration_wave(file_path, timeout=15.0):
     except Exception:
         return 0.0
 
+
 def wake():
     """
-    Original wake mode: Always listening, transcribes everything,
-    checks if wake word is in the transcription.
+    Continuous wake mode: always listening, transcribes everything,
+    checks if a wake word is in the transcription.
+
+    Flow:
+    1. Record ambient audio until voice is detected
+    2. Transcribe with Whisper and check for wake word ("ava", "assistant", etc.)
+    3. If wake word found, enter conversation loop:
+       a. Send transcription to LLM
+       b. Wait for response (Event.wait for start, short poll for finish)
+       c. Listen for continued conversation (timeout = TTS duration + 7s)
+       d. If user speaks again, continue; otherwise end conversation
+    4. Save conversation and go back to listening
     """
     recorder = stt.VoiceRecorder()
     while True:
+        # Phase 1: Listen for any speech
         success, filename = recorder.record()
         if success:
-            prompt = stt.transcribe_whisper(filename)
+            # Get Whisper transcription (background thread started at end of record())
+            prompt = recorder.get_whisper_result(timeout=15)
             transcription = prompt if prompt is not None else ""
-            if any(word in transcription.lower() for word in ["ava", "assistant", "eva", "ayva", "evaa"]):
-                # Invoke
-                while True:
-                    if not main_runner.is_set():
-                        transcription = f"{USER_NAME}: " + transcription
-                        print(transcription)
-                        # Speak thread shutup
-                        if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
-                            print(random.choice(EXIT_RESPONSES))
-                            break
-                        else:
-                            # New data extraction
-                            add_message(role="user", content=transcription, tool_id='')
-                            # Avoid tight spin while waiting for main to finish
-                            while main_running.is_set():
-                                time.sleep(0.01)
-                            timeout = get_duration_wave(SPEECH_FILE) + 7
-                            continued_convo, filename = recorder.record(timeout=timeout)
-                            if continued_convo:
-                                stop_event.clear()
-                                transcription = str(stt.transcribe_whisper(filename))
-                                continue
-                            else:
-                                stop_event.clear()
-                                break
 
+            # Check for wake words
+            if any(word in transcription.lower() for word in ["ava", "assistant", "eva", "ayva", "evaa"]):
+                # Wake word detected — start a new conversation thread
+                start_new_conversation()
+                reset_messages()
+
+                while True:
+                    # Wait for any ongoing response to finish before proceeding
+                    while main_runner.is_set() or main_running.is_set():
+                        time.sleep(0.01)
+
+                    transcription = f"{USER_NAME}: " + transcription
+                    print(transcription)
+
+                    # Check for exit commands
+                    if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
+                        print(random.choice(EXIT_RESPONSES))
+                        break
+                    else:
+                        # Send user message to the LLM
+                        add_message(role="user", content=transcription, tool_id='')
+
+                        # Wait for main() to pick up the message and start processing
+                        # Event.wait() returns instantly when set (vs. 10ms sleep poll delay)
+                        main_running.wait(timeout=5.0)
+
+                        # Wait for main() to finish generating the response + TTS
+                        while main_running.is_set():
+                            time.sleep(0.01)
+
+                        # Measure TTS audio duration to set continued conversation timeout
+                        # (give user speech_duration + 7 seconds to respond)
+                        timeout = get_duration_wave(SPEECH_FILE) + 7
+
+                        # Listen for continued conversation
+                        # Reduced silence_duration from 4.0s → 2.5s for faster turnaround
+                        continued_convo, filename = recorder.record(timeout=timeout, silence_duration=2.5)
+                        if continued_convo:
+                            stop_event.clear()
+                            transcription = str(recorder.get_whisper_result(timeout=15))
+                            continue
+                        else:
+                            stop_event.clear()
+                            break
+
+                # Conversation ended — save before going back to listening
+                save_current_conversation()
+
+                
 def wake_vosk():
     """
-    New wake mode using Vosk: Lightweight wake word detection,
-    only activates full transcription after wake word is heard.
-    Each wakeword starts a NEW conversation thread.
+    Vosk wake mode: lightweight wake word detection using local Vosk model.
+    Only activates full Whisper transcription after wake word is heard.
+    Each wake word starts a NEW conversation thread.
+
+    Uses less CPU than continuous mode when idle, since Vosk is much lighter
+    than recording + Whisper for every spoken phrase.
     """
     from utils.wakeword import WakeWordDetector
     
@@ -157,13 +218,12 @@ def wake_vosk():
     print(f"[{ASSISTANT_NAME.upper()}] Ready. Say '{ASSISTANT_NAME}', 'Ava', or 'Assistant' to wake me up.")
     
     while True:
-        # Phase 1: Wait for wake word (low CPU)
+        # Phase 1: Wait for wake word (low CPU — Vosk only)
         detector.listen_for_wakeword()
         
-        # Wake word detected!
-        # Start a NEW conversation thread
+        # Wake word detected — start a NEW conversation thread
         start_new_conversation()
-        reset_messages()  # Clear old messages from context
+        reset_messages()
         
         print(f"[{ASSISTANT_NAME.upper()}] Yes, sir?")
         
@@ -172,7 +232,7 @@ def wake_vosk():
         
         if not success:
             print(f"[{ASSISTANT_NAME.upper()}] I didn't catch that. Going back to sleep.")
-            save_current_conversation()  # Save even empty conversations
+            save_current_conversation()
             detector.reset()
             continue
         
@@ -198,14 +258,14 @@ def wake_vosk():
                     speak(response)
                     break
                 
-                # Process the command
+                # Send to LLM
                 add_message(role="user", content=full_transcription, tool_id='')
                 
                 # Wait for response to complete
                 while main_running.is_set():
                     time.sleep(0.01)
                 
-                # Wait for continued conversation
+                # Listen for continued conversation
                 timeout = get_duration_wave(SPEECH_FILE) + 7
                 continued_convo, filename = recorder.record(timeout=timeout)
                 
@@ -220,13 +280,17 @@ def wake_vosk():
                     stop_event.clear()
                     break
         
-        # Conversation ended - SAVE it before going back to listening
+        # Conversation ended — save and go back to wake word listening
         save_current_conversation()
         detector.reset()
         print(f"[{ASSISTANT_NAME.upper()}] Going back to sleep. Say my name when you need me.")
 
 def wake_temp():
-    """Text input mode for testing without microphone."""
+    """
+    Text input mode for testing without a microphone.
+    Type 'ava' followed by your message to start a conversation.
+    Useful for debugging LLM responses and tool calls.
+    """
     print(f"[{ASSISTANT_NAME.upper()}] Text mode. Type '{ASSISTANT_NAME.lower()}' followed by your command.")
     
     while True:
@@ -235,7 +299,7 @@ def wake_temp():
             continue
         
         if any(word in transcription.lower() for word in ["ava"]):
-            # Start a NEW conversation thread
+            # Start a new conversation thread
             start_new_conversation()
             reset_messages()
             
@@ -262,7 +326,7 @@ def wake_temp():
                     continue
                 break
             
-            # Conversation ended - SAVE it
+            # Conversation ended — save it
             save_current_conversation()
             print(f"[{ASSISTANT_NAME.upper()}] Conversation saved. Say my name when you need me.")
             
@@ -282,11 +346,16 @@ def wake_temp():
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-WAKE_MODE = "text" 
+WAKE_MODE = "continuous" 
 
 
 def start():
+    """
+    Application entry point: starts the main response thread and
+    activates the chosen wake mode (continuous, vosk, or text).
+    """
     main_runner.clear()
+    # Start the main response loop in a background daemon thread
     threading.Thread(target=main, daemon=True).start()
     
     print(f"[{ASSISTANT_NAME.upper()}] Starting in '{WAKE_MODE}' wake mode...")

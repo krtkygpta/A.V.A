@@ -206,7 +206,7 @@ class ConversationManager:
             # Get user and assistant messages
             dialogue = []
             for msg in conv.messages[:10]:  # First 10 messages
-                role = "User" if msg["role"] == "user" else "FRIDAY"
+                role = "User" if msg["role"] == "user" else "AVA"
                 if msg["role"] in ["user", "assistant"]:
                     dialogue.append(f"{role}: {msg['content'][:200]}")
             
