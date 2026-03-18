@@ -16,7 +16,8 @@ ENV/
 
 # Project Specific
 **/piper/
-
+**/Speech.wav
+**/temp_input_*.txt
 # Data folder internals
 **/data/*
 !**/data/.gitkeep

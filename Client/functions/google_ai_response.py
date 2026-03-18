@@ -16,7 +16,7 @@ def get_google_ai_response(query: str) -> str:
         str: Combined response text
     """
     client = genai.Client(api_key=os.getenv("GOOGLE_AI_API_KEY"))
-    model_id = "gemini-2.0-flash-exp"
+    model_id = "gemini-2.5-flash"
     
     google_search_tool = Tool(
         google_search = GoogleSearch()

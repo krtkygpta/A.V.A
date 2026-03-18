@@ -256,8 +256,11 @@ def wake_temp():
                 
                 # Prompt for next input
                 transcription = input("You: ").strip()
-                if not transcription:
-                    break
+                if transcription:
+                    if not stop_event.is_set():
+                        stop_event.set()
+                    continue
+                break
             
             # Conversation ended - SAVE it
             save_current_conversation()
@@ -279,7 +282,7 @@ def wake_temp():
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-WAKE_MODE = "continuous" 
+WAKE_MODE = "text" 
 
 
 def start():

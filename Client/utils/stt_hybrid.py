@@ -180,7 +180,8 @@ class VoiceRecorder:
         audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
         energy = np.mean(np.abs(audio_array)) / 32768.0
         if energy > self.threshold:
-            if not stop_event.is_set(): stop_event.set()
+            if not stop_event.is_set(): 
+                stop_event.set()
             return True
         return False
 

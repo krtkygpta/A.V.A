@@ -1,6 +1,11 @@
 import subprocess
 import requests
 from geopy.geocoders import Nominatim
+import os
+import json
+import dotenv
+
+dotenv.load_dotenv()
 
 def get_gps_location():
     try:
@@ -57,31 +62,44 @@ def get_weather(location: str):
         if location == 'current':
             location = get_gps_location()  # Assuming this function exists and gets the GPS location
 
-        url = 'http://127.0.0.1:5000/edith/tools'
-        data = {
-            'tool': 'weather',
-            'location': location
-        }
-
-        response = requests.post(url, json=data)
-        response.raise_for_status()  # Raise an exception for HTTP errors
-
-        # Validate the response JSON
-        try:
-            result = response.json()
-            if not result:  # Check if JSON is empty
-                return {"error": "Invalid response received, please try again"}
-            return result
-        except ValueError:
-            return {"error": "Invalid JSON response, please try again"}
-
-    except requests.exceptions.RequestException as e:
-        # Catch network-related errors (e.g., connection issues)
-        print(f"Network error: {e}")
-        return {"error": "Error, please try again"}
+        params = ['temperature', 'humidity', 'wind_speed', 'description', 'clouds', 'precipitation']
+        return get_weather_(location, params)
     except Exception as e:
         # Catch any unexpected errors
         print(f"Unexpected error: {e}")
         return {"error": "An unexpected error occurred, please try again"}
 
 # print(get_weather(location='greater noida'))
+def get_weather_(location, params=None):
+    if params is None:
+        params = ['temperature', 'humidity', 'wind_speed', 'description', 'clouds', 'precipitation']
+    api_key=os.getenv("WEATHER_API_KEY")
+    base_url = "http://api.weatherapi.com/v1/current.json"
+    complete_url = f"{base_url}?key={api_key}&q={location}&aqi=no"
+    
+    response = requests.get(complete_url)
+    data = response.json()
+    
+    if "error" not in data:
+        current = data["current"]
+        
+        weather_info = {
+            "location": data["location"]["name"],
+            "temperature": current["temp_c"],
+            "humidity": current["humidity"],
+            "wind_speed": current["wind_kph"],
+            "description": current["condition"]["text"],
+            "clouds": current["cloud"],
+            "precipitation": current["precip_mm"],  # Precipitation in mm
+            "rain": current.get("precip_mm", 0)  # Rain volume in mm
+        }
+        
+        # Filter the weather info based on requested parameters
+        filtered_info = {key: weather_info[key] for key in params if key in weather_info}
+        filtered_info = json.dumps({
+            'success': 'success',
+            'message': f'weather report is {filtered_info}'
+        })
+        return filtered_info
+    else:
+        return {"error": "Location not found"}

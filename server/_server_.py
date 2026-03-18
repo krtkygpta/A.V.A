@@ -43,42 +43,6 @@ def tools():
 
     
 
-@app.route('/edith/generate', methods=['POST'])
-def get_response():
-    data = request.json
-    tools = data.get('tools')
-    messages = data.get('messages')
-
-    # Generate response using the model
-    client = openai.OpenAI(
-        base_url="https://api.groq.com/openai/v1",
-        api_key="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")
-    
-    response = client.chat.completions.create(
-        model="llama-3.2-90b-text-preview",
-        messages=messages,
-        tools=tools,
-        tool_choice='auto',
-        temperature=0.5,
-        max_tokens=2048
-
-    )
-    response_message = response.choices[0].message
-    if response_message.tool_calls:
-        tool_call = response.choices[0].message.tool_calls[0].function
-        arguments = ast.literal_eval(tool_call.arguments)
-        tool_id = response_message.tool_calls[0].id
-        return jsonify({
-            'tool_call': True,
-            'function': tool_call.name,
-            'args': arguments,
-            'tool_id': tool_id
-        })
-    else:
-        return jsonify({
-            'tool_call': False,
-            'content': response_message.content
-        })
 
 if __name__ == '__main__':
     app.run(threaded=True, debug=True)
