@@ -1,5 +1,3 @@
-from ast import Try
-from asyncio.exceptions import TimeoutError
 from pywizlight import wizlight, discovery, PilotBuilder
 import asyncio
 import json

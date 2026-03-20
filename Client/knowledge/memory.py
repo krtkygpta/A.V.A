@@ -268,7 +268,7 @@ def get_all_memories_for_context() -> str:
         return ""
     
     lines = [f"[THINGS I REMEMBER ABOUT {USER_NAME.upper()}]"]
-    for m in memories[-30]:  # Last 30 memories
+    for m in memories[-30:]:  # Last 30 memories
         lines.append(f"- {m['text']}")
     
     return "\n".join(lines)

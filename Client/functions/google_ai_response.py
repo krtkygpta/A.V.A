@@ -5,6 +5,10 @@ import os
 import dotenv
 
 dotenv.load_dotenv()
+
+# Singleton Gemini client — avoids recreating on every call
+_client = genai.Client(api_key=os.getenv("GOOGLE_AI_API_KEY"))
+
 def get_google_ai_response(query: str) -> str:
     """
     Get AI-generated response using Google's Gemini model with search capability
@@ -15,14 +19,13 @@ def get_google_ai_response(query: str) -> str:
     Returns:
         str: Combined response text
     """
-    client = genai.Client(api_key=os.getenv("GOOGLE_AI_API_KEY"))
     model_id = "gemini-2.5-flash"
     
     google_search_tool = Tool(
         google_search = GoogleSearch()
     )
     
-    response = client.models.generate_content(
+    response = _client.models.generate_content(
         model=model_id,
         contents=query,
         config=GenerateContentConfig(

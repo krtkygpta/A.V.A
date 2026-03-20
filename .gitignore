@@ -21,3 +21,6 @@ ENV/
 # Data folder internals
 **/data/*
 !**/data/.gitkeep
+
+# Piper
+**/piper.zip

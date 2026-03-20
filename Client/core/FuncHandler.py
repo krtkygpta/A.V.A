@@ -1,3 +1,4 @@
+import json
 import functions as functions
 from core.TaskManager import dispatch_background_task, get_running_tasks_summary
 from knowledge.ConversationManager import handle_conversation_history
@@ -51,7 +52,7 @@ def handle_tool_call(tool_call):
     tool_id = None  # Initialize to avoid reference before assignment
     try:
         tool_id = tool_call.id
-        args = eval(tool_call.function.arguments)
+        args = json.loads(tool_call.function.arguments)
         func_name = tool_call.function.name
         function = TOOL_CONFIGS.get(func_name)
 

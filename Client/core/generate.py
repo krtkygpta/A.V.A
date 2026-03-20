@@ -21,9 +21,31 @@ def generate_response():
                 if isinstance(tool, dict) and tool.get('type') == 'function' and tool.get('function', {}).get('name'):
                     valid_tools.append(tool)
         
+        # Build context-enriched messages:
+        # Inject past conversation summaries (last hour only) so the LLM has
+        # awareness of recent interactions without overloading context.
+        # Note: Memories are NOT injected here — the LLM retrieves them
+        # on demand via the memory_manager tool call.
+        enriched_messages = list(messages)  # shallow copy to avoid mutating the original
+        
+        # Find where to insert context (right after the system prompt)
+        insert_idx = 1 if enriched_messages and enriched_messages[0].get('role') == 'system' else 0
+        
+        # Inject conversation history from the past hour only
+        try:
+            from knowledge.ConversationManager import get_recent_hour_conversations_context
+            convo_context = get_recent_hour_conversations_context()
+            if convo_context:
+                enriched_messages.insert(insert_idx, {
+                    'role': 'system',
+                    'content': convo_context
+                })
+        except Exception:
+            pass  # Don't break generation if conversation retrieval fails
+        
         response = client.chat.completions.create(
             model=model,
-            messages=messages,  # type: ignore
+            messages=enriched_messages,
             tools=valid_tools if valid_tools else None,
             tool_choice="auto" if valid_tools else None
         )

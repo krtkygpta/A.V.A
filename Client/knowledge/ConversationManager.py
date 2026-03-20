@@ -344,6 +344,48 @@ def get_past_conversations_context() -> str:
     return get_manager().get_conversation_context_for_llm()
 
 
+def get_recent_hour_conversations_context() -> str:
+    """
+    Get context about conversations from the past hour only.
+    Returns a formatted string for injection into the LLM system prompt.
+    Limits to conversations updated within the last 60 minutes to avoid
+    overloading context with stale information.
+    """
+    mgr = get_manager()
+    now = datetime.now()
+    
+    recent_convos = []
+    for conv_id, info in mgr.conversations_index.items():
+        updated_at_str = info.get("updated_at", info.get("created_at", ""))
+        if not updated_at_str:
+            continue
+        try:
+            updated_at = datetime.fromisoformat(updated_at_str)
+            # Only include conversations updated within the past hour
+            delta = (now - updated_at).total_seconds()
+            if delta <= 3600:  # 1 hour = 3600 seconds
+                recent_convos.append({
+                    "name": info.get("name", "Unnamed"),
+                    "summary": info.get("summary", ""),
+                    "updated_at": updated_at
+                })
+        except (ValueError, TypeError):
+            continue
+    
+    if not recent_convos:
+        return ""
+    
+    # Sort by most recent first
+    recent_convos.sort(key=lambda x: x["updated_at"], reverse=True)
+    
+    lines = ["[RECENT CONVERSATIONS (past hour) - You can reference these if relevant]"]
+    for conv in recent_convos[:5]:  # Cap at 5 to avoid context bloat
+        time_str = conv["updated_at"].strftime("%H:%M")
+        summary = conv["summary"][:150] if conv["summary"] else "No summary"
+        lines.append(f"- \"{conv['name']}\" (at {time_str}): {summary}")
+    
+    return "\n".join(lines)
+
 def search_conversations_by_date(date_str: str = None, time_of_day: str = None) -> List[Dict[str, Any]]:
     """
     Search conversations by date and/or time of day.

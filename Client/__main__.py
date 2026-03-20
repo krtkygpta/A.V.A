@@ -45,9 +45,10 @@ def speak(text):
 
     animate_and_speak(f"{ASSISTANT_NAME.upper()}: " + text)
     stop_event.clear()
-    speak_thread = threading.Thread(target=tts.run_tts_command, args=(text, stop_event), daemon=True)
-    speak_thread.start()
-
+    
+    if WAKE_MODE != "text":
+        speak_thread = threading.Thread(target=tts.run_tts_command, args=(text, stop_event), daemon=True)
+        speak_thread.start()
 def main():
     """
     Main response generation loop (runs in a background thread).
@@ -93,7 +94,11 @@ def main():
                     add_message(role='tool', content=func_resp, tool_id=tool_id)  # type: ignore
                 else:
                     # Direct text response — speak it
-                    speak(response.get('content'))
+                    content = response.get('content')
+                    if content:
+                        speak(content)
+                    else:
+                        speak("I'm not sure how to respond to that.")
             finally:
                 # Always clear main_running, even if an error occurred
                 main_running.clear()
@@ -346,7 +351,7 @@ def wake_temp():
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-WAKE_MODE = "continuous" 
+WAKE_MODE = "text" 
 
 
 def start():
@@ -354,6 +359,7 @@ def start():
     Application entry point: starts the main response thread and
     activates the chosen wake mode (continuous, vosk, or text).
     """
+    
     main_runner.clear()
     # Start the main response loop in a background daemon thread
     threading.Thread(target=main, daemon=True).start()

@@ -4,6 +4,9 @@ import json
 import webbrowser
 from ytmusicapi import YTMusic
 
+# Singleton YTMusic client — avoids slow re-initialization on every song search
+_ytmusic = YTMusic()
+
 def song_url(song_name):
     """
     Search for a song on YouTube Music and return its URL.
@@ -15,8 +18,7 @@ def song_url(song_name):
         str: YouTube Music URL of the closest match, or None if not found
     """
     try:
-        ytmusic = YTMusic()
-        results = ytmusic.search(song_name, filter="songs", limit=1)
+        results = _ytmusic.search(song_name, filter="songs", limit=1)
         
         if results:
             video_id = results[0]['videoId']
