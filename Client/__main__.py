@@ -1,3 +1,5 @@
+from gevent import monkey
+monkey.patch_all(thread=False) 
 import random
 import os
 import wave
@@ -154,6 +156,7 @@ def main():
                 main_running.clear()
 
 def get_duration_wave(file_path, timeout=15.0):
+    
     """
     Wait for a WAV file to appear on disk and return its duration in seconds.
     Used to estimate how long the TTS response will play, so we know how long
@@ -419,7 +422,7 @@ def text_mode():
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-Start_mode = "continuous" 
+Start_mode = "text" 
 
 
 def start():

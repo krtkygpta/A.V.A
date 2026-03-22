@@ -130,21 +130,51 @@ Remember: You are a VOICE assistant first. Every response should sound natural w
 
 }]
 tools = [
+        # {
+        #     'type': 'function',
+        #     'function': {
+        #         'name': 'music_control',
+        #         'description': 'Control the music playback',
+        #         'parameters': {
+        #             'type': 'object',
+        #             'properties': {
+        #                 'action': {'type': 'string', 'description': 'Action to perform (play_new, resume, pause, etc.)', 'enum': ['play_new', 'resume', 'pause', 'add_next', 'previous', 'next']},
+        #                 'song_name': {'type': 'string', 'description': 'Name of the song to play'}
+        #             },
+        #             'required': ['action']
+        #         }
+        #     }
+        # },
         {
-            'type': 'function',
-            'function': {
-                'name': 'music_control',
-                'description': 'Control the music playback',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'action': {'type': 'string', 'description': 'Action to perform (play_new, resume, pause, etc.)', 'enum': ['play_new', 'resume', 'pause', 'add_next', 'previous', 'next']},
-                        'song_name': {'type': 'string', 'description': 'Name of the song to play'}
-                    },
-                    'required': ['action']
+    "type": "function",
+    "function": {
+        "name": "music_control",
+        "description": "Control YouTube Music playback including playing songs, pausing, resuming, skipping, and getting current song info.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "Action to perform",
+                    "enum": [
+                        "play_new",
+                        "resume",
+                        "pause",
+                        "next",
+                        "previous",
+                        "current",
+                        "recommend"
+                    ]
+                },
+                "song_name": {
+                    "type": "string",
+                    "description": "Name of the song or artist (required for play_new and recommend)"
                 }
-            }
-        },
+            },
+            "required": ["action"]
+        }
+    }
+},
         {
             'type': 'function',
             'function': {
