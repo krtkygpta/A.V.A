@@ -6,3 +6,4 @@ load_dotenv(dotenv_path=env_path)
 
 USER_NAME = os.getenv("USER_NAME", "Kartikey")
 ASSISTANT_NAME = os.getenv("ASSISTANT_NAME", "AVA")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")

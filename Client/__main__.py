@@ -46,7 +46,7 @@ def speak(text):
     animate_and_speak(f"{ASSISTANT_NAME.upper()}: " + text)
     stop_event.clear()
     
-    if WAKE_MODE != "text":
+    if Start_mode != "text":
         speak_thread = threading.Thread(target=tts.run_tts_command, args=(text, stop_event), daemon=True)
         speak_thread.start()
 def main():
@@ -125,7 +125,7 @@ def get_duration_wave(file_path, timeout=15.0):
         return 0.0
 
 
-def wake():
+def voice_mode_continuous():
     """
     Continuous wake mode: always listening, transcribes everything,
     checks if a wake word is in the transcription.
@@ -198,7 +198,7 @@ def wake():
                 save_current_conversation()
 
                 
-def wake_vosk():
+def voice_mode_wakeword():
     """
     Vosk wake mode: lightweight wake word detection using local Vosk model.
     Only activates full Whisper transcription after wake word is heard.
@@ -215,7 +215,7 @@ def wake_vosk():
     except FileNotFoundError as e:
         print(f"[ERROR] {e}")
         print(f"[{ASSISTANT_NAME.upper()}] Falling back to continuous listening mode...")
-        wake()
+        voice_mode_continuous()
         return
     
     recorder = stt.VoiceRecorder()
@@ -290,7 +290,7 @@ def wake_vosk():
         detector.reset()
         print(f"[{ASSISTANT_NAME.upper()}] Going back to sleep. Say my name when you need me.")
 
-def wake_temp():
+def text_mode():
     """
     Text input mode for testing without a microphone.
     Type 'ava' followed by your message to start a conversation.
@@ -351,7 +351,7 @@ def wake_temp():
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-WAKE_MODE = "text" 
+Start_mode = "text" 
 
 
 def start():
@@ -364,17 +364,17 @@ def start():
     # Start the main response loop in a background daemon thread
     threading.Thread(target=main, daemon=True).start()
     
-    print(f"[{ASSISTANT_NAME.upper()}] Starting in '{WAKE_MODE}' wake mode...")
+    print(f"[{ASSISTANT_NAME.upper()}] Starting in '{Start_mode}' wake mode...")
     
-    if WAKE_MODE == "vosk":
-        wake_vosk()
-    elif WAKE_MODE == "continuous":
-        wake()
-    elif WAKE_MODE == "text":
-        wake_temp()
+    if Start_mode == "vosk":
+        voice_mode_wakeword()
+    elif Start_mode == "continuous":
+        voice_mode_continuous()
+    elif Start_mode == "text":
+        text_mode()
     else:
-        print(f"[ERROR] Unknown wake mode: {WAKE_MODE}. Using 'continuous'.")
-        wake()
+        print(f"[ERROR] Unknown wake mode: {Start_mode}. Using 'continuous'.")
+        voice_mode_continuous()
 
 
 if __name__ == "__main__":

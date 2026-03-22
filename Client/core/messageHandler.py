@@ -101,9 +101,9 @@ WHEN TO USE TOOLS:
 - Remember something about {USER_NAME} → memory_manager (save)
 - Need to recall his preferences → memory_manager (retrieve)
 - Control lights → light_control
-- Screenshots or camera → image_description_tool
+- Screenshots or camera → image_description_tool (ask specific questions about visual input). If you're unsure what something is, ask for a description and then use `webdata` to research it.
 - Long research tasks → background_task (let it run while chatting)
-- Calculations or code execution → code_executor
+- Calculations or complex tasks → code_executor (If you can't do something directly, use your sandbox agent to write and execute Python code to perform the task).
 - File operations → create_file, open_file, save_text
 
 BACKGROUND TASKS:
@@ -121,6 +121,10 @@ RESPONSE STYLE:
 - If you need clarification, just ask naturally
 - Acknowledge mistakes briefly and move on
 - When greeting, be warm but not over the top
+
+FALLBACK STRATEGIES:
+- Image Analysis: If the vision model can't identify something directly, request a detailed description of the visual scene and then use `webdata` to search for matches on the web.
+- Impossible Tasks: If a task seems impossible for you, consider if it can be achieved by writing and running a Python script. If yes, use `code_executor`.
 
 Remember: You are a VOICE assistant first. Every response should sound natural when spoken aloud.'''
 
@@ -166,12 +170,13 @@ tools = [
             'type': 'function',
             'function': {
                 'name': 'image_description_tool',
-                'description': 'Tool to provide image descriptions or analyze images based on a query',
+                'description': 'Tool to analyze images from camera or screen. Use the "query" parameter to ask specific questions. Use "camera_index" to select a specific camera if multiple are available (defaults to 1).',
                 'parameters': {
                     'type': 'object',
                     'properties': {
                         'tool': {'type': 'string', 'description': 'Source of the image (camera or screen)', 'enum': ['camera', 'screen']},
-                        'query': {'type': 'string', 'description': 'Query to understand and describe the visual input'}
+                        'query': {'type': 'string', 'description': 'Specific question or instruction for the vision model regarding the image.'},
+                        'camera_index': {'type': 'integer', 'description': 'Index of the camera to use (0 for primary, 1 for secondary, etc.)'}
                     },
                     'required': ['tool', 'query']
                 }

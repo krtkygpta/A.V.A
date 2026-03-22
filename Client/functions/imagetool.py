@@ -2,22 +2,47 @@ import pyautogui
 import datetime
 import os
 import cv2
-import requests
+import base64
 import json
+from groq import Groq
+from config import GROQ_API_KEY
 
+# BASE DIRECTORIES
+FUNCTIONS_DIR = os.path.dirname(os.path.abspath(__file__))
+CLIENT_DIR = os.path.dirname(FUNCTIONS_DIR)
+DATA_DIR = os.path.join(CLIENT_DIR, 'data')
 
-def capture_and_send_image(folder="captured_images"):
-    """Capture an image from the camera and return the file path."""
+# CAPTURE DIRECTORIES
+CAPTURED_IMAGES_DIR = os.path.join(DATA_DIR, 'captured_images')
+CAPTURED_SCREENS_DIR = os.path.join(DATA_DIR, 'captured_screens')
+
+# Initialize Groq client
+client = Groq(api_key=GROQ_API_KEY)
+
+def encode_image(image_path):
+    """Encode image to base64 string."""
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+def capture_and_save_image(camera_index=1, folder=None):
+    """Capture an image from a specific camera index and return the file path."""
+    if folder is None:
+        folder = CAPTURED_IMAGES_DIR
+
     if not os.path.exists(folder):
         os.makedirs(folder)
     
-    camera = cv2.VideoCapture(1)
+    camera = cv2.VideoCapture(camera_index)
     
     if not camera.isOpened():
-        # Try default camera (index 0) as fallback
-        camera = cv2.VideoCapture(0)
-        if not camera.isOpened():
-            print("Error: Could not open camera")
+        # If requested index fails, try index 0 as absolute fallback
+        if camera_index != 0:
+            camera = cv2.VideoCapture(0)
+            if not camera.isOpened():
+                print(f"Error: Could not open camera at index {camera_index} or 0")
+                return None
+        else:
+            print(f"Error: Could not open camera at index {camera_index}")
             return None
 
     ret, frame = camera.read()
@@ -30,33 +55,43 @@ def capture_and_send_image(folder="captured_images"):
         cv2.imwrite(image_path, frame)
         return image_path
     else:
-        print("Error: Could not capture frame from camera")
+        print(f"Error: Could not capture frame from camera {camera_index}")
         return None
 
-
-def sendtoserver(image_path, data):
-    """Send an image to the server for processing."""
+def analyze_image_with_groq(image_path, query):
+    """Analyze an image using Groq's Vision model."""
     try:
-        with open(image_path, 'rb') as image_file:
-            response = requests.post(
-                'http://127.0.0.1:5000/edith/imagetool',
-                files={'image': image_file},  # Fixed: use the already opened file handle
-                data=data
-            )
-            return response.text
+        base64_image = encode_image(image_path)
+        
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": query},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}",
+                            },
+                        },
+                    ],
+                }
+            ],
+            model="meta-llama/llama-4-scout-17b-16e-instruct",
+        )
+        
+        return chat_completion.choices[0].message.content
     except Exception as e:
-        return json.dumps({'status': 'error', 'content': f"Error sending image: {str(e)}"})
-
+        return f"Error analyzing image with Groq: {str(e)}"
 
 def capture_screen():
     """Capture a screenshot and return the file path."""
-    # Create directory if it doesn't exist
-    screen_folder = "captured_screens"
-    if not os.path.exists(screen_folder):
-        os.makedirs(screen_folder)
+    if not os.path.exists(CAPTURED_SCREENS_DIR):
+        os.makedirs(CAPTURED_SCREENS_DIR)
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    screen_path = os.path.join(screen_folder, f"{timestamp}.jpg")
+    screen_path = os.path.join(CAPTURED_SCREENS_DIR, f"{timestamp}.jpg")
 
     try:
         screenshot = pyautogui.screenshot()
@@ -66,28 +101,22 @@ def capture_screen():
         print(f"Error capturing screen: {e}")
         return None
 
-
-def image_tool(tool, query):
+def image_tool(tool, query, camera_index=1):
     """Tool to analyze images from camera or screen."""
-    data = {
-        'tool': 'image_tool',
-        'query': query,
-    }
-    
     if tool == 'camera':
-        path = capture_and_send_image()
+        path = capture_and_save_image(camera_index=camera_index)
         if path is None:
-            return json.dumps({'status': 'error', 'content': 'Failed to capture camera image'})
-        response = sendtoserver(image_path=path, data=data)
+            return json.dumps({'status': 'error', 'content': f'Failed to capture image from camera {camera_index}'})
+        
+        response = analyze_image_with_groq(path, query)
         return response
     elif tool == 'screen':
         path = capture_screen()
         if path is None:
             return json.dumps({'status': 'error', 'content': 'Failed to capture screenshot'})
-        response = sendtoserver(image_path=path, data=data)
+        
+        response = analyze_image_with_groq(path, query)
         return response
     else:
         return json.dumps({'status': 'error', 'content': f'Unknown tool: {tool}. Use "camera" or "screen"'})
 
-
-# image_tool('camera')
