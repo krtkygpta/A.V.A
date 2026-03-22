@@ -42,7 +42,7 @@ def add_message(content, tool_id='', role='user'):
         if mgr.current_conversation:
             mgr.current_conversation.add_message('assistant', content)
     else:
-        print("Invalid role")
+        print("[MsgHandler] Invalid role")
 
 def reset_messages():
     """Reset messages to just the system prompt for a new conversation."""
@@ -60,7 +60,7 @@ def get_memory_context():
         from knowledge.memory import get_all_memories_for_context
         return get_all_memories_for_context()
     except Exception as e:
-        print(f"[MessageHandler] Error getting memories: {e}")
+        print(f"[MsgHandler] Memory context error: {e}")
         return ""
 
 def get_conversation_context():
@@ -69,7 +69,7 @@ def get_conversation_context():
         from knowledge.ConversationManager import get_past_conversations_context
         return get_past_conversations_context()
     except Exception as e:
-        print(f"[MessageHandler] Error getting conversations: {e}")
+        print(f"[MsgHandler] Conversation context error: {e}")
         return ""
 
 messages = [{

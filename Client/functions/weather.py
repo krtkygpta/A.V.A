@@ -66,7 +66,7 @@ def get_weather(location: str):
         return get_weather_(location, params)
     except Exception as e:
         # Catch any unexpected errors
-        print(f"Unexpected error: {e}")
+        print(f"[Weather] Unexpected error: {e}")
         return {"error": "An unexpected error occurred, please try again"}
 
 # print(get_weather(location='greater noida'))

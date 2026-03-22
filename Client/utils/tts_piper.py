@@ -46,47 +46,34 @@ _server_proc: subprocess.Popen | None = None
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _download_voice() -> None:
-    print(f"[TTS] Checking / downloading voice: {VOICE} ...")
     result = subprocess.run(
         [sys.executable, "-m", "piper.download_voices", VOICE],
-        capture_output=False,
+        capture_output=True,
     )
     if result.returncode != 0:
         print(f"[TTS] Warning: voice download exited {result.returncode} — continuing.")
-    else:
-        print("[TTS] Voice ready.")
 
 
 def _start_server() -> subprocess.Popen:
-    print("[TTS] Starting Piper HTTP server ...")
     proc = subprocess.Popen(
         [sys.executable, "-m", "piper.http_server", "-m", VOICE,
          "--host", SERVER_HOST, "--port", str(SERVER_PORT)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )
-
-    def _relay(stream):
-        for line in stream:
-            print(f"  [piper] {line.decode(errors='replace').rstrip()}")
-    threading.Thread(target=_relay, args=(proc.stderr,), daemon=True).start()
-
     return proc
 
 
 def _wait_for_server() -> bool:
-    print("[TTS] Waiting for server ...", end=" ", flush=True)
     deadline = time.time() + STARTUP_TIMEOUT
     while time.time() < deadline:
         try:
             r = requests.post(f"{BASE_URL}/", json={"text": "hi"}, timeout=15)
             if r.status_code in (200, 400):
-                print("ready.")
                 return True
         except requests.exceptions.ConnectionError:
             pass
         time.sleep(0.5)
-    print("timed out.")
     return False
 
 
@@ -102,7 +89,8 @@ def init_tts() -> bool:
     _server_proc = _start_server()
     if not _wait_for_server():
         print("[TTS] Server failed to start.")
-        _server_proc.terminate()
+        if _server_proc:
+            _server_proc.terminate()
         return False
     return True
 
@@ -181,7 +169,7 @@ def speak(text: str, stop_event: threading.Event) -> None:
     _duration_ready.set()
 
     # ── Play audio, polling stop_event every 100ms ───────────────────────────
-    print(f"[TTS] Playing {_last_duration:.1f}s of audio ...")
+    # print(f"[TTS] Playing {_last_duration:.1f}s of audio ...")
     sd.play(data, samplerate)
     while sd.get_stream().active:
         if stop_event.is_set():

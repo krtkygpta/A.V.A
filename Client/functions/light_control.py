@@ -27,7 +27,7 @@ def scan_and_store_bulbs_sync(retries=3, timeout=15):
                             break
 
                 if bulbs_ip_dict:
-                    print(f"Found: {list(bulbs_ip_dict.keys())}")
+                    print(f"[LightCtrl] Found: {list(bulbs_ip_dict.keys())}")
                     return
 
             except Exception:
@@ -36,7 +36,7 @@ def scan_and_store_bulbs_sync(retries=3, timeout=15):
             if attempt < retries:
                 await asyncio.sleep(2)
 
-        print("Could not find bulbs. Continuing anyway.")
+        print("[LightCtrl] Bulbs not found")
 
     loop = asyncio.new_event_loop()
     try:
@@ -51,7 +51,7 @@ def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int 
     """
     async def async_control():
         if light_name not in bulbs_ip_dict:
-            print(f"Light '{light_name}' not found in the discovered bulbs. Run the scan first.")
+            print(f"[LightCtrl] Light '{light_name}' not found. Run scan first.")
             return False
 
 
@@ -72,10 +72,10 @@ def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int 
                 # print(f"Set '{light_name}' to color {color} and brightness {brightness_val}.")
                 return True
             else:
-                print(f"Unknown action: {action}")
+                print(f"[LightCtrl] Unknown action: {action}")
             return True
         except Exception as e:
-            print(f"Error controlling light: {e}")
+            print(f"[LightCtrl] Control error: {e}")
             return False
         finally:
             await light.async_close()

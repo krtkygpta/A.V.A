@@ -80,7 +80,7 @@ def generate_response():
         
     except Exception as e:
         error_msg = str(e)
-        print(f"[DEBUG] API Error: {error_msg}")
+        print(f"[Gen] API error: {error_msg}")
         
         error_response = 'I encountered an error while processing your request. Please try again.'
         add_message(content=error_response, role='assistant')

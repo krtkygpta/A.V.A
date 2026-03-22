@@ -155,10 +155,10 @@ def run_tts_command(text: str, stop_event: threading.Event):
             restore_volume()
         else:
             create_empty_wav(SPEECH_FILE)
-            print("Audio file not found, command might have failed.")
+            print("[TTS] Audio file not found")
 
     except subprocess.CalledProcessError as e:
-        print(f"Error while running the command: {e}")
+        print(f"[TTS] Command error: {e}")
 
     try:
         os.remove(my_temp)

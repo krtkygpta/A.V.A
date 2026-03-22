@@ -26,7 +26,7 @@ def song_url(song_name):
         else:
             return None
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"[Music] Error: {e}")
         return None
 # def music(song):
 # 	url = 'http://127.0.0.1:5000/edith/tools'

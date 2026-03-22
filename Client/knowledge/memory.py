@@ -94,7 +94,7 @@ Output: {USER_NAME}'s favorite song is Believer."""
         return sentence
         
     except Exception as e:
-        print(f"[Memory] Error formatting: {e}")
+        print(f"[Memory] Format error: {e}")
         # Fallback to simple format
         return f"{USER_NAME}'s {key.replace('_', ' ')} is {value}"
 
@@ -147,7 +147,7 @@ If it's completely new information, respond with "NEW"."""
         return -1
         
     except Exception as e:
-        print(f"[Memory] Duplicate check failed: {e}")
+        print(f"[Memory] Duplicate check error: {e}")
         return -1
 
 
@@ -187,12 +187,12 @@ def save_memory(category: str, key: str, value: str) -> str:
         # Update existing memory
         old_text = memories[duplicate_idx]["text"]
         memories[duplicate_idx] = memory_entry
-        print(f"[Memory] Updated: '{old_text}' → '{memory_text}'")
+
         action = "Updated"
     else:
         # Add new memory
         memories.append(memory_entry)
-        print(f"[Memory] Saved: '{memory_text}'")
+
         action = "Saved"
     
     data["memories"] = memories
@@ -250,7 +250,7 @@ Return ONLY the relevant memories, one per line. If none are relevant, say "No r
             return response.choices[0].message.content.strip()
             
         except Exception as e:
-            print(f"[Memory] Search failed: {e}")
+            print(f"[Memory] Search error: {e}")
             # Fallback to returning all
     
     # Return all memories

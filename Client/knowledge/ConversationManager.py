@@ -141,7 +141,7 @@ class ConversationManager:
         
         # Create new conversation
         self.current_conversation = Conversation()
-        print(f"[ConversationManager] Started new conversation: {self.current_conversation.id}")
+        print(f"[ConvMgr] Started: {self.current_conversation.id}")
         return self.current_conversation
     
     def save_conversation(self):
@@ -171,7 +171,7 @@ class ConversationManager:
         }
         self._save_index()
         
-        print(f"[ConversationManager] Saved conversation: {conv.name}")
+        print(f"[ConvMgr] Saved: {conv.name}")
     
     def _generate_name(self, conv: Conversation) -> str:
         """Generate a short, descriptive name for the conversation using LLM."""
@@ -197,7 +197,7 @@ class ConversationManager:
             return name if name else f"Conversation {conv.id}"
             
         except Exception as e:
-            print(f"[ConversationManager] Error generating name: {e}")
+            print(f"[ConvMgr] Name generation error: {e}")
             return f"Conversation {conv.id}"
     
     def _generate_summary(self, conv: Conversation) -> str:
@@ -228,7 +228,7 @@ class ConversationManager:
             return response.choices[0].message.content.strip()
             
         except Exception as e:
-            print(f"[ConversationManager] Error generating summary: {e}")
+            print(f"[ConvMgr] Summary generation error: {e}")
             return ""
     
     def load_conversation(self, conversation_id: str) -> Optional[Conversation]:
@@ -242,7 +242,7 @@ class ConversationManager:
                 data = json.load(f)
                 return Conversation.from_dict(data)
         except (json.JSONDecodeError, IOError) as e:
-            print(f"[ConversationManager] Error loading conversation: {e}")
+            print(f"[ConvMgr] Load error: {e}")
             return None
     
     def get_recent_conversations(self, limit: int = 10) -> List[Dict[str, Any]]:

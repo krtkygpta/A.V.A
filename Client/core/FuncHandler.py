@@ -63,5 +63,5 @@ def handle_tool_call(tool_call):
         else:
             return f"Unknown function: {func_name}", tool_id
     except Exception as e:
-        print(f"Error calling function {tool_call.function.name}: {e}")
+        print(f"[FuncHandler] Error calling {tool_call.function.name}: {e}")
         return f"Error: {str(e)}", tool_id if tool_id else "unknown"

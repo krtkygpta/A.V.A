@@ -50,12 +50,12 @@ def _load_vosk_model():
     global _vosk_model
     if _vosk_model is None:
         if not os.path.exists(MODEL_PATH):
-            print(f"[Warning] Vosk model not found at {MODEL_PATH}")
-            print("[Warning] Live transcription display disabled.")
+            print(f"[STT] Warning: Vosk model not found at {MODEL_PATH}")
+            print("[STT] Warning: Live display disabled.")
             return None
-        print("[Vosk] Loading model for live display...")
+        print("[STT] Loading Vosk model...")
         _vosk_model = Model(MODEL_PATH)
-        print("[Vosk] Ready.")
+
     return _vosk_model
 
 
@@ -75,7 +75,7 @@ def transcribe_whisper(filename) -> str | None:
         filename = os.path.join(os.path.dirname(__file__), filename)
     
     if not os.path.exists(filename):
-        print(f"[Whisper] File not found: {filename}")
+        print(f"[STT] File not found: {filename}")
         return None
     
     try:
@@ -455,7 +455,7 @@ class VoiceRecorder:
             if recording and self.frames: return True, self.save_recording()
             return False, None
         except Exception as e:
-            print(f"\n[Error] {e}")
+            print(f"\n[STT] Error: {e}")
             return False, None
         # NOTE: No finally block closing the stream — stream is kept alive
         # for reuse on the next record() call (persistent stream optimization).

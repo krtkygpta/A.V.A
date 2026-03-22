@@ -81,7 +81,7 @@ class WakeWordDetector:
             # Clamp to reasonable bounds
             self.noise_floor = max(0.003, min(0.05, self.noise_floor))
             self.is_calibrated = True
-            print(f"[WakeWord] Noise calibrated: {self.noise_floor:.4f}")
+
             return True
         return False
     

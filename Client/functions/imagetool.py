@@ -39,10 +39,10 @@ def capture_and_save_image(camera_index=1, folder=None):
         if camera_index != 0:
             camera = cv2.VideoCapture(0)
             if not camera.isOpened():
-                print(f"Error: Could not open camera at index {camera_index} or 0")
+                print(f"[ImageTool] Camera open error at index {camera_index} or 0")
                 return None
         else:
-            print(f"Error: Could not open camera at index {camera_index}")
+            print(f"[ImageTool] Camera open error at index {camera_index}")
             return None
 
     ret, frame = camera.read()
@@ -55,7 +55,7 @@ def capture_and_save_image(camera_index=1, folder=None):
         cv2.imwrite(image_path, frame)
         return image_path
     else:
-        print(f"Error: Could not capture frame from camera {camera_index}")
+        print(f"[ImageTool] Frame capture error from camera {camera_index}")
         return None
 
 def analyze_image_with_groq(image_path, query):
@@ -98,7 +98,7 @@ def capture_screen():
         screenshot.save(screen_path)
         return screen_path
     except Exception as e:
-        print(f"Error capturing screen: {e}")
+        print(f"[ImageTool] Screen capture error: {e}")
         return None
 
 def image_tool(tool, query, camera_index=1):

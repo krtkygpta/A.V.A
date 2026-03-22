@@ -2,14 +2,15 @@ import random
 import os
 import wave
 import threading
+import sys
 from config import USER_NAME, ASSISTANT_NAME
 from core.generate import generate_response
 from core.messageHandler import add_message, reset_messages
 import time
 from core.AppStates import main_runner, stop_event
 from core.FuncHandler import handle_tool_call
-from utils import stt_hybrid as stt, tts, tts_piper
-from utils.tts import SPEECH_FILE
+from utils import stt_hybrid as stt, tts_piper
+# from utils.tts import SPEECH_FILE
 from core.TaskManager import CompletionQueue, check_and_format_completions
 from knowledge.ConversationManager import start_new_conversation, save_current_conversation
 
@@ -52,9 +53,55 @@ def speak(text):
         speak_thread = threading.Thread(target=tts_piper.speak, args=(text, stop_event), daemon=True)
         speak_thread.start()
 
+def duck_volume():
+    """Lower all active audio sessions to 20% of current level (Windows only)"""
+    try:
+        # Import Windows-specific volume control
+        from ctypes import cast, POINTER
+        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
+        
+        CoInitialize()
+        sessions = AudioUtilities.GetAllSessions()
+        for session in sessions:
+            if session.Process and session.Process.name() != "python.exe":
+                audio_volume = session._ctl.QueryInterface(ISimpleAudioVolume)
+                if audio_volume.GetMasterVolume() > 0.0:
+                    current_volume = audio_volume.GetMasterVolume()
+                    new_volume = max(0.2, current_volume * 0.2)  # 20% of current level
+                    audio_volume.SetMasterVolume(new_volume, None)
+        print("[Main] Volume ducked to 20% for conversation")
+    except Exception as e:
+        print(f"[WARN] Volume control failed: {e}. Continuing without volume ducking.")
+
+def unduck_volume():
+    """Restore all audio sessions to original levels (Windows only)"""
+    try:
+        # Import Windows-specific volume control  
+        from ctypes import cast, POINTER
+        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
+        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
+        
+        CoInitialize()
+        sessions = AudioUtilities.GetAllSessions()
+        for session in sessions:
+            if session.Process and session.Process.name() != "python.exe":
+                audio_volume = session._ctl.QueryInterface(ISimpleAudioVolume)
+                current_volume = audio_volume.GetMasterVolume()
+                new_volume = min(1.0, current_volume * 5)  # Restore to 5x (back to 100%)
+                audio_volume.SetMasterVolume(new_volume, None)
+        print("[Main] Volume restored to normal levels")
+    except Exception as e:
+        print(f"[WARN] Volume restoration failed: {e}. Continuing without volume restoration.")
+
+def cleanup_false_detection():
+    """Clean up false wake word detection from terminal"""
+    sys.stdout.write("\033[K")  # Clear current line
+    sys.stdout.flush()
+
 def main():
     """
-    Main response generation loop (runs in a background thread).
+    Main response generation loop (runs in a background thread
 
     Waits for main_runner to be set (triggered by add_message), then:
     1. Generates an LLM response
@@ -154,9 +201,14 @@ def voice_mode_continuous():
 
             # Check for wake words
             if any(word in transcription.lower() for word in ["ava", "assistant", "eva", "ayva", "evaa"]):
+                # Clear any previous false detection output and show wake word detected
+                cleanup_false_detection()
+                print(f"[{ASSISTANT_NAME.upper()}] Wake word detected!")
+                
                 # Wake word detected — start a new conversation thread
                 start_new_conversation()
                 reset_messages()
+                duck_volume()
 
                 while True:
                     # Wait for any ongoing response to finish before proceeding
@@ -185,7 +237,7 @@ def voice_mode_continuous():
                         # Measure TTS audio duration to set continued conversation timeout
                         # (give user speech_duration + 7 seconds to respond)
                         timeout = tts_piper.get_last_duration() + 7
-                        print(f"timeout: {timeout}")
+
                         # Listen for continued conversation
                         # Reduced silence_duration from 4.0s → 2.5s for faster turnaround
                         continued_convo, filename = recorder.record(timeout=timeout, silence_duration=2.5)
@@ -198,7 +250,12 @@ def voice_mode_continuous():
                             break
 
                 # Conversation ended — save before going back to listening
+                unduck_volume()
                 save_current_conversation()
+                print(f"\n[{ASSISTANT_NAME.upper()}] Conversation ended. Listening for wake word...")
+            else:
+                # Clear the false detection line without clearing the whole screen
+                cleanup_false_detection()
 
                 
 def voice_mode_wakeword():
@@ -227,11 +284,17 @@ def voice_mode_wakeword():
     
     while True:
         # Phase 1: Wait for wake word (low CPU — Vosk only)
+        print(f"[{ASSISTANT_NAME.upper()}] Listening... ", end="")
+        sys.stdout.flush()
         detector.listen_for_wakeword()
+        # Clear the "Listening..." text
+        sys.stdout.write("\033[K\r")  # Clear line and move cursor to start
+        sys.stdout.flush()
         
         # Wake word detected — start a NEW conversation thread
         start_new_conversation()
         reset_messages()
+        duck_volume()
         
         print(f"[{ASSISTANT_NAME.upper()}] Yes, sir?")
         
@@ -274,7 +337,7 @@ def voice_mode_wakeword():
                     time.sleep(0.01)
                 
                 # Listen for continued conversation
-                timeout = get_duration_wave(SPEECH_FILE) + 7
+                timeout = tts_piper.get_last_duration() + 7
                 continued_convo, filename = recorder.record(timeout=timeout)
                 
                 if continued_convo:
@@ -289,6 +352,7 @@ def voice_mode_wakeword():
                     break
         
         # Conversation ended — save and go back to wake word listening
+        unduck_volume()
         save_current_conversation()
         detector.reset()
         print(f"[{ASSISTANT_NAME.upper()}] Going back to sleep. Say my name when you need me.")
@@ -364,6 +428,7 @@ def start():
     activates the chosen wake mode (continuous, vosk, or text).
     """
     tts_piper.init_tts()
+    print(f"[{ASSISTANT_NAME.upper()}] Ready.")
     
     main_runner.clear()
     # Start the main response loop in a background daemon thread
