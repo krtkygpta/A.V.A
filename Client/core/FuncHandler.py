@@ -1,5 +1,6 @@
 import json
 import functions as functions
+from knowledge.memory import handle_memory_manager
 from core.TaskManager import dispatch_background_task, get_running_tasks_summary
 from knowledge.ConversationManager import handle_conversation_history
 
@@ -38,7 +39,7 @@ TOOL_CONFIGS = {
         'delete_file': functions.delete_file,
         'list_files': functions.list_files,
         'code_executor': functions.run_code_in_sandbox,
-        'memory_manager': functions.memory.handle_memory_manager if hasattr(functions, 'memory') else None,
+        'memory_manager': handle_memory_manager,
         # Background task handlers
         'background_task': handle_background_task,
         'get_background_tasks_status': handle_get_background_status,

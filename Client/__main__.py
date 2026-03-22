@@ -8,7 +8,7 @@ from core.messageHandler import add_message, reset_messages
 import time
 from core.AppStates import main_runner, stop_event
 from core.FuncHandler import handle_tool_call
-from utils import stt_hybrid as stt, tts
+from utils import stt_hybrid as stt, tts, tts_piper
 from utils.tts import SPEECH_FILE
 from core.TaskManager import CompletionQueue, check_and_format_completions
 from knowledge.ConversationManager import start_new_conversation, save_current_conversation
@@ -47,8 +47,11 @@ def speak(text):
     stop_event.clear()
     
     if Start_mode != "text":
-        speak_thread = threading.Thread(target=tts.run_tts_command, args=(text, stop_event), daemon=True)
+        # speak_thread = threading.Thread(target=tts.run_tts_command, args=(text, stop_event), daemon=True)
+        # speak_thread.start()
+        speak_thread = threading.Thread(target=tts_piper.speak, args=(text, stop_event), daemon=True)
         speak_thread.start()
+
 def main():
     """
     Main response generation loop (runs in a background thread).
@@ -181,8 +184,8 @@ def voice_mode_continuous():
 
                         # Measure TTS audio duration to set continued conversation timeout
                         # (give user speech_duration + 7 seconds to respond)
-                        timeout = get_duration_wave(SPEECH_FILE) + 7
-
+                        timeout = tts_piper.get_last_duration() + 7
+                        print(f"timeout: {timeout}")
                         # Listen for continued conversation
                         # Reduced silence_duration from 4.0s → 2.5s for faster turnaround
                         continued_convo, filename = recorder.record(timeout=timeout, silence_duration=2.5)
@@ -303,7 +306,8 @@ def text_mode():
         if not transcription:
             continue
         
-        if any(word in transcription.lower() for word in ["ava"]):
+        # if any(word in transcription.lower() for word in ["ava"]):
+        if transcription:
             # Start a new conversation thread
             start_new_conversation()
             reset_messages()
@@ -351,7 +355,7 @@ def text_mode():
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-Start_mode = "text" 
+Start_mode = "continuous" 
 
 
 def start():
@@ -359,6 +363,7 @@ def start():
     Application entry point: starts the main response thread and
     activates the chosen wake mode (continuous, vosk, or text).
     """
+    tts_piper.init_tts()
     
     main_runner.clear()
     # Start the main response loop in a background daemon thread

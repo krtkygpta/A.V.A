@@ -24,3 +24,5 @@ ENV/
 
 # Piper
 **/piper.zip
+**/**.onnx
+**/**.onnx.json
