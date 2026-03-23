@@ -34,6 +34,28 @@ EXIT_RESPONSES = [
 # Event to track whether main() is actively processing a response
 main_running = threading.Event()
 
+def get_duration_wave(file_path, timeout=15.0):
+    
+    """
+    Wait for a WAV file to appear on disk and return its duration in seconds.
+    Used to estimate how long the TTS response will play, so we know how long
+    to keep the microphone open for continued conversation.
+
+    Returns 0.0 if file not found within timeout or unreadable.
+    """
+    start = time.time()
+    while not os.path.exists(file_path):
+        if timeout is not None and (time.time() - start) > timeout:
+            return 0.0
+        time.sleep(0.05)
+    try:
+        with wave.open(file_path, 'rb') as audio_file:
+            frame_rate = audio_file.getframerate() or 1
+            n_frames = audio_file.getnframes()
+            return n_frames / float(frame_rate)
+    except Exception:
+        return 0.0
+
 def speak(text):
     """
     Print text with a typing animation and play TTS audio in a background thread.
@@ -155,28 +177,6 @@ def main():
                 # Always clear main_running, even if an error occurred
                 main_running.clear()
 
-def get_duration_wave(file_path, timeout=15.0):
-    
-    """
-    Wait for a WAV file to appear on disk and return its duration in seconds.
-    Used to estimate how long the TTS response will play, so we know how long
-    to keep the microphone open for continued conversation.
-
-    Returns 0.0 if file not found within timeout or unreadable.
-    """
-    start = time.time()
-    while not os.path.exists(file_path):
-        if timeout is not None and (time.time() - start) > timeout:
-            return 0.0
-        time.sleep(0.05)
-    try:
-        with wave.open(file_path, 'rb') as audio_file:
-            frame_rate = audio_file.getframerate() or 1
-            n_frames = audio_file.getnframes()
-            return n_frames / float(frame_rate)
-    except Exception:
-        return 0.0
-
 
 def voice_mode_continuous():
     """
@@ -259,8 +259,7 @@ def voice_mode_continuous():
             else:
                 # Clear the false detection line without clearing the whole screen
                 cleanup_false_detection()
-
-                
+          
 def voice_mode_wakeword():
     """
     Vosk wake mode: lightweight wake word detection using local Vosk model.
@@ -422,7 +421,7 @@ def text_mode():
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-Start_mode = "text" 
+Start_mode = "continuous"  # Options: "continuous", "vosk", "text"
 
 
 def start():
