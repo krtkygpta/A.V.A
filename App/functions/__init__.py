@@ -1,6 +1,7 @@
 # Importing all functions from imagetool.py
 from .imagetool import *
 
+from .pdf_maker import create_pdf
 # Importing all functions from music.py
 from .music import *
 

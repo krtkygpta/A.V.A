@@ -63,10 +63,13 @@ def speak(text):
     """
     stop_event.set()
     def animate_and_speak(string):
+        print(f"\n\033[96m{'='*65}\033[0m")  # Cyan barrier for Assistant
+        print("\033[93m", end="")  # Yellow text for Assistant
         for char in string:
             print(char, end="", flush=True)
             time.sleep(0.001)
-        print(" ")
+        print("\033[0m")
+        print(f"\033[96m{'='*65}\033[0m\n")
 
     animate_and_speak(f"{ASSISTANT_NAME.upper()}: " + text)
     stop_event.clear()
@@ -219,11 +222,13 @@ def voice_mode_continuous():
                         time.sleep(0.01)
 
                     transcription = f"{USER_NAME}: " + transcription
-                    print(transcription)
+                    print(f"\n\033[92m{'-'*65}\033[0m")  # Green barrier for User
+                    print(f"\033[92m{transcription}\033[0m")
+                    print(f"\033[92m{'-'*65}\033[0m\n")
 
                     # Check for exit commands
                     if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
-                        print(random.choice(EXIT_RESPONSES))
+                        print(f"\033[93m{ASSISTANT_NAME.upper()}: {random.choice(EXIT_RESPONSES)}\033[0m")
                         break
                     else:
                         # Send user message to the LLM
@@ -322,12 +327,13 @@ def voice_mode_wakeword():
         while True:
             if not main_runner.is_set():
                 full_transcription = f"{USER_NAME}: " + transcription
-                print(full_transcription)
+                print(f"\n\033[92m{'-'*65}\033[0m")  # Green barrier for User
+                print(f"\033[92m{full_transcription}\033[0m")
+                print(f"\033[92m{'-'*65}\033[0m\n")
                 
                 # Check for exit commands
                 if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
                     response = random.choice(EXIT_RESPONSES)
-                    print(f"{ASSISTANT_NAME.upper()}: {response}")
                     speak(response)
                     break
                 

@@ -130,51 +130,51 @@ Remember: You are a VOICE assistant first. Every response should sound natural w
 
 }]
 tools = [
-        # {
-        #     'type': 'function',
-        #     'function': {
-        #         'name': 'music_control',
-        #         'description': 'Control the music playback',
-        #         'parameters': {
-        #             'type': 'object',
-        #             'properties': {
-        #                 'action': {'type': 'string', 'description': 'Action to perform (play_new, resume, pause, etc.)', 'enum': ['play_new', 'resume', 'pause', 'add_next', 'previous', 'next']},
-        #                 'song_name': {'type': 'string', 'description': 'Name of the song to play'}
-        #             },
-        #             'required': ['action']
-        #         }
-        #     }
-        # },
         {
-    "type": "function",
-    "function": {
-        "name": "music_control",
-        "description": "Control YouTube Music playback including playing songs, pausing, resuming, skipping, and getting current song info.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "description": "Action to perform",
-                    "enum": [
-                        "play_new",
-                        "resume",
-                        "pause",
-                        "next",
-                        "previous",
-                        "current",
-                        "recommend"
-                    ]
-                },
-                "song_name": {
-                    "type": "string",
-                    "description": "Name of the song or artist (required for play_new and recommend)"
+            'type': 'function',
+            'function': {
+                'name': 'music_control',
+                'description': 'Control the music playback',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'action': {'type': 'string', 'description': 'Action to perform (play_new, resume, pause, etc.)', 'enum': ['play_new', 'resume', 'pause', 'add_next', 'previous', 'next']},
+                        'song_name': {'type': 'string', 'description': 'Name of the song to play'}
+                    },
+                    'required': ['action']
                 }
-            },
-            "required": ["action"]
-        }
-    }
-},
+            }
+        },
+        # {
+#     "type": "function",
+#     "function": {
+#         "name": "music_control",
+#         "description": "Control YouTube Music playback including playing songs, pausing, resuming, skipping, and getting current song info.",
+#         "parameters": {
+#             "type": "object",
+#             "properties": {
+#                 "action": {
+#                     "type": "string",
+#                     "description": "Action to perform",
+#                     "enum": [
+#                         "play_new",
+#                         "resume",
+#                         "pause",
+#                         "next",
+#                         "previous",
+#                         "current",
+#                         "recommend"
+#                     ]
+#                 },
+#                 "song_name": {
+#                     "type": "string",
+#                     "description": "Name of the song or artist (required for play_new and recommend)"
+#                 }
+#             },
+#             "required": ["action"]
+#         }
+#     }
+# },
         {
             'type': 'function',
             'function': {
@@ -279,6 +279,27 @@ tools = [
                         'url': {'type': 'string', 'description': 'The URL needed to get the data'}
                     },
                     'required': ['url']
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "createPDF",
+                "description": "Convert Markdown content to PDF with support for tables, code blocks, headings, lists, and embedded charts/images",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "markdownData": {
+                            "type": "string",
+                            "description": "Markdown content as a string. Supports headings (# ##), tables (| col |), code blocks (```), lists (- or 1.), bold (**text**), italic (*text*), and embedded images/charts via URLs"
+                        },
+                        "outputLocation": {
+                            "type": "string",
+                            "description": "Full file path where the PDF should be saved (e.g., '/path/to/report.pdf' or 'reports/output.pdf')"
+                        }
+                    },
+                    "required": ["outputLocation", "markdownData"]
                 }
             }
         },

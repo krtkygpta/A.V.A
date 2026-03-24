@@ -23,7 +23,7 @@ def handle_get_background_status() -> str:
 
 TOOL_CONFIGS = {
         # 'timer': functions.timer,
-        # 'music_control': functions.music_control,
+        'music_control': functions.music_control,
         'get_weather_info': functions.get_weather,
         'image_description_tool': functions.image_tool,
         'get_time_date': functions.timedate,
@@ -45,7 +45,8 @@ TOOL_CONFIGS = {
         'get_background_tasks_status': handle_get_background_status,
         # Conversation history
         'conversation_history': handle_conversation_history,
-        'music_control': functions.mc.control,
+        'createPDF': functions.create_pdf,
+        # 'music_control': functions.mc.control,
     }
 
 
