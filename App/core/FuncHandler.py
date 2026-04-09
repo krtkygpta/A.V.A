@@ -54,9 +54,24 @@ def handle_tool_call(tool_call):
     """Execute the requested tool call."""
     tool_id = None  # Initialize to avoid reference before assignment
     try:
-        tool_id = tool_call.id
-        args = json.loads(tool_call.function.arguments)
-        func_name = tool_call.function.name
+        # Support both OpenAI SDK tool_call objects and plain dict payloads
+        if isinstance(tool_call, dict):
+            tool_id = tool_call.get('id')
+            function_payload = tool_call.get('function', {}) or {}
+            args_raw = function_payload.get('arguments', '{}')
+            func_name = function_payload.get('name')
+        else:
+            tool_id = tool_call.id
+            args_raw = tool_call.function.arguments
+            func_name = tool_call.function.name
+
+        if isinstance(args_raw, str):
+            args = json.loads(args_raw) if args_raw.strip() else {}
+        elif isinstance(args_raw, dict):
+            args = args_raw
+        else:
+            args = {}
+
         function = TOOL_CONFIGS.get(func_name)
 
         if function:
@@ -65,5 +80,9 @@ def handle_tool_call(tool_call):
         else:
             return f"Unknown function: {func_name}", tool_id
     except Exception as e:
-        print(f"[FuncHandler] Error calling {tool_call.function.name}: {e}")
+        if isinstance(tool_call, dict):
+            fname = tool_call.get('function', {}).get('name', 'unknown')
+        else:
+            fname = tool_call.function.name
+        print(f"[FuncHandler] Error calling {fname}: {e}")
         return f"Error: {str(e)}", tool_id if tool_id else "unknown"

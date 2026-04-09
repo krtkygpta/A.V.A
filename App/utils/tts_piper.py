@@ -1,97 +1,34 @@
-"""
-Requirements:
-    pip install "piper-tts[http]" requests sounddevice soundfile numpy
-"""
-
 import io
-import subprocess
-import sys
 import threading
 import time
+import wave
 
 import numpy as np
-import requests
 import sounddevice as sd
 import soundfile as sf
 
-# ── Config ────────────────────────────────────────────────────────────────────
-VOICE           = "en_US-hfc_female-medium"
-SERVER_HOST     = "127.0.0.1"
-SERVER_PORT     = 5000
-BASE_URL        = f"http://{SERVER_HOST}:{SERVER_PORT}"
-STARTUP_TIMEOUT = 60
-TAIL_SILENCE_S  = 0.3   # seconds of silence padded to prevent tail cutoff
-# ─────────────────────────────────────────────────────────────────────────────
-
-_server_proc: subprocess.Popen | None = None
+from core.server_api import SERVER_URL, synthesize_remote_tts
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+TAIL_SILENCE_S = 0.3
 
-def _download_voice() -> None:
-    # Skip download if voice model already exists on disk
-    import glob
-    voice_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)))
-    if glob.glob(os.path.join(voice_dir, f"{VOICE}*")):
-        return
-    result = subprocess.run(
-        [sys.executable, "-m", "piper.download_voices", VOICE],
-        capture_output=True,
-    )
-    if result.returncode != 0:
-        print(f"[TTS] Warning: voice download exited {result.returncode} — continuing.")
-
-
-def _start_server() -> subprocess.Popen:
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "piper.http_server", "-m", VOICE,
-         "--host", SERVER_HOST, "--port", str(SERVER_PORT)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-    return proc
-
-
-def _wait_for_server() -> bool:
-    deadline = time.time() + STARTUP_TIMEOUT
-    while time.time() < deadline:
-        try:
-            r = requests.post(f"{BASE_URL}/", json={"text": "hi"}, timeout=15)
-            if r.status_code in (200, 400):
-                return True
-        except requests.exceptions.ConnectionError:
-            pass
-        time.sleep(0.5)
-    return False
-
-
-# ── Public API ────────────────────────────────────────────────────────────────
-
-def init_tts() -> bool:
-    """
-    Download voice (if needed) and start the Piper HTTP server.
-    Call once at application startup. Returns True on success.
-    """
-    global _server_proc
-    _download_voice()
-    _server_proc = _start_server()
-    if not _wait_for_server():
-        print("[TTS] Server failed to start.")
-        if _server_proc:
-            _server_proc.terminate()
-        return False
-    return True
-
-
-# Shared duration — set by speak() after synthesis, read by get_last_duration()
+_initialized = False
 _last_duration: float = 0.0
 _duration_ready = threading.Event()
 
 
+def init_tts() -> bool:
+    """
+    Client-side init is now lightweight because TTS runs on the server.
+    """
+    global _initialized
+    _initialized = True
+    return True
+
+
 def get_last_duration(timeout: float = 15.0) -> float:
     """
-    Block until speak() has calculated the audio duration, then return it.
-    Returns 0.0 on timeout. Drop-in replacement for get_duration_wave().
+    Block until speak() has calculated audio duration, then return it.
     """
     if _duration_ready.wait(timeout=timeout):
         return _last_duration
@@ -100,61 +37,40 @@ def get_last_duration(timeout: float = 15.0) -> float:
 
 def synthesize_bytes(text: str) -> bytes | None:
     """
-    Synthesise `text` and return raw WAV bytes (without playing).
-    Used by __main_server__.py to send audio over WebSocket.
+    Request WAV bytes from server-side TTS.
     Returns None on error.
     """
     try:
-        response = requests.post(
-            f"{BASE_URL}/",
-            json={"text": text},
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.content
-    except requests.RequestException as e:
-        print(f"[TTS] Synthesis error: {e}")
+        return synthesize_remote_tts(text)
+    except Exception as exc:
+        print(f"[TTS] Remote synthesis error ({SERVER_URL}): {exc}")
         return None
+
+
+def _wav_duration(wav_bytes: bytes) -> float:
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
+            rate = wav_file.getframerate() or 1
+            frames = wav_file.getnframes()
+            return frames / float(rate)
+    except Exception:
+        return 0.0
 
 
 def speak(text: str, stop_event: threading.Event) -> None:
     """
-    Synthesise `text` and play it.
-    Designed to run in a thread — checks `stop_event` before and during playback.
-    After synthesis, sets _duration_ready so get_last_duration() can return.
-
-    Args:
-        text:       Text to synthesise.
-        stop_event: Set this Event to interrupt synthesis or playback.
+    Synthesise text on server and play it locally.
     """
     global _last_duration
+
     _duration_ready.clear()
 
     if stop_event.is_set():
         _duration_ready.set()
         return
 
-    # ── Synthesise ────────────────────────────────────────────────────────────
-    try:
-        response = requests.post(
-            f"{BASE_URL}/",
-            json={"text": text},
-            timeout=30,
-            stream=True,        # stream so stop_event can abort mid-download
-        )
-        response.raise_for_status()
-
-        chunks = []
-        for chunk in response.iter_content(chunk_size=4096):
-            if stop_event.is_set():
-                _duration_ready.set()
-                return
-            chunks.append(chunk)
-
-        wav_bytes = b"".join(chunks)
-
-    except requests.RequestException as e:
-        print(f"[TTS] Synthesis error: {e}")
+    wav_bytes = synthesize_bytes(text)
+    if not wav_bytes:
         _duration_ready.set()
         return
 
@@ -162,21 +78,20 @@ def speak(text: str, stop_event: threading.Event) -> None:
         _duration_ready.set()
         return
 
-    # ── Decode WAV ────────────────────────────────────────────────────────────
+    # Fast duration estimate for conversation timeout logic.
+    _last_duration = _wav_duration(wav_bytes)
+
     buf = io.BytesIO(wav_bytes)
     data, samplerate = sf.read(buf, dtype="float32")
 
-    # Pad tail to prevent cutoff
-    pad_shape = (int(samplerate * TAIL_SILENCE_S),) if data.ndim == 1 \
-                else (int(samplerate * TAIL_SILENCE_S), data.shape[1])
+    pad_shape = (int(samplerate * TAIL_SILENCE_S),) if data.ndim == 1 else (int(samplerate * TAIL_SILENCE_S), data.shape[1])
     data = np.concatenate([data, np.zeros(pad_shape, dtype="float32")])
 
-    # Expose duration before playback starts
-    _last_duration = len(data) / samplerate
+    if _last_duration <= 0.0:
+        _last_duration = len(data) / float(samplerate or 1)
+
     _duration_ready.set()
 
-    # ── Play audio, polling stop_event every 100ms ───────────────────────────
-    # print(f"[TTS] Playing {_last_duration:.1f}s of audio ...")
     sd.play(data, samplerate)
     while sd.get_stream().active:
         if stop_event.is_set():
@@ -187,31 +102,7 @@ def speak(text: str, stop_event: threading.Event) -> None:
 
 
 def shutdown_tts() -> None:
-    """Terminate the Piper server. Call on application exit."""
-    global _server_proc
-    if _server_proc and _server_proc.poll() is None:
-        print("[TTS] Shutting down Piper server ...")
-        _server_proc.terminate()
-        _server_proc.wait()
-        _server_proc = None
-
-
-# ── Quick test ────────────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    if not init_tts():
-        sys.exit(1)
-
-    stop = threading.Event()
-    try:
-        while True:
-            text = input("Text > ").strip()
-            if not text:
-                break
-            stop.clear()
-            t = threading.Thread(target=speak, args=(text, stop), daemon=True)
-            t.start()
-            t.join()
-    except KeyboardInterrupt:
-        stop.set()
-    finally:
-        shutdown_tts()
+    """
+    No-op on client: server owns the TTS engine lifecycle.
+    """
+    return None

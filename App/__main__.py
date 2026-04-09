@@ -5,6 +5,7 @@ import os
 import wave
 import threading
 import sys
+import json
 from config import USER_NAME, ASSISTANT_NAME
 from core.generate import generate_response
 from core.messageHandler import add_message, reset_messages
@@ -13,6 +14,8 @@ from core.AppStates import main_runner, stop_event
 from core.FuncHandler import handle_tool_call
 from core.TaskManager import CompletionQueue, check_and_format_completions
 from knowledge.ConversationManager import start_new_conversation, save_current_conversation
+from core.server_api import list_remote_conversations
+from utils import tts_piper
 
 # ── Terminal colors ──────────────────────────────────────────────────────────
 COLOR_RESET  = "\033[0m"
@@ -176,9 +179,42 @@ def main():
                 response = generate_response()
                 tool_calls = response.get('tool_calls')
                 if tool_calls:
-                    # Execute the tool and feed its result back into the conversation
-                    func_resp, tool_id = handle_tool_call(tool_calls[0])
-                    add_message(role='tool', content=func_resp, tool_id=tool_id)  # type: ignore
+                    tool_call = tool_calls[0]
+                    if isinstance(tool_call, dict):
+                        tool_id = tool_call.get('id')
+                        function_payload = tool_call.get('function', {}) or {}
+                        args_raw = function_payload.get('arguments', '{}')
+                        func_name = function_payload.get('name')
+                    else:
+                        tool_id = tool_call.id
+                        args_raw = tool_call.function.arguments
+                        func_name = tool_call.function.name
+
+                    if func_name == "inform_user_between_tool_calls":
+                        if isinstance(args_raw, str):
+                            try:
+                                args = json.loads(args_raw) if args_raw.strip() else {}
+                            except json.JSONDecodeError:
+                                args = args_raw
+                        elif isinstance(args_raw, dict):
+                            args = args_raw
+                        else:
+                            args = {}
+
+                        if isinstance(args, dict):
+                            # The argument might be a key in a JSON object
+                            arg_text = args.get("message", args.get("text", str(args)))
+                        else:
+                            # Or it may simply be the raw string
+                            arg_text = str(args)
+
+                        speak(arg_text)
+                        # Add a tool response back into the conversation
+                        add_message(role='tool', content="informed the user", tool_id=tool_id)
+                    else:
+                        # Execute the tool and feed its result back into the conversation
+                        func_resp, t_id = handle_tool_call(tool_call)
+                        add_message(role='tool', content=func_resp, tool_id=t_id)  # type: ignore
                 else:
                     # Direct text response — speak it
                     content = response.get('content')
@@ -399,10 +435,18 @@ def text_mode():
             print(retrieve_memories())
             continue
         elif transcription.lower() == "print conversations":
-            from knowledge.ConversationManager import get_manager
-            mgr = get_manager()
-            for conv_id, info in mgr.conversations_index.items():
-                print(f"- {info.get('name', conv_id)}: {info.get('summary', 'No summary')}")
+            remote_conversations = list_remote_conversations(limit=20)
+            if remote_conversations:
+                for conv in remote_conversations:
+                    conv_id = conv.get("id", "")
+                    name = conv.get("name", conv_id)
+                    summary = conv.get("summary", "No summary")
+                    print(f"- {name}: {summary}")
+            else:
+                from knowledge.ConversationManager import get_manager
+                mgr = get_manager()
+                for conv_id, info in mgr.conversations_index.items():
+                    print(f"- {info.get('name', conv_id)}: {info.get('summary', 'No summary')}")
             continue
         
         # Start a new conversation thread

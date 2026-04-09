@@ -1,6 +1,7 @@
 import threading
 from core.AppStates import main_runner
 from config import USER_NAME, ASSISTANT_NAME
+from core.server_api import add_remote_message
 
 messages_lock = threading.Lock()
 
@@ -14,8 +15,11 @@ def _get_conversation_manager():
         _conversation_manager = get_manager()
     return _conversation_manager
 
-def add_message(content, tool_id='', role='user'):
+def add_message(content, tool_id='', role='user', trigger_response=None):
     """Add a message to both the current messages list and the conversation history."""
+    if trigger_response is None:
+        trigger_response = role in {'user', 'tool'}
+
     if role == 'tool':
         with messages_lock:
             messages.append({'role': 'tool', 'content': content, 'tool_call_id': tool_id})
@@ -23,7 +27,8 @@ def add_message(content, tool_id='', role='user'):
         mgr = _get_conversation_manager()
         if mgr.current_conversation:
             mgr.current_conversation.add_message('tool', content, tool_id)
-        if not main_runner.is_set():
+        add_remote_message(role='tool', content=content, tool_id=tool_id)
+        if trigger_response and not main_runner.is_set():
             main_runner.set()
     elif role == 'user':
         with messages_lock:
@@ -32,7 +37,8 @@ def add_message(content, tool_id='', role='user'):
         mgr = _get_conversation_manager()
         if mgr.current_conversation:
             mgr.current_conversation.add_message('user', content)
-        if not main_runner.is_set():
+        add_remote_message(role='user', content=content)
+        if trigger_response and not main_runner.is_set():
             main_runner.set()
     elif role == 'assistant':
         with messages_lock:
@@ -41,8 +47,31 @@ def add_message(content, tool_id='', role='user'):
         mgr = _get_conversation_manager()
         if mgr.current_conversation:
             mgr.current_conversation.add_message('assistant', content)
+        add_remote_message(role='assistant', content=content)
     else:
         print("[MsgHandler] Invalid role")
+
+
+def add_assistant_message(content=None, tool_calls=None):
+    """
+    Preserve assistant text and tool calls in a single history item so one
+    turn can say what it is doing and then continue after tool execution.
+    """
+    payload = {'role': 'assistant'}
+    if content is not None:
+        payload['content'] = content
+    if tool_calls:
+        payload['tool_calls'] = tool_calls
+
+    with messages_lock:
+        messages.append(payload)
+
+    mgr = _get_conversation_manager()
+    if mgr.current_conversation and content:
+        mgr.current_conversation.add_message('assistant', content)
+
+    if content:
+        add_remote_message(role='assistant', content=content)
 
 def reset_messages():
     """Reset messages to just the system prompt for a new conversation."""
@@ -84,6 +113,7 @@ PERSONALITY:
 - Address him as "sir" occasionally, but not excessively
 - You genuinely care about being useful
 
+
 VOICE OUTPUT RULES (CRITICAL):
 Your responses are converted directly to speech. Follow these strictly:
 - Use simple punctuation only (periods, commas, question marks)
@@ -105,6 +135,8 @@ WHEN TO USE TOOLS:
 - Long research tasks → background_task (let it run while chatting)
 - Calculations or complex tasks → code_executor (If you can't do something directly, use your sandbox agent to write and execute Python code to perform the task).
 - File operations → create_file, open_file, save_text
+- Use tool before replying to user
+- Use inform_user_between_tool_calls when you need to update the user between multiple tool calls. This keeps the tool loop active while providing progress updates or intermediate information. Always use this when chaining tool operations and you need to communicate with the user during the process.
 
 BACKGROUND TASKS:
 You can run long tasks in the background (research, timers, web scraping) while continuing to chat. When you get a [SYSTEM NOTIFICATION] about completion, summarize the results naturally.
@@ -142,6 +174,20 @@ tools = [
                         'song_name': {'type': 'string', 'description': 'Name of the song to play'}
                     },
                     'required': ['action']
+                }
+            }
+        },
+        {
+            'type': 'function',
+            'function': {
+                'name': 'inform_user_between_tool_calls',
+                'description': 'Inform the user about something, this allows you to keep the tool_use loop working, if you want to end the tool-loop just say it in the message. ONLY USE THIS IF YOU WANNA CONTINUE THE TOOL CALL',
+                'parameters': {
+                    'type': 'object',
+                    'properties': {
+                        'message': {'type': 'string', 'description': 'Message to inform the user about'}
+                    },
+                    'required': ['message']
                 }
             }
         },

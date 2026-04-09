@@ -16,6 +16,9 @@ import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from groq import Groq
+import dotenv
+
+dotenv.load_dotenv()
 
 # Directory to store conversations
 CONVERSATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "conversations")
@@ -342,12 +345,30 @@ def get_manager() -> ConversationManager:
 
 def start_new_conversation() -> Conversation:
     """Convenience function to start a new conversation."""
-    return get_manager().start_new_conversation()
+    conv = get_manager().start_new_conversation()
+
+    # Client mirrors conversations to server storage.
+    if os.getenv("AVA_SERVER_MODE") != "1":
+        try:
+            from core.server_api import start_remote_conversation
+            start_remote_conversation()
+        except Exception:
+            pass
+
+    return conv
 
 
 def save_current_conversation():
     """Convenience function to save current conversation."""
     get_manager().save_conversation()
+
+    # Client mirrors conversations to server storage.
+    if os.getenv("AVA_SERVER_MODE") != "1":
+        try:
+            from core.server_api import save_remote_conversation
+            save_remote_conversation()
+        except Exception:
+            pass
 
 
 def get_current_conversation() -> Optional[Conversation]:

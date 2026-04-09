@@ -79,6 +79,25 @@ The Client is the main interface you interact with continuously. Start the clien
 python App/__main__.py
 ```
 
+For the current architecture, start the backend server first (generation, TTS, and conversation storage now run there):
+
+```bash
+python -m Server
+```
+
+The backend code is now separated in the top-level `Server/` folder and organized for easy extension:
+- `Server/app.py` contains the route table and endpoint handlers
+- `Server/services/` contains `llm_service.py`, `tts_service.py`, and `conversation_store.py`
+- To add future server-side tools/functions, add new route handlers in `Server/app.py` and call new service methods
+
+Optional `.env` values for client/server connection:
+
+```env
+AVA_SERVER_HOST=127.0.0.1
+AVA_SERVER_PORT=8765
+AVA_SERVER_URL=http://127.0.0.1:8765
+```
+
 ### ⚙️ Configuration Modes
 Set the mode within `App/__main__.py` depending on your current needs:
 * `WAKE_MODE = "continuous"`: (Default) Transcribes all ambient audio to watch explicitly for wake-words.
