@@ -91,6 +91,25 @@ def transcribe_whisper(filename) -> str | None:
         return None
 
 
+def transcribe_bytes(wav_bytes: bytes) -> str | None:
+    """
+    Transcribe raw WAV bytes using Whisper (via Groq API).
+    Writes bytes to a temp file, then delegates to transcribe_whisper().
+    Used by __main_server__.py when audio arrives over WebSocket.
+    """
+    import tempfile
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+            f.write(wav_bytes)
+            temp_path = f.name
+        result = transcribe_whisper(temp_path)
+        os.unlink(temp_path)
+        return result
+    except Exception as e:
+        logging.error(f"[STT] Error transcribing bytes: {e}")
+        return None
+
+
 class VoiceRecorder:
     """
     Voice recorder with:

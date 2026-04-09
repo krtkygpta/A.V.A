@@ -12,6 +12,7 @@ Features:
 import json
 import os
 import re
+import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from groq import Groq
@@ -145,23 +146,23 @@ class ConversationManager:
         return self.current_conversation
     
     def save_conversation(self):
-        """Save current conversation to disk."""
+        """Save current conversation to disk.
+        
+        Saves immediately with a placeholder name, then generates
+        a proper name + summary in a background thread to avoid
+        blocking the main thread (~1-2s of Groq LLM calls).
+        """
         if not self.current_conversation:
             return
         
         conv = self.current_conversation
         
-        # Generate name if still default and has messages
-        if conv.name == "New Conversation" and len(conv.messages) > 1:
-            conv.name = self._generate_name(conv)
-            conv.summary = self._generate_summary(conv)
-        
-        # Save conversation file
+        # Save conversation file immediately (with placeholder name if needed)
         filepath = os.path.join(CONVERSATIONS_DIR, f"{conv.id}.json")
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(conv.to_dict(), f, indent=2, ensure_ascii=False)
         
-        # Update index
+        # Update index immediately
         self.conversations_index[conv.id] = {
             "name": conv.name,
             "created_at": conv.created_at,
@@ -170,8 +171,23 @@ class ConversationManager:
             "message_count": len(conv.messages)
         }
         self._save_index()
+        print(f"[ConvMgr] Saved: {conv.id}")
         
-        print(f"[ConvMgr] Saved: {conv.name}")
+        # Generate name + summary in background, then re-save
+        if conv.name == "New Conversation" and len(conv.messages) > 1:
+            def _enrich(c, fp):
+                try:
+                    c.name = self._generate_name(c)
+                    c.summary = self._generate_summary(c)
+                    with open(fp, 'w', encoding='utf-8') as f:
+                        json.dump(c.to_dict(), f, indent=2, ensure_ascii=False)
+                    self.conversations_index[c.id]["name"] = c.name
+                    self.conversations_index[c.id]["summary"] = c.summary
+                    self._save_index()
+                    print(f"[ConvMgr] Enriched: {c.name}")
+                except Exception as e:
+                    print(f"[ConvMgr] Enrich error: {e}")
+            threading.Thread(target=_enrich, args=(conv, filepath), daemon=True).start()
     
     def _generate_name(self, conv: Conversation) -> str:
         """Generate a short, descriptive name for the conversation using LLM."""

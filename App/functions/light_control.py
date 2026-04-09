@@ -1,6 +1,7 @@
 from pywizlight import wizlight, discovery, PilotBuilder
 import asyncio
 import json
+import threading
 
 main_dict = {
     'Lights': 'd8a0118d79e9',
@@ -9,6 +10,19 @@ main_dict = {
 
 
 bulbs_ip_dict = {}
+
+# Persistent event loop — shared across all async light operations
+_loop = None
+_loop_thread = None
+
+def _get_loop():
+    """Get or create a persistent asyncio event loop running on a background thread."""
+    global _loop, _loop_thread
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        _loop_thread = threading.Thread(target=_loop.run_forever, daemon=True)
+        _loop_thread.start()
+    return _loop
 
 def scan_and_store_bulbs_sync(retries=3, timeout=15):
     async def async_scan():
@@ -38,16 +52,14 @@ def scan_and_store_bulbs_sync(retries=3, timeout=15):
 
         print("[LightCtrl] Bulbs not found")
 
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(async_scan())
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
+    loop = _get_loop()
+    future = asyncio.run_coroutine_threadsafe(async_scan(), loop)
+    future.result(timeout=timeout * retries + 10)
+
 def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int = 255, color: tuple = (255, 255, 255)):
     """
     Synchronous wrapper for controlling bulbs.
+    Uses the shared persistent event loop instead of creating a new one each time.
     """
     async def async_control():
         if light_name not in bulbs_ip_dict:
@@ -61,15 +73,12 @@ def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int 
         try:
             if action == "turn_on":
                 await light.turn_on(PilotBuilder(brightness=brightness_val))
-                # print(f"Turned on '{light_name}' with brightness {brightness_val}.")
                 return True
             elif action == "turn_off":
                 await light.turn_off()
-                # print(f"Turned off '{light_name}'.")
                 return True
             elif action == "set":
                 await light.turn_on(PilotBuilder(rgb=color, brightness=brightness_val))
-                # print(f"Set '{light_name}' to color {color} and brightness {brightness_val}.")
                 return True
             else:
                 print(f"[LightCtrl] Unknown action: {action}")
@@ -80,11 +89,10 @@ def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int 
         finally:
             await light.async_close()
             return True
-    a  = asyncio.run(async_control())
-    if a:
-        return True
-    else:
-        return False
+    loop = _get_loop()
+    future = asyncio.run_coroutine_threadsafe(async_control(), loop)
+    result = future.result(timeout=10)
+    return bool(result)
 
 
 # scan_and_store_bulbs_sync()

@@ -11,10 +11,14 @@ from core.messageHandler import add_message, reset_messages
 import time
 from core.AppStates import main_runner, stop_event
 from core.FuncHandler import handle_tool_call
-from utils import stt_hybrid as stt, tts_piper
-# from utils.tts import SPEECH_FILE
 from core.TaskManager import CompletionQueue, check_and_format_completions
 from knowledge.ConversationManager import start_new_conversation, save_current_conversation
+
+# ── Terminal colors ──────────────────────────────────────────────────────────
+COLOR_RESET  = "\033[0m"
+COLOR_GREEN  = "\033[92m"
+COLOR_YELLOW = "\033[93m"
+COLOR_CYAN   = "\033[96m"
 
 # Commands that end the conversation
 SHUTUP_COMMANDS = {"shutup", "shut up", "exit", "quiet", "stop", "bye", "goodbye"}
@@ -34,8 +38,63 @@ EXIT_RESPONSES = [
 # Event to track whether main() is actively processing a response
 main_running = threading.Event()
 
+
+# ── Terminal output helpers ──────────────────────────────────────────────────
+
+def _print_user_block(text: str):
+    """Print user input with green barriers."""
+    print(f"\n{COLOR_GREEN}{'-'*65}{COLOR_RESET}")
+    print(f"{COLOR_GREEN}{text}{COLOR_RESET}")
+    print(f"{COLOR_GREEN}{'-'*65}{COLOR_RESET}\n")
+
+def _print_assistant_block(text: str):
+    """Print assistant output with cyan barriers and yellow typing animation."""
+    print(f"\n{COLOR_CYAN}{'='*65}{COLOR_RESET}")
+    print(COLOR_YELLOW, end="")
+    for char in text:
+        print(char, end="", flush=True)
+        time.sleep(0.001)
+    print(COLOR_RESET)
+    print(f"{COLOR_CYAN}{'='*65}{COLOR_RESET}\n")
+
+def _wait_for_response_complete():
+    """Block until the main response loop finishes processing."""
+    main_running.wait(timeout=5.0)
+    while main_running.is_set():
+        time.sleep(0.01)
+
+
+# ── Volume control ───────────────────────────────────────────────────────────
+
+def _adjust_session_volumes(multiplier: float, label: str):
+    """Multiply all non-Python audio session volumes by `multiplier` (Windows only)."""
+    try:
+        from comtypes import CoInitialize
+        from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
+
+        CoInitialize()
+        for session in AudioUtilities.GetAllSessions():
+            if session.Process and session.Process.name() != "python.exe":
+                vol = session._ctl.QueryInterface(ISimpleAudioVolume)
+                current = vol.GetMasterVolume()
+                new = max(0.0, min(1.0, current * multiplier))
+                vol.SetMasterVolume(new, None)
+        print(f"[Main] {label}")
+    except Exception as e:
+        print(f"[WARN] Volume control failed: {e}")
+
+def duck_volume():
+    """Lower all active audio sessions to 20% of current level."""
+    _adjust_session_volumes(0.2, "Volume ducked to 20% for conversation")
+
+def unduck_volume():
+    """Restore all audio sessions to original levels."""
+    _adjust_session_volumes(5.0, "Volume restored to normal levels")
+
+
+# ── Core helpers ─────────────────────────────────────────────────────────────
+
 def get_duration_wave(file_path, timeout=15.0):
-    
     """
     Wait for a WAV file to appear on disk and return its duration in seconds.
     Used to estimate how long the TTS response will play, so we know how long
@@ -56,79 +115,30 @@ def get_duration_wave(file_path, timeout=15.0):
     except Exception:
         return 0.0
 
+def cleanup_false_detection():
+    """Clean up false wake word detection from terminal"""
+    sys.stdout.write("\033[K")  # Clear current line
+    sys.stdout.flush()
+
 def speak(text):
     """
     Print text with a typing animation and play TTS audio in a background thread.
     Sets stop_event to interrupt any currently playing audio first.
     """
     stop_event.set()
-    def animate_and_speak(string):
-        print(f"\n\033[96m{'='*65}\033[0m")  # Cyan barrier for Assistant
-        print("\033[93m", end="")  # Yellow text for Assistant
-        for char in string:
-            print(char, end="", flush=True)
-            time.sleep(0.001)
-        print("\033[0m")
-        print(f"\033[96m{'='*65}\033[0m\n")
-
-    animate_and_speak(f"{ASSISTANT_NAME.upper()}: " + text)
+    _print_assistant_block(f"{ASSISTANT_NAME.upper()}: " + text)
     stop_event.clear()
-    
-    if Start_mode != "text":
-        # speak_thread = threading.Thread(target=tts.run_tts_command, args=(text, stop_event), daemon=True)
-        # speak_thread.start()
+
+    if START_MODE != "text":
         speak_thread = threading.Thread(target=tts_piper.speak, args=(text, stop_event), daemon=True)
         speak_thread.start()
 
-def duck_volume():
-    """Lower all active audio sessions to 20% of current level (Windows only)"""
-    try:
-        # Import Windows-specific volume control
-        from ctypes import cast, POINTER
-        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
-        
-        CoInitialize()
-        sessions = AudioUtilities.GetAllSessions()
-        for session in sessions:
-            if session.Process and session.Process.name() != "python.exe":
-                audio_volume = session._ctl.QueryInterface(ISimpleAudioVolume)
-                if audio_volume.GetMasterVolume() > 0.0:
-                    current_volume = audio_volume.GetMasterVolume()
-                    new_volume = max(0.2, current_volume * 0.2)  # 20% of current level
-                    audio_volume.SetMasterVolume(new_volume, None)
-        print("[Main] Volume ducked to 20% for conversation")
-    except Exception as e:
-        print(f"[WARN] Volume control failed: {e}. Continuing without volume ducking.")
 
-def unduck_volume():
-    """Restore all audio sessions to original levels (Windows only)"""
-    try:
-        # Import Windows-specific volume control  
-        from ctypes import cast, POINTER
-        from comtypes import CLSCTX_ALL, CoInitialize, CoUninitialize
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume, ISimpleAudioVolume
-        
-        CoInitialize()
-        sessions = AudioUtilities.GetAllSessions()
-        for session in sessions:
-            if session.Process and session.Process.name() != "python.exe":
-                audio_volume = session._ctl.QueryInterface(ISimpleAudioVolume)
-                current_volume = audio_volume.GetMasterVolume()
-                new_volume = min(1.0, current_volume * 5)  # Restore to 5x (back to 100%)
-                audio_volume.SetMasterVolume(new_volume, None)
-        print("[Main] Volume restored to normal levels")
-    except Exception as e:
-        print(f"[WARN] Volume restoration failed: {e}. Continuing without volume restoration.")
-
-def cleanup_false_detection():
-    """Clean up false wake word detection from terminal"""
-    sys.stdout.write("\033[K")  # Clear current line
-    sys.stdout.flush()
+# ── Main response loop ───────────────────────────────────────────────────────
 
 def main():
     """
-    Main response generation loop (runs in a background thread
+    Main response generation loop (runs in a background thread)
 
     Waits for main_runner to be set (triggered by add_message), then:
     1. Generates an LLM response
@@ -181,6 +191,8 @@ def main():
                 main_running.clear()
 
 
+# ── Wake / Input Modes ───────────────────────────────────────────────────────
+
 def voice_mode_continuous():
     """
     Continuous wake mode: always listening, transcribes everything,
@@ -196,6 +208,10 @@ def voice_mode_continuous():
        d. If user speaks again, continue; otherwise end conversation
     4. Save conversation and go back to listening
     """
+    from utils import stt_hybrid as stt, tts_piper
+    tts_piper.init_tts()
+    print(f"[{ASSISTANT_NAME.upper()}] Ready.")
+    
     recorder = stt.VoiceRecorder()
     while True:
         # Phase 1: Listen for any speech
@@ -222,25 +238,18 @@ def voice_mode_continuous():
                         time.sleep(0.01)
 
                     transcription = f"{USER_NAME}: " + transcription
-                    print(f"\n\033[92m{'-'*65}\033[0m")  # Green barrier for User
-                    print(f"\033[92m{transcription}\033[0m")
-                    print(f"\033[92m{'-'*65}\033[0m\n")
+                    _print_user_block(transcription)
 
                     # Check for exit commands
                     if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
-                        print(f"\033[93m{ASSISTANT_NAME.upper()}: {random.choice(EXIT_RESPONSES)}\033[0m")
+                        print(f"{COLOR_YELLOW}{ASSISTANT_NAME.upper()}: {random.choice(EXIT_RESPONSES)}{COLOR_RESET}")
                         break
                     else:
                         # Send user message to the LLM
                         add_message(role="user", content=transcription, tool_id='')
 
-                        # Wait for main() to pick up the message and start processing
-                        # Event.wait() returns instantly when set (vs. 10ms sleep poll delay)
-                        main_running.wait(timeout=5.0)
-
                         # Wait for main() to finish generating the response + TTS
-                        while main_running.is_set():
-                            time.sleep(0.01)
+                        _wait_for_response_complete()
 
                         # Measure TTS audio duration to set continued conversation timeout
                         # (give user speech_duration + 7 seconds to respond)
@@ -275,6 +284,9 @@ def voice_mode_wakeword():
     than recording + Whisper for every spoken phrase.
     """
     from utils.wakeword import WakeWordDetector
+    from utils import stt_hybrid as stt, tts_piper
+    tts_piper.init_tts()
+    print(f"[{ASSISTANT_NAME.upper()}] Ready.")
     
     print(f"[{ASSISTANT_NAME.upper()}] Initializing wake word detector...")
     try:
@@ -314,8 +326,9 @@ def voice_mode_wakeword():
             detector.reset()
             continue
         
-        transcription = stt.transcribe_whisper(filename)
-        transcription = transcription if transcription else ""
+        # Use background Whisper (already started by recorder.record())
+        # instead of calling stt.transcribe_whisper() again (avoids duplicate work)
+        transcription = recorder.get_whisper_result(timeout=15) or ""
         
         if not transcription.strip():
             print(f"[{ASSISTANT_NAME.upper()}] I didn't hear anything. Going back to sleep.")
@@ -327,9 +340,7 @@ def voice_mode_wakeword():
         while True:
             if not main_runner.is_set():
                 full_transcription = f"{USER_NAME}: " + transcription
-                print(f"\n\033[92m{'-'*65}\033[0m")  # Green barrier for User
-                print(f"\033[92m{full_transcription}\033[0m")
-                print(f"\033[92m{'-'*65}\033[0m\n")
+                _print_user_block(full_transcription)
                 
                 # Check for exit commands
                 if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
@@ -341,8 +352,7 @@ def voice_mode_wakeword():
                 add_message(role="user", content=full_transcription, tool_id='')
                 
                 # Wait for response to complete
-                while main_running.is_set():
-                    time.sleep(0.01)
+                _wait_for_response_complete()
                 
                 # Listen for continued conversation
                 timeout = tts_piper.get_last_duration() + 7
@@ -350,8 +360,9 @@ def voice_mode_wakeword():
                 
                 if continued_convo:
                     stop_event.clear()
-                    transcription = str(stt.transcribe_whisper(filename))
-                    if transcription and transcription.strip():
+                    # Use background Whisper (already started by recorder.record())
+                    transcription = recorder.get_whisper_result(timeout=15) or ""
+                    if transcription.strip():
                         continue
                     else:
                         break
@@ -368,7 +379,7 @@ def voice_mode_wakeword():
 def text_mode():
     """
     Text input mode for testing without a microphone.
-    Type 'ava' followed by your message to start a conversation.
+    Type your message to start a conversation.
     Useful for debugging LLM responses and tool calls.
     """
     print(f"[{ASSISTANT_NAME.upper()}] Text mode. Type '{ASSISTANT_NAME.lower()}' followed by your command.")
@@ -378,56 +389,57 @@ def text_mode():
         if not transcription:
             continue
         
-        # if any(word in transcription.lower() for word in ["ava"]):
-        if transcription:
-            # Start a new conversation thread
-            start_new_conversation()
-            reset_messages()
-            
-            while True:
-                # Check for exit commands on raw input
-                if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
-                    response = random.choice(EXIT_RESPONSES)
-                    print(response)
-                    break
-                
-                # Send to AI (add user name prefix for context)
-                user_msg = f"{USER_NAME}: {transcription}"
-                add_message(role="user", content=user_msg, tool_id='')
-                
-                # Wait for the response to fully complete
-                while main_running.is_set() or main_runner.is_set():
-                    time.sleep(0.05)
-                
-                # Prompt for next input
-                transcription = input("You: ").strip()
-                if transcription:
-                    if not stop_event.is_set():
-                        stop_event.set()
-                    continue
-                break
-            
-            # Conversation ended — save it
-            save_current_conversation()
-            print(f"[{ASSISTANT_NAME.upper()}] Conversation saved. Say my name when you need me.")
-            
-        elif transcription.lower() == "print messages":
+        # Debug commands (checked before entering conversation loop)
+        if transcription.lower() == "print messages":
             from core.messageHandler import messages
             print(messages)
+            continue
         elif transcription.lower() == "print memories":
             from knowledge.memory import retrieve_memories
             print(retrieve_memories())
+            continue
         elif transcription.lower() == "print conversations":
             from knowledge.ConversationManager import get_manager
             mgr = get_manager()
             for conv_id, info in mgr.conversations_index.items():
                 print(f"- {info.get('name', conv_id)}: {info.get('summary', 'No summary')}")
+            continue
+        
+        # Start a new conversation thread
+        start_new_conversation()
+        reset_messages()
+        
+        while True:
+            # Check for exit commands on raw input
+            if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
+                response = random.choice(EXIT_RESPONSES)
+                print(response)
+                break
+            
+            # Send to AI (add user name prefix for context)
+            user_msg = f"{USER_NAME}: {transcription}"
+            add_message(role="user", content=user_msg, tool_id='')
+            
+            # Wait for the response to fully complete (Event-based, not sleep polling)
+            _wait_for_response_complete()
+            
+            # Prompt for next input
+            transcription = input("You: ").strip()
+            if transcription:
+                if not stop_event.is_set():
+                    stop_event.set()
+                continue
+            break
+        
+        # Conversation ended — save it
+        save_current_conversation()
+        print(f"[{ASSISTANT_NAME.upper()}] Conversation saved. Say my name when you need me.")
 
 
 # ============================================================================
 # CONFIGURATION: Choose wake mode here
 # ============================================================================
-Start_mode = "continuous"  # Options: "continuous", "vosk", "text"
+START_MODE = "text"  # Options: "continuous", "vosk", "text"
 
 
 def start():
@@ -435,23 +447,21 @@ def start():
     Application entry point: starts the main response thread and
     activates the chosen wake mode (continuous, vosk, or text).
     """
-    tts_piper.init_tts()
-    print(f"[{ASSISTANT_NAME.upper()}] Ready.")
-    
+
     main_runner.clear()
     # Start the main response loop in a background daemon thread
     threading.Thread(target=main, daemon=True).start()
     
-    print(f"[{ASSISTANT_NAME.upper()}] Starting in '{Start_mode}' wake mode...")
+    print(f"[{ASSISTANT_NAME.upper()}] Starting in '{START_MODE}' wake mode...")
     
-    if Start_mode == "vosk":
+    if START_MODE == "vosk":
         voice_mode_wakeword()
-    elif Start_mode == "continuous":
+    elif START_MODE == "continuous":
         voice_mode_continuous()
-    elif Start_mode == "text":
+    elif START_MODE == "text":
         text_mode()
     else:
-        print(f"[ERROR] Unknown wake mode: {Start_mode}. Using 'continuous'.")
+        print(f"[ERROR] Unknown wake mode: {START_MODE}. Using 'continuous'.")
         voice_mode_continuous()
 
 

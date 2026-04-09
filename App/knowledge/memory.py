@@ -62,93 +62,76 @@ def _save_memories(data: Dict[str, Any]):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def _format_memory_text(key: str, value: str) -> str:
+def _format_and_check_duplicate(key: str, value: str, memories: List[Dict]) -> tuple:
     """
-    Convert key-value input into a natural language sentence.
-    Uses LLM to create a proper sentence.
+    Single LLM call to both format a memory as natural language AND check for duplicates.
+    Returns (formatted_text: str, duplicate_index: int) where duplicate_index is -1 if new.
+    
+    Previously this was two separate LLM calls (_format_memory_text + _find_duplicate),
+    doubling the API latency for every memory save.
     """
-    try:
-        client = _get_client()
-        
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{
-                "role": "user",
-                "content": f"""Convert this into a simple, natural sentence about {USER_NAME}.
-
-Key: {key}
-Value: {value}
-
-Just output the sentence, nothing else. Example:
-Key: favorite_song, Value: Believer
-Output: {USER_NAME}'s favorite song is Believer."""
-            }],
-            max_tokens=100,
-            temperature=0.3
-        )
-        
-        sentence = response.choices[0].message.content.strip()
-        # Ensure it mentions the user
-        if USER_NAME.lower() not in sentence.lower():
-            sentence = f"{USER_NAME}: {sentence}"
-        return sentence
-        
-    except Exception as e:
-        print(f"[Memory] Format error: {e}")
-        # Fallback to simple format
-        return f"{USER_NAME}'s {key.replace('_', ' ')} is {value}"
-
-
-def _find_duplicate(memories: List[Dict], new_text: str) -> int:
-    """
-    Check if a similar memory already exists.
-    Returns the index if found, -1 otherwise.
-    """
-    if not memories:
-        return -1
+    existing = ""
+    if memories:
+        existing = "\n".join([f"{i}. {m['text']}" for i, m in enumerate(memories[-20:])])
     
     try:
         client = _get_client()
         
-        # Format existing memories
-        existing = "\n".join([f"{i}. {m['text']}" for i, m in enumerate(memories[-20:])])  # Last 20
+        prompt = f"""Do two things:
+1. Convert this key-value pair into a simple, natural sentence about {USER_NAME}.
+   Key: {key}
+   Value: {value}
+   Example: Key: favorite_song, Value: Believer → "{USER_NAME}'s favorite song is Believer."
+
+2. Check if the sentence updates or replaces any EXISTING memory below. If yes, respond with the number. If not, respond with NEW.
+"""
+        if existing:
+            prompt += f"\nEXISTING MEMORIES:\n{existing}\n"
+        else:
+            prompt += "\nNo existing memories yet.\n"
+        
+        prompt += "\nRespond in EXACTLY this format (two lines):\nSENTENCE: <the natural language sentence>\nDUPLICATE: <number or NEW>"
         
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[{
-                "role": "user",
-                "content": f"""Does the NEW memory update or contradict any EXISTING memory? 
-
-EXISTING MEMORIES:
-{existing}
-
-NEW MEMORY: "{new_text}"
-
-If the new memory updates/replaces an existing one, respond with ONLY the number (0, 1, 2, etc).
-If it's completely new information, respond with "NEW"."""
-            }],
-            max_tokens=10,
-            temperature=0.1
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=150,
+            temperature=0.3
         )
         
-        result = response.choices[0].message.content.strip()
+        result_text = response.choices[0].message.content.strip()
         
-        if result.upper() == "NEW":
-            return -1
+        # Parse the response
+        sentence = ""
+        duplicate_idx = -1
         
-        # Try to parse the number
-        try:
-            idx = int(result)
-            if 0 <= idx < len(memories):
-                return idx
-        except ValueError:
-            pass
+        for line in result_text.split("\n"):
+            line = line.strip()
+            if line.upper().startswith("SENTENCE:"):
+                sentence = line[len("SENTENCE:"):].strip().strip('"\'')
+            elif line.upper().startswith("DUPLICATE:"):
+                dup_val = line[len("DUPLICATE:"):].strip()
+                if dup_val.upper() != "NEW":
+                    try:
+                        idx = int(dup_val)
+                        if 0 <= idx < len(memories):
+                            duplicate_idx = idx
+                    except ValueError:
+                        pass
         
-        return -1
+        # Ensure sentence mentions the user
+        if sentence and USER_NAME.lower() not in sentence.lower():
+            sentence = f"{USER_NAME}: {sentence}"
+        
+        # Fallback if parsing failed
+        if not sentence:
+            sentence = f"{USER_NAME}'s {key.replace('_', ' ')} is {value}"
+        
+        return sentence, duplicate_idx
         
     except Exception as e:
-        print(f"[Memory] Duplicate check error: {e}")
-        return -1
+        print(f"[Memory] Format/duplicate check error: {e}")
+        return f"{USER_NAME}'s {key.replace('_', ' ')} is {value}", -1
 
 
 def save_memory(category: str, key: str, value: str) -> str:
@@ -166,14 +149,11 @@ def save_memory(category: str, key: str, value: str) -> str:
     if not key or not value:
         return "Error: Both key and value are required"
     
-    # Convert to natural language
-    memory_text = _format_memory_text(key, value)
-    
     data = _load_memories()
     memories = data.get("memories", [])
     
-    # Check for duplicates/updates
-    duplicate_idx = _find_duplicate(memories, memory_text)
+    # Single LLM call: format the memory AND check for duplicates
+    memory_text, duplicate_idx = _format_and_check_duplicate(key, value, memories)
     
     memory_entry = {
         "text": memory_text,
@@ -185,14 +165,11 @@ def save_memory(category: str, key: str, value: str) -> str:
     
     if duplicate_idx >= 0:
         # Update existing memory
-        old_text = memories[duplicate_idx]["text"]
         memories[duplicate_idx] = memory_entry
-
         action = "Updated"
     else:
         # Add new memory
         memories.append(memory_entry)
-
         action = "Saved"
     
     data["memories"] = memories

@@ -1,6 +1,7 @@
 from openai import OpenAI
 from core.messageHandler import messages, tools, add_message
 import os
+import time
 import dotenv
 
 dotenv.load_dotenv()
@@ -11,6 +12,22 @@ client = OpenAI(
 
 model = os.getenv("MODEL_NAME")
 
+# Cache conversation context to avoid re-scanning all conversations on every call
+_convo_context_cache = {"value": "", "expires": 0}
+
+def _get_cached_convo_context():
+    """Return recent-hour conversation context, cached for 30s."""
+    now = time.time()
+    if now < _convo_context_cache["expires"]:
+        return _convo_context_cache["value"]
+    try:
+        from knowledge.ConversationManager import get_recent_hour_conversations_context
+        result = get_recent_hour_conversations_context()
+    except Exception:
+        result = ""
+    _convo_context_cache["value"] = result
+    _convo_context_cache["expires"] = now + 30
+    return result
 
 def generate_response():
     try:
@@ -31,26 +48,29 @@ def generate_response():
         # Find where to insert context (right after the system prompt)
         insert_idx = 1 if enriched_messages and enriched_messages[0].get('role') == 'system' else 0
         
-        # Inject conversation history from the past hour only
-        try:
-            from knowledge.ConversationManager import get_recent_hour_conversations_context
-            convo_context = get_recent_hour_conversations_context()
-            if convo_context:
-                enriched_messages.insert(insert_idx, {
-                    'role': 'system',
-                    'content': convo_context
-                })
-        except Exception:
-            pass  # Don't break generation if conversation retrieval fails
+        # Inject conversation history from the past hour only (cached for 30s)
+        convo_context = _get_cached_convo_context()
+        if convo_context:
+            enriched_messages.insert(insert_idx, {
+                'role': 'system',
+                'content': convo_context
+            })
         
         response = client.chat.completions.create(
             model=model,
             messages=enriched_messages,
             tools=valid_tools if valid_tools else None,
-            tool_choice="auto" if valid_tools else None
+            tool_choice="auto" if valid_tools else None,
+            # extra_body={'reasoning': {'enabled': True}},
+            temperature=0.8
         )
         
-        message = response.choices[0].message.__dict__
+        msg = response.choices[0].message
+        message = {
+            'role': msg.role,
+            'content': msg.content,
+            'tool_calls': msg.tool_calls,
+        }
         
         # Append response to messages history AND save to conversation
         if content := message.get('content'):

@@ -1,21 +1,4 @@
 """
-piper_tts.py  —  AVA TTS module
-
-Usage:
-    import threading
-    from piper_tts import init_tts, speak, shutdown_tts
-
-    init_tts()                          # call once at startup
-
-    stop_event = threading.Event()
-    t = threading.Thread(target=speak, args=("Hello from AVA", stop_event))
-    t.start()
-
-    # to interrupt at any time:
-    stop_event.set()
-
-    shutdown_tts()                      # call on app exit
-
 Requirements:
     pip install "piper-tts[http]" requests sounddevice soundfile numpy
 """
@@ -46,6 +29,11 @@ _server_proc: subprocess.Popen | None = None
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 def _download_voice() -> None:
+    # Skip download if voice model already exists on disk
+    import glob
+    voice_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)))
+    if glob.glob(os.path.join(voice_dir, f"{VOICE}*")):
+        return
     result = subprocess.run(
         [sys.executable, "-m", "piper.download_voices", VOICE],
         capture_output=True,
@@ -108,6 +96,25 @@ def get_last_duration(timeout: float = 15.0) -> float:
     if _duration_ready.wait(timeout=timeout):
         return _last_duration
     return 0.0
+
+
+def synthesize_bytes(text: str) -> bytes | None:
+    """
+    Synthesise `text` and return raw WAV bytes (without playing).
+    Used by __main_server__.py to send audio over WebSocket.
+    Returns None on error.
+    """
+    try:
+        response = requests.post(
+            f"{BASE_URL}/",
+            json={"text": text},
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.content
+    except requests.RequestException as e:
+        print(f"[TTS] Synthesis error: {e}")
+        return None
 
 
 def speak(text: str, stop_event: threading.Event) -> None:
