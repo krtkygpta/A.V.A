@@ -47,6 +47,7 @@ TOOL_CONFIGS = {
         'conversation_history': handle_conversation_history,
         'createPDF': functions.create_pdf,
         # 'music_control': functions.mc.control,
+        'ping': functions.ring_timer,
     }
 
 

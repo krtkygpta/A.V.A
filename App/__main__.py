@@ -42,6 +42,12 @@ EXIT_RESPONSES = [
     "Alright, I'll go away now.",
     "Sorry if I bothered you, I'll stop."
 ]
+_settings_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'settings.json')
+try:
+    with open(_settings_path, 'r') as _f:
+        os.environ.update({k: str(v) for k, v in json.load(_f).items()})
+except Exception:
+    pass
 
 # Event to track whether main() is actively processing a response
 main_running = threading.Event()
@@ -137,7 +143,7 @@ def speak(text):
     _print_assistant_block(f"{ASSISTANT_NAME.upper()}: " + text)
     stop_event.clear()
 
-    if START_MODE != "text":
+    if "text" not in START_MODE:
         speak_thread = threading.Thread(target=tts_piper.speak, args=(text, stop_event), daemon=True)
         speak_thread.start()
 
@@ -484,7 +490,10 @@ def text_mode():
         save_current_conversation()
         print(f"[{ASSISTANT_NAME.upper()}] Conversation saved. Say my name when you need me.")
 
-START_MODE = 'tui'
+# START_MODE = 'tui_continuous'
+START_MODE = os.getenv("AVA_START_MODE", "tui_text")
+
+
 def start():
     """
     Application entry point: starts the main response thread and
@@ -493,10 +502,10 @@ def start():
 
     main_runner.clear()
     
-    if START_MODE == "tui":
+    if "tui" in START_MODE:
         # TUI mode handles its own main loop — don't start the classic one
         from ui.tui import run_tui
-        run_tui(start_mode="text")
+        run_tui(start_mode=START_MODE.replace("tui_", ""))
         return
 
     # Start the main response loop in a background daemon thread

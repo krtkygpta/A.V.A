@@ -59,7 +59,7 @@ class LLMService:
             messages=enriched_messages,
             tools=valid_tools if valid_tools else None,
             tool_choice="auto" if valid_tools else None,
-            temperature=0.3, # low temp prevents the LLM from entering repeating Chinese/French loops
+            temperature=0.8, # low temp prevents the LLM from entering repeating Chinese/French loops
             presence_penalty=0.1, # Add small penalty to avoid repeating loops
         )
         msg = response.choices[0].message

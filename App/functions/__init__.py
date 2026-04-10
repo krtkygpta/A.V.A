@@ -9,3 +9,4 @@ from .web_tools import *
 from .light_control import *
 from .sandbox import *
 # from .memory import *
+from .ping import *

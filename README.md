@@ -1,133 +1,129 @@
 <div align="center">
-  <h1>🎙️ A.V.A</h1>
-  <p><b>Always Voiced Ally</b></p>
-  <p><i>An intelligent, high-performance voice assistant system bridging local hardware with state-of-the-art LLMs.</i></p>
+<pre>
+ _____ ___  _______   
+\__  \\  \/ /\__  \  
+ / __ \\   /  / __ \_
+(____  /\_/  (____  /
+     \/           \/ 
+</pre>
+
+# 🌌 A.V.A: Always Voiced Ally
+### *The Next Generation of Personal Neural Intelligence*
+
+[![Status](https://img.shields.io/badge/STATUS-OPERATIONAL-00FF85?style=for-the-badge&logo=statuspage&logoColor=black)]()
+[![Version](https://img.shields.io/badge/VERSION-2.4.0-7000FF?style=for-the-badge)]()
+[![Architecture](https://img.shields.io/badge/ARCHITECTURE-NEURAL_LINK-FF0055?style=for-the-badge)]()
+
+---
+
 </div>
 
----
-
-## 🌟 Overview
-
-Built with a modular Client-Server architecture, **A.V.A** provides low-latency interactions, persistent semantic memory, and a suite of powerful local and remote tools. 
-
-A.V.A is split into two primary components:
-- 💻 **The Client (`/App`)**: Handles audio capturing (STT), speech synthesis (TTS playback), the Textual User Interface (TUI), local tool execution, and the main interaction loop.
-- ⚙️ **The Server (`/Server`)**: A dedicated backend server that offloads heavy processing like LLM API requests, text-to-speech generation, context/conversation state storage, and complex data retrievals.
+## 💠 SYNOPSIS
+**A.V.A** is a hyper-responsive, modular neural assistant designed to bridge the gap between human intuition and machine precision. Orchestrated via a sophisticated **Client-Server Neural Link**, it offloads cognitive load to a high-performance backend while maintaining a sleek, low-latency interface on your local hardware.
 
 ---
 
-## ✨ Features
+## ⚡ CORE MODULES
 
-### 🎧 Advanced Audio Pipeline
-* **Hybrid Speech-to-Text**: Combines local **Vosk** models for live, low-latency wake-word display and **Groq Whisper-v3** for high-precision final transcription.
-* **Piper TTS Backend**: High-speed text-to-speech engine running via the `piper-tts` Python library.
-* **VAD & Queue Logic**: Advanced Voice Activity Detection equipped with a 2.5s pre-buffer to ensure no words are cut off at the start or end of sentences.
-
-### 🧠 Knowledge & Memory
-* **Semantic Memories**: Automatically extracts and stores key details from discussions to build long-term context seamlessly.
-* **Thread Management**: Each wake-word activation spins up a distinct, named conversation thread to prevent context bloat.
-
-### 🎨 TUI (Textual User Interface)
-* A beautifully designed Terminal UI resembling Claude Code.
-* Live markdown rendering, tool execution logs, and mode-switching from directly within the terminal shell!
-
-### 🛠️ Built-in Combined Tools
-* **Smart Home**: Native control of your **Philips WiZ** smart lights over your local network.
-* **Media & Music Tools**: Window-native control for Spotify/Apple Music, background music servers, and queues.
-* **Web & API Tools**: Web scraping, local sandbox code execution, weather aggregation, and Google Gemini powered search fallbacks.
-* **Document Tools**: Dynamically render markdown to PDFs, handle text creations, and manage workspaces locally.
+<table align="center">
+  <tr>
+    <td align="center"><b>🛰️ NEURAL LINK (SERVER)</b></td>
+    <td align="center"><b>🖥️ INTERFACE (CLIENT)</b></td>
+  </tr>
+  <tr>
+    <td>
+      <ul>
+        <li><b>LLM Core:</b> Driven by <i>Kimi-k2-instruct</i> for high-context logic.</li>
+        <li><b>Memory Matrix:</b> Persistent semantic storage for long-term recall.</li>
+        <li><b>Neural Synthesis:</b> High-speed <i>Piper TTS</i> backend.</li>
+      </ul>
+    </td>
+    <td>
+      <ul>
+        <li><b>Cyber-TUI:</b> Ultra-modern terminal interface with live logs.</li>
+        <li><b>Hybrid STT:</b> Vosk (Local) + Groq Whisper (Accurate).</li>
+        <li><b>Tool Orchestrator:</b> Local execution of system & web tools.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 ---
 
-## 🚀 Setup & Installation
+## 🖥️ VISUAL INTERFACE
 
-### 1. Unified Configuration (`settings.json`)
-A.V.A uses JSON files instead of `.env` for cross-platform robustness. 
+<div align="center">
+  <img src="assets/image.png" width="600" alt="AVA TUI Conversation">
+  <br>
+  <i>— TUI Neural Conversation Flow —</i>
+</div>
 
-**Client Configuration**: Create a `settings.json` file in the **project root** directory:
+Explore a beautifully crafted terminal experience featuring live markdown rendering, real-time tool logs, and a sleek modern aesthetic.
+
+---
+
+## 🛠️ CYBERNETIC CAPABILITIES
+
+### 🧬 Persistent Semantic Memory
+Unlike standard assistants, A.V.A builds a **Neural Profile** of you. It extracts key data points from your conversations and stores them in a semantic database, evolving with every interaction.
+
+### 🌓 Hybrid Audio Pipeline
+* **Zero-Latency Monitoring:** Local Vosk engine monitors ambient audio for wake-words.
+* **Whisper Precision:** Groq's Whisper-v3-turbo handles final transcription with unparalleled accuracy.
+
+### 🌐 Universal Tool Integration
+* **🏠 Dominion Control:** Native integration for <b>WiZ Smart Lights</b>.
+* **🌐 Data Extraction:** High-speed web scraping and Google AI fallback search.
+* **🧬 Code Sandbox:** Safe, isolated Python execution environment for dynamic calculations.
+* **📄 Neural Documentation:** MD-to-PDF generation and secure workspace management.
+
+---
+
+## 🚀 INITIALIZATION
+
+### 1️⃣ Neural Configuration (`settings.json`)
+Configure your access tokens in the root and server directories.
+
+**Root Configuration:**
 ```json
 {
-  "GROQ_API_KEY": "your_groq_key",
-  "OPENAI_API_KEY": "your_openai_key",
-  "GOOGLE_AI_API_KEY": "your_google_ai_key",
-  "WEATHER_API_KEY": "your_weather_api_key",
-  "USER_NAME": "Your_Name",
+  "GROQ_API_KEY": "GSK_...",
+  "USER_NAME": "Cyber_User",
   "ASSISTANT_NAME": "AVA",
   "AVA_SERVER_URL": "http://127.0.0.1:8765"
 }
 ```
 
-**Server Configuration**: Create a second `settings.json` natively inside the **`Server/`** directory to manage backend model operations:
-```json
-{
-  "GROQ_API_KEY": "your_groq_key",
-  "OPENAI_API_KEY": "your_openai_key",
-  "SERVER_HOST": "127.0.0.1",
-  "SERVER_PORT": 8765
-}
-```
-
-### 2. Dependency Installation
-Install the necessary requirements for both sides. We have pruned the `requirements.txt` to only include the packages actively used in the codebase:
-
+### 2️⃣ System Deployment
 ```bash
+# Install Neural Dependencies
 pip install -r requirements.txt
-```
 
-> [!IMPORTANT] 
-> **Playwright Setup (Required for Web Scraping & Sandbox Data)**  
-> After installing the requirements, you must initialize Playwright to ensure the necessary browser binaries are downloaded:
-> ```bash
-> playwright install
-> ```
+# Initialize Web Browsing Subsystems
+playwright install
+```
 
 ---
 
-## 💻 Execution Guide
+## 📡 OPERATIONAL MODES
 
-Since A.V.A has a client-server relationship, you must launch the backend first before testing the client loop.
-
-### 1. Start the Server
-Navigate to the root and spin up the server module. This handles memory, LLMs, and TTS:
-
-```bash
-python -m Server
-```
-
-### 2. Start the Client
-Open a secondary terminal split and launch the A.V.A interaction client:
-
-```bash
-python App/__main__.py
-```
-
-### ⚙️ Operating Modes
-Set `START_MODE` within `App/__main__.py` to toggle interaction states:
-* `START_MODE = "tui"`: (Default) Launches the interactive Textual terminal UI dashboard.
-* `START_MODE = "continuous"`: Background mode that maps and transcribes all ambient audio indefinitely.
-* `START_MODE = "vosk"`: Silently spins a low-cpu local Vosk model to watch for your wake word before turning on Groq transcription.
-* `START_MODE = "text"`: Headless terminal chat execution mapped for debugging bypassing the microphone.
+| MODE | DESCRIPTION |
+| :--- | :--- |
+| **`tui`** | Full GUI-like Terminal Interface with live telemetry. |
+| **`continuous`** | Seamless background listening with automatic transcription. |
+| **`wakeword`** | Power-efficient monitoring for "Hey AVA" activation. |
+| **`text`** | Direct neural link via keyboard (bypass audio). |
 
 ---
 
-## 💡 Smart Home: WiZ Light Integration
-
-A.V.A inherently ships with baked-in support targeting **Philips WiZ** bulbs running on your local IP.
-
-**To add your own devices:**
-1. Open `App/functions/light_control.py`.
-2. Update the `main_dict` at the top of the file mapping friendly names to device MACs:
-   ```python
-   main_dict = {
-       'Lights': 'YOUR_MAC_ADDRESS_1', # No colons
-       'Lamp': 'YOUR_MAC_ADDRESS_2'
-   }
-   ```
-3. A.V.A will dynamically broadcast and discover the IP addresses of these MAC entries on your home network during startup!
+## 📟 SYSTEM COMMANDS
+* **`python -m Server`** — Initialize the Neural Backend.
+* **`python App/__main__.py`** — Establish the Neural Link (Client).
+* **`Ctrl+C`** — Pulse Emergency Shutdown.
 
 ---
 
-## 📚 Developer Notes & Shortcuts
-- 🛑 Press **`Ctrl+C`** or forcefully say **"Shut Up"** during playback to immediately kill the assistant's voice streams.
-- All code runs inside isolated Python sandbox endpoints (`sandbox.py`) when you ask it to generate code tools.
-- All endpoints map through the robust `document_tools`, `web_tools`, `music_tools`, and `time_tools` combinations handled automatically by A.V.A via JSON payloads.
+<div align="center">
+  <p><i>"Bringing the future of human-machine interaction into the present terminal."</i></p>
+  <sub>Built by <b>Antigravity</b> for the next frontier.</sub>
+</div>

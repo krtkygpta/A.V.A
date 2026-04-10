@@ -27,6 +27,8 @@ from textual.css.query import NoMatches
 from textual.message import Message
 from textual.reactive import reactive
 from textual.widgets import (
+    Collapsible,
+    Button,
     Footer,
     Header,
     Input,
@@ -64,11 +66,11 @@ CONFIG_DESCRIPTIONS = {
 CONFIG_SECRET_KEYS = {"GROQ_API_KEY", "GOOGLE_AI_API_KEY", "WEATHER_API_KEY"}
 
 AVA_ASCII = r"""   
-            _____ ___  _______   
-            \__  \\  \/ /\__  \  
-             / __ \\   /  / __ \_
-            (____  /\_/  (____  /
-                 \/           \/ """
+_____ ___  _______   
+\__  \\  \/ /\__  \  
+ / __ \\   /  / __ \_
+(____  /\_/  (____  /
+     \/           \/ """
 MODES = ["text", "continuous", "wakeword"]
 MODE_LABELS = {
     "text": "TEXT",
@@ -141,28 +143,38 @@ class ChatMessage(Static):
 
 
 class ToolCallPanel(Static):
-    """Shows a tool call with name, args, and result."""
+    """Shows a tool call with name, args, and result inside a Collapsible."""
 
     DEFAULT_CSS = """
     ToolCallPanel {
         width: 100%;
-        padding: 1 2 1 3;
         margin: 0 0 1 0;
         background: #0f1520;
         border-left: thick #f59e0b;
-        opacity: 0.85;
+        opacity: 0.95;
     }
-    ToolCallPanel .tool-name {
+    ToolCallPanel Collapsible {
+        background: #0f1520;
+        border: none;
+        padding: 0;
+        margin: 0;
+    }
+    ToolCallPanel CollapsibleTitle {
         color: #fbbf24;
-        text-style: bold;
+        background: #0f1520;
+        padding: 0 2;
+    }
+    ToolCallPanel CollapsibleTitle:hover {
+        background: #131929;
+        color: #fcd34d;
     }
     ToolCallPanel .tool-args {
         color: #475569;
-        margin-top: 0;
+        padding: 0 2 0 4;
     }
     ToolCallPanel .tool-result {
         color: #38bdf8;
-        margin-top: 0;
+        padding: 0 2 1 4;
     }
     """
 
@@ -181,93 +193,56 @@ class ToolCallPanel(Static):
         else:
             args_str = str(self._args)
 
-        yield Static(f"[bold #fbbf24]▸ {self._func_name}[/]", classes="tool-name")
-        if args_str and args_str != "{}":
-            display_args = args_str[:500] + ("..." if len(args_str) > 500 else "")
-            yield Static(f"[#475569]{display_args}[/]", classes="tool-args")
-        if self._result:
-            display_result = self._result[:300] + ("..." if len(self._result) > 300 else "")
-            yield Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result")
+        with Collapsible(title=f"{self._func_name}", collapsed=False):
+            if args_str and args_str != "{}":
+                display_args = args_str[:500] + ("..." if len(args_str) > 500 else "")
+                yield Static(f"[#475569]{display_args}[/]", classes="tool-args")
+            if self._result:
+                display_result = self._result[:300] + ("..." if len(self._result) > 300 else "")
+                yield Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result")
 
 
 class ModeSwitcher(Static):
-    """Horizontal mode selector."""
+    """Horizontal mode selector using Textual Button widgets."""
 
     DEFAULT_CSS = """
     ModeSwitcher {
-        dock: top;
-        height: 3;
-        padding: 0 2;
-        background: #0a0f1a;
-        border-bottom: solid #1e2433;
-    }
-    ModeSwitcher Horizontal {
-        height: 3;
-        align-horizontal: left;
-        align-vertical: middle;
-    }
-    ModeSwitcher .mode-btn {
-        width: auto;
-        min-width: 14;
-        height: 1;
-        padding: 0 2;
-        margin: 0 0 0 0;
-        text-align: center;
-        content-align: center middle;
-        background: #0a0f1a;
-        color: #334155;
-        text-style: bold;
-    }
-    ModeSwitcher .mode-btn:hover {
-        color: #94a3b8;
-    }
-    ModeSwitcher .mode-btn.active {
-        color: #e2e8f0;
-        background: #0a0f1a;
-        text-style: bold;
-    }
-    ModeSwitcher .mode-divider {
-        color: #1e2433;
-        width: 1;
-        content-align: center middle;
-    }
-    ModeSwitcher .mode-indicator {
-        color: #4f9cf9;
-        width: 2;
-        content-align: center middle;
-    }
+    dock: top;
+    height: 5;
+    padding: 0 1;
+    background: #0a0f1a;
+    border-bottom: solid #1e2433;
+}
+ModeSwitcher Horizontal {
+    height: 5;
+    align-horizontal: left;
+    align-vertical: middle;
+}
+ModeSwitcher Button {
+    min-width: 16;
+    height: 3;
+    margin: 0 1 0 0;
+}
     """
 
     current_mode: reactive[str] = reactive("text")
 
     def compose(self) -> ComposeResult:
         with Horizontal():
-            for i, mode in enumerate(MODES):
-                is_active = mode == self.current_mode
+            for mode in MODES:
                 label = f"{MODE_ICONS[mode]}  {MODE_LABELS[mode]}"
-                btn = Static(
-                    f"[bold {'#e2e8f0' if is_active else '#334155'}]{label}[/]",
-                    classes="mode-btn" + (" active" if is_active else ""),
+                is_active = mode == self.current_mode
+                yield Button(
+                    label,
                     id=f"mode-{mode}",
+                    variant="primary" if is_active else "default",
                 )
-                yield btn
-                if i < len(MODES) - 1:
-                    yield Static("│", classes="mode-divider")
 
-    def on_click(self, event) -> None:
-        widget = event.widget if hasattr(event, 'widget') else None
-        target = widget
-        while target is not None:
-            if isinstance(target, Static) and "mode-btn" in target.classes:
-                break
-            target = getattr(target, 'parent', None)
-
-        if target is None:
-            return
-
-        target_id = target.id or ""
-        if target_id.startswith("mode-"):
-            new_mode = target_id[5:]
+    @on(Button.Pressed)
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+        if button_id.startswith("mode-"):
+            new_mode = button_id[5:]
             if new_mode in MODES:
                 self.set_mode(new_mode)
 
@@ -275,14 +250,8 @@ class ModeSwitcher(Static):
         self.current_mode = mode
         for m in MODES:
             try:
-                btn = self.query_one(f"#mode-{m}", Static)
-                is_active = m == mode
-                label = f"{MODE_ICONS[m]}  {MODE_LABELS[m]}"
-                btn.update(f"[bold {'#e2e8f0' if is_active else '#334155'}]{label}[/]")
-                if is_active:
-                    btn.add_class("active")
-                else:
-                    btn.remove_class("active")
+                btn = self.query_one(f"#mode-{m}", Button)
+                btn.variant = "primary" if m == mode else "default"
             except NoMatches:
                 pass
         self.post_message(self.ModeChanged(mode))
@@ -457,8 +426,21 @@ Header .header--clock {
 Footer {
     background: #0a0f1a;
     color: #334155;
-    border-top: solid #1e2433;
-    height: 1;
+    opacity:0.55;
+}
+Button.-primary {
+    background: #bd93f9;
+    color: #000000;
+    border-top: tall #d6b8fb;
+    border-bottom: tall #9b6fd4;
+}
+Button.-primary:hover {
+    background: #caa8fb;
+    color: #000000;
+}
+Button.-primary:focus {
+    background: #bd93f9;
+    color: #000000;
 }
 Footer .footer--key {
     color: #4f9cf9;
@@ -486,7 +468,7 @@ Footer .footer--description {
 
 #input-bar {
     height: 4;        /* ← fixed height, no dock */
-    padding: 0 2;
+    padding: 0 0;
     background: #0a0f1a;
     border-top: solid #1e2433;
     align-vertical: middle;
@@ -496,24 +478,23 @@ Footer .footer--description {
     height: auto;
     padding: 0 1;
 }
-
 #user-input {
     width: 100%;
-    border: round #1e2433;
     background: #131929;
     color: #e2e8f0;
-    padding: 0 1;
+    
 }
 #user-input:focus {
-    border: round #4f9cf9;
     background: #131929;
+    border: tall #caa8fb;
 }
 #user-input>.input--placeholder {
     color: #2d3748;
 }
+
 Rule {
-    color: #1e2433;
-    margin: 1 0;
+    color: #1e243300;
+    margin: 0 0;
 }
 """
 
@@ -1016,7 +997,17 @@ class AVAApp(App):
         if panels:
             last_panel = list(panels)[-1]
             display_result = result[:300] + ("..." if len(result) > 300 else "")
-            last_panel.mount(Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result"))
+            try:
+                # Textual stores collapsible body content in a `Contents` widget
+                from textual.widgets._collapsible import CollapsibleTitle
+                contents = last_panel.query_one("Collapsible > Contents")
+                contents.mount(
+                    Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result")
+                )
+            except NoMatches:
+                last_panel.mount(
+                    Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result")
+                )
             self._scroll_to_bottom()
 
     def _add_system_message(self, text: str) -> None:

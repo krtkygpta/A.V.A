@@ -137,6 +137,8 @@ WHEN TO USE TOOLS:
 - File operations → create_file, open_file, save_text
 - Use tool before replying to user
 - Use inform_user_between_tool_calls when you need to update the user between multiple tool calls. This keeps the tool loop active while providing progress updates or intermediate information. Always use this when chaining tool operations and you need to communicate with the user during the process.
+- ALSO USE INFORM USER TOOL WHEN YK THE NEXT TOOL CALL WILL TAKE SOME TIME TO RUN, inform user you are going to do so and so.
+TIME TAKING TOOLS ARE: WEATHER, WEBDATA, PLAY MUSIC 
 - Any data you create should be stored in %USER%/Documents/AVA folder
 
 BACKGROUND TASKS:
@@ -164,6 +166,20 @@ Always use ENGLISH or the language of the user to respond'''
 
 }]
 tools = [
+    {
+        'type': 'function',
+        'function': {
+            'name': 'ping',
+            'description': 'Ping the user',
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'duration_seconds': {'type': 'integer', 'description': 'How long to ring (in seconds)'},
+                },
+                'required': ['duration_seconds']
+            }
+        }
+    },
         {
             'type': 'function',
             'function': {
@@ -287,21 +303,21 @@ tools = [
                 }
             }
         },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'timer',
-                'description': 'Start a timer',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'timer_length': {'type': 'integer', 'description': 'Length of the timer in seconds'},
-                        'tool_id': {'type': 'string', 'description': 'Call ID of the tool to be used'}
-                    },
-                    'required': ['timer_length', 'tool_id']
-                }
-            }
-        },
+        # {
+        #     'type': 'function',
+        #     'function': {
+        #         'name': 'timer',
+        #         'description': 'Start a timer',
+        #         'parameters': {
+        #             'type': 'object',
+        #             'properties': {
+        #                 'timer_length': {'type': 'integer', 'description': 'Length of the timer in seconds'},
+        #                 'tool_id': {'type': 'string', 'description': 'Call ID of the tool to be used'}
+        #             },
+        #             'required': ['timer_length', 'tool_id']
+        #         }
+        #     }
+        # },
         {
             'type': 'function',
             'function': {

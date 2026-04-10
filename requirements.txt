@@ -21,6 +21,6 @@ sounddevice==0.5.2
 soundfile
 vosk==0.3.45
 ytmusicapi==1.11.3
-./playsound-1.3.0-py3-none-any.whl
+./assets/playsound-1.3.0-py3-none-any.whl
 fpdf==2.7.2
 textual>=0.80.0
