@@ -129,8 +129,9 @@ class VoiceRecorder:
             text = recorder.get_whisper_result(timeout=15)
     """
 
-    def __init__(self, sample_rate=16000, threshold=0.002, silence_duration=1.5, min_record_time=1.0):
+    def __init__(self, sample_rate=16000, threshold=0.002, silence_duration=1.5, min_record_time=1.0, status_callback=None):
         self.sample_rate = sample_rate
+        self.status_callback = status_callback
         self.chunk_size = 4000
         self.base_threshold = threshold
         self.threshold = threshold
@@ -388,6 +389,7 @@ class VoiceRecorder:
                         # Show [Listening] immediately on first voice frame for user feedback
                         if self.consecutive_voice == 0:
                             print("\r[Listening] ", end="", flush=True)
+                            if self.status_callback: self.status_callback("[Listening] Speech detected...")
 
                         self.consecutive_voice += 1
                         confirm_buffer.append(data)
@@ -416,6 +418,7 @@ class VoiceRecorder:
                         if self.consecutive_voice > 0:
                             # Clear the [Listening] indicator if it was a false trigger
                             print("\r                    \r", end="", flush=True)
+                            if self.status_callback: self.status_callback("Waiting for voice...")
                         self.consecutive_voice = 0
                         confirm_buffer = []
                         self._update_noise_floor(data)
@@ -432,12 +435,15 @@ class VoiceRecorder:
                         result = json.loads(self.recognizer.Result())
                         if text := result.get("text", ""):
                             print(f"\r>> {text}                    ", end="", flush=True)
+                            if self.status_callback: self.status_callback(f"Hearing: {text}")
                             last_partial = ""
                     else:
                         partial_text = json.loads(self.recognizer.PartialResult()).get("partial", "")
                         if partial_text and partial_text != last_partial:
                             last_partial = partial_text
                             print(f"\r>> {partial_text}          ", end="", flush=True)
+                            if partial_text and self.status_callback:
+                                self.status_callback(f"Hearing: {partial_text}")
                 
                 # ── SILENCE DETECTION ──
                 if not is_voice_now:
@@ -446,6 +452,7 @@ class VoiceRecorder:
                         if recorded_chunks >= min_recorded_chunks:
                             # Recording complete — save and start background Whisper
                             print()
+                            if self.status_callback: self.status_callback("Transcribing with Whisper...")
                             filename = self.save_recording()
                             # Fire Whisper in background thread immediately
                             self._whisper_result = None
@@ -469,6 +476,7 @@ class VoiceRecorder:
                             )
                             self.frames = []
                             print("\r[Listening] ", end="", flush=True)
+                            if self.status_callback: self.status_callback("[Listening] Speech detected...")
                 else:
                     silent_chunks = 0
                     

@@ -159,7 +159,8 @@ FALLBACK STRATEGIES:
 - Image Analysis: If the vision model can't identify something directly, request a detailed description of the visual scene and then use `webdata` to search for matches on the web.
 - Impossible Tasks: If a task seems impossible for you, consider if it can be achieved by writing and running a Python script. If yes, use `code_executor`.
 
-Remember: You are a VOICE assistant first. Every response should sound natural when spoken aloud.'''
+Remember: You are a VOICE assistant first. Every response should sound natural when spoken aloud.
+Always use ENGLISH or the language of the user to respond'''
 
 }]
 tools = [

@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 # ── Import AVA internals (same ones __main__.py uses) ───────────────────────
 from config import USER_NAME, ASSISTANT_NAME
 from core.AppStates import main_runner, stop_event
+_mode_switch_event = threading.Event()
 from core.FuncHandler import handle_tool_call
 from core.generate import generate_response
 from core.messageHandler import add_message, reset_messages
@@ -664,9 +665,9 @@ class AVAApp(App):
         self._update_status(f"ready  ·  {MODE_LABELS.get(new_mode, new_mode).lower()} mode")
 
         if self._voice_thread and self._voice_thread.is_alive():
-            stop_event.set()
-            time.sleep(0.2)
-            stop_event.clear()
+            _mode_switch_event.set()
+            self._voice_thread.join(timeout=3.0)
+            _mode_switch_event.clear()
 
         if new_mode != "text":
             self._start_voice_mode(new_mode)
@@ -839,9 +840,11 @@ class AVAApp(App):
         tts_piper.init_tts()
         self.call_from_thread(self._add_system_message, "continuous listening active")
 
-        recorder = stt.VoiceRecorder()
-        while self.current_mode == "continuous":
+        recorder = stt.VoiceRecorder(status_callback=lambda txt: self.call_from_thread(self._handle_status_update, txt))
+        while self.current_mode == "continuous" and not _mode_switch_event.is_set():
             success, filename = recorder.record()
+            if _mode_switch_event.is_set():
+                break
             if success:
                 prompt = recorder.get_whisper_result(timeout=15)
                 transcription = prompt if prompt is not None else ""
@@ -852,9 +855,10 @@ class AVAApp(App):
                     reset_messages()
                     self.call_from_thread(self._set_conversation_active, True)
 
-                    while self.current_mode == "continuous":
-                        while main_runner.is_set() or main_running.is_set():
+                    while self.current_mode == "continuous" and not _mode_switch_event.is_set():
+                        while (main_runner.is_set() or main_running.is_set()) and not _mode_switch_event.is_set():
                             time.sleep(0.01)
+                        if _mode_switch_event.is_set(): break
 
                         self.call_from_thread(self._add_user_message, transcription)
 
@@ -867,8 +871,10 @@ class AVAApp(App):
                         add_message(role="user", content=user_msg, tool_id="")
 
                         main_running.wait(timeout=5.0)
-                        while main_running.is_set():
+                        if _mode_switch_event.is_set(): break
+                        while main_running.is_set() and not _mode_switch_event.is_set():
                             time.sleep(0.01)
+                        if _mode_switch_event.is_set(): break
 
                         timeout = tts_piper.get_last_duration() + 7
                         continued, _ = recorder.record(timeout=timeout, silence_duration=2.5)
@@ -896,10 +902,10 @@ class AVAApp(App):
             self._voice_continuous()
             return
 
-        recorder = stt.VoiceRecorder()
+        recorder = stt.VoiceRecorder(status_callback=lambda txt: self.call_from_thread(self._handle_status_update, txt))
         self.call_from_thread(self._add_system_message, f"wake word mode active  ·  say '{ASSISTANT_NAME}' to activate")
 
-        while self.current_mode == "wakeword":
+        while self.current_mode == "wakeword" and not _mode_switch_event.is_set():
             self.call_from_thread(self._update_status, "listening for wake word...")
             detector.listen_for_wakeword()
 
@@ -924,7 +930,7 @@ class AVAApp(App):
                 self.call_from_thread(self._set_conversation_active, False)
                 continue
 
-            while self.current_mode == "wakeword":
+            while self.current_mode == "wakeword" and not _mode_switch_event.is_set():
                 if not main_runner.is_set():
                     self.call_from_thread(self._add_user_message, transcription)
 
@@ -937,8 +943,10 @@ class AVAApp(App):
                     add_message(role="user", content=full, tool_id="")
 
                     main_running.wait(timeout=5.0)
-                    while main_running.is_set():
+                    if _mode_switch_event.is_set(): break
+                    while main_running.is_set() and not _mode_switch_event.is_set():
                         time.sleep(0.01)
+                    if _mode_switch_event.is_set(): break
 
                     timeout = tts_piper.get_last_duration() + 7
                     continued, _ = recorder.record(timeout=timeout)
@@ -1022,6 +1030,46 @@ class AVAApp(App):
         log = self.query_one("#chat-log", Vertical)
         log.mount(Rule())
         self._scroll_to_bottom()
+
+    def _handle_status_update(self, txt: str) -> None:
+        if txt.startswith("Hearing: "):
+            partial_text = txt.replace("Hearing: ", "")
+            self._update_live_transcription(partial_text)
+        elif txt == "[Listening] Speech detected...":
+            self._start_live_transcription()
+        elif txt == "Transcribing with Whisper...":
+            self._update_status("transcribing audio...")
+            self._end_live_transcription()
+        else:
+            self._update_status(txt)
+
+    def _start_live_transcription(self) -> None:
+        if getattr(self, "_live_msg", None):
+            return
+        ts = datetime.now().strftime("%H:%M")
+        self._live_msg = ChatMessage(
+            f"[bold #4f9cf9]{USER_NAME} [italic #94a3b8](listening...)[/][/]  [#456186]{ts}[/]\n",
+            classes="user-msg",
+        )
+        self._live_text = ""
+        log = self.query_one("#chat-log", Vertical)
+        log.mount(self._live_msg)
+        self._scroll_to_bottom()
+
+    def _update_live_transcription(self, text: str) -> None:
+        self._live_text = text
+        if getattr(self, "_live_msg", None):
+            ts = datetime.now().strftime("%H:%M")
+            self._live_msg.update(f"[bold #4f9cf9]{USER_NAME} [italic #94a3b8](listening...)[/][/]  [#456186]{ts}[/]\n[#e2e8f0]{text}[/]")
+            self._scroll_to_bottom()
+
+    def _end_live_transcription(self) -> None:
+        if getattr(self, "_live_msg", None):
+            try:
+                self._live_msg.remove()
+            except Exception:
+                pass
+            self._live_msg = None
 
     def _update_status(self, text: str) -> None:
         try:
