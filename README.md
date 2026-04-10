@@ -122,8 +122,3 @@ playwright install
 * **`Ctrl+C`** — Pulse Emergency Shutdown.
 
 ---
-
-<div align="center">
-  <p><i>"Bringing the future of human-machine interaction into the present terminal."</i></p>
-  <sub>Built by <b>Antigravity</b> for the next frontier.</sub>
-</div>
