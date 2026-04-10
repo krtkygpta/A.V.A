@@ -32,9 +32,12 @@ from groq import Groq
 import logging
 
 from core.AppStates import stop_event
-import dotenv
-
-dotenv.load_dotenv()
+_settings_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'settings.json')
+try:
+    with open(_settings_path, 'r') as _f:
+        os.environ.update({k: str(v) for k, v in json.load(_f).items()})
+except Exception:
+    pass
 # Groq client for Whisper transcription
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 

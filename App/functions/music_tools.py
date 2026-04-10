@@ -3,6 +3,8 @@ import requests
 import json
 import webbrowser
 from ytmusicapi import YTMusic
+import subprocess
+import sys
 
 # Singleton YTMusic client — avoids slow re-initialization on every song search
 _ytmusic = YTMusic()
@@ -28,26 +30,8 @@ def song_url(song_name):
     except Exception as e:
         print(f"[Music] Error: {e}")
         return None
-# def music(song):
-# 	url = 'http://127.0.0.1:5000/edith/tools'
-
-# 	if song == "":
-# 		song = 'beliver'
-# 	data = {
-# 		'tool': 'song_url',
-# 		'song_title': song
-# 	}
-# 	response = requests.post(url, json=data)
-# 	if response.status_code != 200:  # Check for successful response
-# 		print("Error: Unable to retrieve song URL")
-# 		return ""
-# 	print((response))
-# 	return response.json()
-
-
 
 def music_control(action: str, song_name: str = "") -> str:
-
 	if action == "play_new":
 		hi = song_url(song_name)
 		webbrowser.open(hi)
@@ -69,4 +53,30 @@ def music_control(action: str, song_name: str = "") -> str:
 	else:
 		return json.dumps({'status': 'error', 'message': 'Invalid action'})
 
-# music_control("play_new", "shape of you")
+
+class MusicControllerSubprocess:
+    def __init__(self):
+        self.proc = None
+    
+    def _ensure_started(self):
+        if self.proc is None or self.proc.poll() is not None:
+            # Start separate Python interpreter with just the server file
+            self.proc = subprocess.Popen(
+                [sys.executable, "music_server.py"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+    
+    def control(self, action, song_name=None):
+        self._ensure_started()
+        cmd = {"action": action, "song": song_name}
+        self.proc.stdin.write(json.dumps(cmd) + "\n")
+        self.proc.stdin.flush()
+        result = self.proc.stdout.readline()
+        if result:
+            return json.loads(result)
+        return {"status": "error", "message": "No response from subprocess"}
+
+mc = MusicControllerSubprocess()

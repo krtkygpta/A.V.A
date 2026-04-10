@@ -1,5 +1,10 @@
-from gevent import monkey
-monkey.patch_all(thread=False) 
+# # ── Mode selection (must be before gevent import) ────────────────────────────
+# START_MODE = "tui"  # Options: "continuous", "vosk", "text", "tui"
+
+# # Skip gevent monkey-patching for TUI mode — it breaks Textual's threading
+# if START_MODE != "tui":
+#     from gevent import monkey
+#     monkey.patch_all(thread=False)
 import random
 import os
 import wave
@@ -479,13 +484,7 @@ def text_mode():
         save_current_conversation()
         print(f"[{ASSISTANT_NAME.upper()}] Conversation saved. Say my name when you need me.")
 
-
-# ============================================================================
-# CONFIGURATION: Choose wake mode here
-# ============================================================================
-START_MODE = "text"  # Options: "continuous", "vosk", "text"
-
-
+START_MODE = 'tui'
 def start():
     """
     Application entry point: starts the main response thread and
@@ -493,9 +492,16 @@ def start():
     """
 
     main_runner.clear()
+    
+    if START_MODE == "tui":
+        # TUI mode handles its own main loop — don't start the classic one
+        from ui.tui import run_tui
+        run_tui(start_mode="text")
+        return
+
     # Start the main response loop in a background daemon thread
     threading.Thread(target=main, daemon=True).start()
-    
+
     print(f"[{ASSISTANT_NAME.upper()}] Starting in '{START_MODE}' wake mode...")
     
     if START_MODE == "vosk":

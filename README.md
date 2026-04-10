@@ -11,8 +11,8 @@
 Built with a modular Client-Server architecture, **A.V.A** provides low-latency interactions, persistent semantic memory, and a suite of powerful local and remote tools. 
 
 A.V.A is split into two primary components:
-- 💻 **The Client**: Handles audio capturing (STT), speech synthesis (TTS), local tool execution, and the main interaction loop.
-- ⚙️ **The Server**: An optional but powerful backend that offloads heavy processing like vision analysis, complex data retrieval, and acts as a relay for specific API integrations.
+- 💻 **The Client (`/App`)**: Handles audio capturing (STT), speech synthesis (TTS playback), the Textual User Interface (TUI), local tool execution, and the main interaction loop.
+- ⚙️ **The Server (`/Server`)**: A dedicated backend server that offloads heavy processing like LLM API requests, text-to-speech generation, context/conversation state storage, and complex data retrievals.
 
 ---
 
@@ -20,43 +20,55 @@ A.V.A is split into two primary components:
 
 ### 🎧 Advanced Audio Pipeline
 * **Hybrid Speech-to-Text**: Combines local **Vosk** models for live, low-latency wake-word display and **Groq Whisper-v3** for high-precision final transcription.
-* **Piper TTS**: Fully local, high-speed text-to-speech engine running via the `piper-tts` Python library.
+* **Piper TTS Backend**: High-speed text-to-speech engine running via the `piper-tts` Python library.
 * **VAD & Queue Logic**: Advanced Voice Activity Detection equipped with a 2.5s pre-buffer to ensure no words are cut off at the start or end of sentences.
 
 ### 🧠 Knowledge & Memory
 * **Semantic Memories**: Automatically extracts and stores key details from discussions to build long-term context seamlessly.
 * **Thread Management**: Each wake-word activation spins up a distinct, named conversation thread to prevent context bloat.
 
-### 🛠️ Built-in Tools
+### 🎨 TUI (Textual User Interface)
+* A beautifully designed Terminal UI resembling Claude Code.
+* Live markdown rendering, tool execution logs, and mode-switching from directly within the terminal shell!
+
+### 🛠️ Built-in Combined Tools
 * **Smart Home**: Native control of your **Philips WiZ** smart lights over your local network.
-* **Media Control**: Window-native control for Spotify/Apple Music and volume logic.
-* **Research & Sandbox**: Web scraping, local sandbox code execution, and vision-based image analysis requests.
+* **Media & Music Tools**: Window-native control for Spotify/Apple Music, background music servers, and queues.
+* **Web & API Tools**: Web scraping, local sandbox code execution, weather aggregation, and Google Gemini powered search fallbacks.
+* **Document Tools**: Dynamically render markdown to PDFs, handle text creations, and manage workspaces locally.
 
 ---
 
 ## 🚀 Setup & Installation
 
-### 1. Environment Configuration
-Create a `.env` file in the **project root** directory. Below are the required API keys and where to obtain them:
+### 1. Unified Configuration (`settings.json`)
+A.V.A uses JSON files instead of `.env` for cross-platform robustness. 
 
-```env
-# Core API Keys
-GROQ_API_KEY=your_groq_key             # 🔑 Get it here: https://console.groq.com/keys
-OPENAI_API_KEY=your_openai_key         # 🔑 Get it here: https://platform.openai.com/api-keys
-GOOGLE_AI_API_KEY=your_google_ai_key   # 🔑 Get it here: https://aistudio.google.com/app/apikey
-WEATHER_API_KEY=your_weather_api_key   # 🔑 Get it here: https://www.weatherapi.com/
+**Client Configuration**: Create a `settings.json` file in the **project root** directory:
+```json
+{
+  "GROQ_API_KEY": "your_groq_key",
+  "OPENAI_API_KEY": "your_openai_key",
+  "GOOGLE_AI_API_KEY": "your_google_ai_key",
+  "WEATHER_API_KEY": "your_weather_api_key",
+  "USER_NAME": "Your_Name",
+  "ASSISTANT_NAME": "AVA",
+  "AVA_SERVER_URL": "http://127.0.0.1:8765"
+}
+```
 
-# Bot Personality & Addressing
-USER_NAME="Your_Name"
-ASSISTANT_NAME="FRIDAY"
-
-# Optional overrides (e.g., for local models via LM Studio)
-OPENAI_BASE_URL="https://api.groq.com/openai/v1" 
-MODEL_NAME="moonshotai/kimi-k2-instruct-0905" 
+**Server Configuration**: Create a second `settings.json` natively inside the **`Server/`** directory to manage backend model operations:
+```json
+{
+  "GROQ_API_KEY": "your_groq_key",
+  "OPENAI_API_KEY": "your_openai_key",
+  "SERVER_HOST": "127.0.0.1",
+  "SERVER_PORT": 8765
+}
 ```
 
 ### 2. Dependency Installation
-Install the necessary requirements. We have pruned the `requirements.txt` to only include the packages actively used in the codebase to keep your environment lightweight:
+Install the necessary requirements for both sides. We have pruned the `requirements.txt` to only include the packages actively used in the codebase:
 
 ```bash
 pip install -r requirements.txt
@@ -73,36 +85,28 @@ pip install -r requirements.txt
 
 ## 💻 Execution Guide
 
-The Client is the main interface you interact with continuously. Start the client by running:
+Since A.V.A has a client-server relationship, you must launch the backend first before testing the client loop.
 
-```bash
-python App/__main__.py
-```
-
-For the current architecture, start the backend server first (generation, TTS, and conversation storage now run there):
+### 1. Start the Server
+Navigate to the root and spin up the server module. This handles memory, LLMs, and TTS:
 
 ```bash
 python -m Server
 ```
 
-The backend code is now separated in the top-level `Server/` folder and organized for easy extension:
-- `Server/app.py` contains the route table and endpoint handlers
-- `Server/services/` contains `llm_service.py`, `tts_service.py`, and `conversation_store.py`
-- To add future server-side tools/functions, add new route handlers in `Server/app.py` and call new service methods
+### 2. Start the Client
+Open a secondary terminal split and launch the A.V.A interaction client:
 
-Optional `.env` values for client/server connection:
-
-```env
-AVA_SERVER_HOST=127.0.0.1
-AVA_SERVER_PORT=8765
-AVA_SERVER_URL=http://127.0.0.1:8765
+```bash
+python App/__main__.py
 ```
 
-### ⚙️ Configuration Modes
-Set the mode within `App/__main__.py` depending on your current needs:
-* `WAKE_MODE = "continuous"`: (Default) Transcribes all ambient audio to watch explicitly for wake-words.
-* `WAKE_MODE = "vosk"`: Uses local Vosk context to silently run wake-word detection **(Recommended footprint)**.
-* `WAKE_MODE = "text"`: Terminal mode mapped for quick debugging via keyboard input.
+### ⚙️ Operating Modes
+Set `START_MODE` within `App/__main__.py` to toggle interaction states:
+* `START_MODE = "tui"`: (Default) Launches the interactive Textual terminal UI dashboard.
+* `START_MODE = "continuous"`: Background mode that maps and transcribes all ambient audio indefinitely.
+* `START_MODE = "vosk"`: Silently spins a low-cpu local Vosk model to watch for your wake word before turning on Groq transcription.
+* `START_MODE = "text"`: Headless terminal chat execution mapped for debugging bypassing the microphone.
 
 ---
 
@@ -125,4 +129,5 @@ A.V.A inherently ships with baked-in support targeting **Philips WiZ** bulbs run
 
 ## 📚 Developer Notes & Shortcuts
 - 🛑 Press **`Ctrl+C`** or forcefully say **"Shut Up"** during playback to immediately kill the assistant's voice streams.
-- 💾 All conversation threads and episodic memories are transparently cached as JSON inside the `App/data/` directory.
+- All code runs inside isolated Python sandbox endpoints (`sandbox.py`) when you ask it to generate code tools.
+- All endpoints map through the robust `document_tools`, `web_tools`, `music_tools`, and `time_tools` combinations handled automatically by A.V.A via JSON payloads.

@@ -16,9 +16,12 @@ import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from groq import Groq
-import dotenv
-
-dotenv.load_dotenv()
+_settings_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'settings.json')
+try:
+    with open(_settings_path, 'r') as _f:
+        os.environ.update({k: str(v) for k, v in json.load(_f).items()})
+except Exception:
+    pass
 
 # Directory to store conversations
 CONVERSATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "conversations")

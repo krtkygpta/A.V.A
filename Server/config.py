@@ -5,10 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+import json
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(dotenv_path=ROOT_DIR / ".env")
+_settings_path = ROOT_DIR / "Server" / "settings.json"
+try:
+    with open(_settings_path, 'r') as _f:
+        os.environ.update({k: str(v) for k, v in json.load(_f).items()})
+except Exception:
+    pass
 
 
 @dataclass(frozen=True)

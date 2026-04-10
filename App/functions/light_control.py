@@ -3,6 +3,9 @@ import asyncio
 import json
 import threading
 
+asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
 main_dict = {
     'Lights': 'd8a0118d79e9',
     'Lamp': 'd8a011fe9baf'
