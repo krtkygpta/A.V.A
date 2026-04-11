@@ -120,5 +120,7 @@ playwright install
 * **`python -m Server`** — Initialize the Neural Backend.
 * **`python App/__main__.py`** — Establish the Neural Link (Client).
 * **`Ctrl+C`** — Pulse Emergency Shutdown.
+* **`Ctrl+I`** — Access the Settings Matrix.
+* **`Ctrl+Q`** — Termination sequence (Quit).
 
 ---

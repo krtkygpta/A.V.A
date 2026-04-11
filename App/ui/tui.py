@@ -510,7 +510,7 @@ class AVAApp(App):
         Binding("ctrl+n", "new_conversation", "New Chat", show=True),
         Binding("ctrl+m", "cycle_mode", "Cycle Mode", show=True),
         Binding("escape", "focus_input", "Focus Input", show=False),
-        Binding("ctrl+comma", "toggle_settings", "Settings", show=True),
+        Binding("ctrl+i", "toggle_settings", "Settings", show=True),
         Binding("ctrl+s", "save_settings", "Save Settings", show=False),
 
     ]
@@ -742,6 +742,7 @@ class AVAApp(App):
                 if completion_queue.has_notifications():
                     completed_summary = check_and_format_completions()
                     if completed_summary:
+                        self.call_from_thread(self._add_system_message, f"background task update: {completed_summary}")
                         add_message(
                             role="user",
                             content=f"[SYSTEM NOTIFICATION] {completed_summary}",

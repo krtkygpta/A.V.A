@@ -130,7 +130,7 @@ WHEN TO USE TOOLS:
 - Web searches or questions you dont know → webdata
 - Remember something about {USER_NAME} → memory_manager (save)
 - Need to recall his preferences → memory_manager (retrieve)
-- Control lights → light_control
+- Control lights or smart home devices → background_task (task_type: 'smarthome', configure 'command')
 - Screenshots or camera → image_description_tool (ask specific questions about visual input). If you're unsure what something is, ask for a description and then use `webdata` to research it.
 - Long research tasks → background_task (let it run while chatting)
 - Calculations or complex tasks → code_executor (If you can't do something directly, use your sandbox agent to write and execute Python code to perform the task).
@@ -160,12 +160,62 @@ RESPONSE STYLE:
 FALLBACK STRATEGIES:
 - Image Analysis: If the vision model can't identify something directly, request a detailed description of the visual scene and then use `webdata` to search for matches on the web.
 - Impossible Tasks: If a task seems impossible for you, consider if it can be achieved by writing and running a Python script. If yes, use `code_executor`.
+ALERTS AND NOTIFICATIONS:
+You have two ways to get the user's attention or deliver updates, use them based on severity.
+
+PING FUNCTION (ping):
+Use ping to make an audible alert sound. It repeats until acknowledged for persistent alerts, or fires once for a quick sound cue.
+- Persistent ping (keeps going until dismissed): Use when something demands immediate attention and cannot wait. Examples: a timer that has ended, a critical calendar reminder, urgent health alerts from the health agent, or an important email flagged as time-sensitive by the email agent.
+- Severity rule: The more urgent or time-sensitive the situation, the more justified a persistent ping is. If a sub-agent (email reader, health tracker) reports something critical, escalate to a persistent ping immediately. If it is routine or informational, a single ping or no ping at all is appropriate.
+
+NOTIFICATIONS (send_notification):
+Use notifications for lower-priority updates that do not need to interrupt the user mid-task. These appear silently on screen and are ideal for asynchronous updates.
+- Use when: A background research task finishes, a sub-agent reports a non-urgent finding, a reminder is informational rather than time-critical, or you want to log something for the user to check later at their convenience.
+- Do not use notifications for emergencies. If something is urgent, ping first, then speak.
+- RESEARCH COMPLETION FLOW: When a background research task finishes, send a notification to let the user know it is ready. Wait for the user to respond or ask for it. Only then summarize the findings. Do not dump the results unprompted.
+
+DECISION GUIDE (ping vs notification vs just speaking):
+- Timer ended or deadline hit → persistent ping, then speak the alert
+- Critical email or health flag from sub-agent → persistent ping, then speak
+- Background research done → notification only, wait for user to respond, then summarize
+- Routine sub-agent report → notification only, no ping
+- Quick confirmation of a command → single ping or nothing
+- Just finished a task the user is actively waiting on → just speak, no ping needed
+
+SEVERITY LADDER:
+1. Critical (persistent ping + speech): Timers expired, urgent health flags, high-priority emails, missed reminders
+2. Important (single ping + speech or notification): Task completions the user was waiting on, moderate-priority sub-agent reports
+3. Routine (notification only): Research done, low-priority emails, informational updates from sub-agents
+4. Passive (nothing): Background confirmations, non-actionable info
 
 Remember: You are a VOICE assistant first. Every response should sound natural when spoken aloud.
 Always use ENGLISH or the language of the user to respond'''
 
 }]
+
+
 tools = [
+    {
+    'type': 'function',
+    'function': {
+        'name': 'send_notification',
+        'description': 'Send a desktop notification after a task completes or when attention is not immediately required',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'title': {
+                    'type': 'string',
+                    'description': 'Title of the notification'
+                },
+                'message': {
+                    'type': 'string',
+                    'description': 'Body message of the notification'
+                }
+            },
+            'required': ['title', 'message']
+        }
+    }
+},
     {
         'type': 'function',
         'function': {
@@ -383,22 +433,7 @@ tools = [
                 }
             }
         },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'light_control',
-                'description': 'Control the lights',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'Light_name': {'type': 'string', 'description': 'The name of the light, the room light is called Lights, and the table lamp is Lamp', 'enum': ['Lights', 'Lamp']},
-                        'action': {'type': 'string', 'description': 'Turn on or off or set a specific brightness or color', 'enum': ['turn_on', 'turn_off', 'set']},
-                        'brightness': {'type': 'integer', 'description': 'Set the brightness (use only when using the set commands), it is a number between 1-100'}
-                    },
-                    'required': ['Light_name', 'action']
-                }
-            }
-        },
+
         {
             'type': 'function',
             'function': {
@@ -554,7 +589,7 @@ tools = [
                 'task_type': {
                     'type': 'string',
                     'description': 'Type of background task to run.',
-                    'enum': ['research', 'scrape', 'timer']
+                    'enum': ['research', 'scrape', 'timer', 'smarthome']
                 },
                 'topic': {
                     'type': 'string',
@@ -571,6 +606,10 @@ tools = [
                 'message': {
                     'type': 'string',
                     'description': 'For timer tasks: message to show when timer completes.'
+                },
+                'command': {
+                    'type': 'string',
+                    'description': 'For smarthome tasks: the natural language instruction to execute.'
                 }
             },
             'required': ['task_type']

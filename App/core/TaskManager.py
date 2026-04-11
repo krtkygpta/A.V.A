@@ -239,10 +239,12 @@ class ResearchAgent(SubAgent):
     
     def execute(self, **kwargs) -> str:
         # Import here to avoid circular imports
-        from functions.google_ai_response import get_google_ai_response
+        # from functions.google_ai_response import get_google_ai_response
         
         # Perform the research
-        result = get_google_ai_response(query=self.topic)
+        # result = get_google_ai_response(query=self.topic)
+        from functions.researcher import research
+        result = research(self.topic)
         return result
 
 
@@ -257,7 +259,7 @@ class WebScrapingAgent(SubAgent):
         self.url = url
     
     def execute(self, **kwargs) -> str:
-        from functions.web_data import fetch_website_data
+        from functions.web_tools import fetch_website_data
         result = fetch_website_data(url=self.url)
         return result
 
@@ -276,6 +278,22 @@ class TimerAgent(SubAgent):
     def execute(self, **kwargs) -> str:
         time.sleep(self.duration)
         return self.message
+
+
+class SmartHomeAgent(SubAgent):
+    """Sub-agent for managing smart home devices"""
+    
+    def __init__(self, command: str):
+        super().__init__(
+            task_name=f"SmartHome: {command[:20]}...",
+            task_description=f"Executing smart home command: {command}"
+        )
+        self.command = command
+    
+    def execute(self, **kwargs) -> str:
+        from functions.smarthome_agent import run_smarthome_agent
+        result = run_smarthome_agent(self.command)
+        return result
 
 
 # ============================================================================
@@ -299,6 +317,9 @@ def dispatch_background_task(task_type: str, **kwargs) -> tuple[str, str]:
         "timer": lambda: TimerAgent(
             kwargs.get("duration", 60),
             kwargs.get("message", "Timer complete")
+        ).start(),
+        "smarthome": lambda: SmartHomeAgent(
+            kwargs.get("command", "")
         ).start(),
     }
     

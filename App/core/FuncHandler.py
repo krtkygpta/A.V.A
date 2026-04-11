@@ -32,7 +32,7 @@ TOOL_CONFIGS = {
         'get_url_results': functions.fetch_website_data,
         'link_data': functions.fetch_website_data,
         'save_text': functions.save_text,
-        'light_control': functions.control_lights,
+        # 'light_control': functions.control_lights,
         'get_current_location': functions.get_gps_location,
         'create_file': functions.create_file,
         'open_file': functions.open_file,
@@ -48,6 +48,7 @@ TOOL_CONFIGS = {
         'createPDF': functions.create_pdf,
         # 'music_control': functions.mc.control,
         'ping': functions.ring_timer,
+        'send_notification': functions.send_notification,
     }
 
 

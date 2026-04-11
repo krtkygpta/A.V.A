@@ -1,3 +1,5 @@
+from plyer import notification
+
 import winsound
 import threading
 import time
@@ -52,6 +54,16 @@ def ring_timer(duration_seconds: int, frequency: int = 1000, beep_interval: floa
     return json.dumps({'status': 'success', 'content': 'Timer expired,try again'}) if not user_pressed.is_set() else json.dumps({'status': 'success', 'content': 'User responded'})
 
 
+
+def send_notification(title, message):
+    notification.notify(
+        title=title,
+        message=message,
+        app_name="AVA",
+        timeout=5  
+    )
+
+# Example usage
 # --- Example usage ---
 if __name__ == "__main__":
     print("Timer starting! Press any key to stop it early...")
