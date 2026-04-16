@@ -1,7 +1,7 @@
 import json
 import asyncio
 from openai import OpenAI
-from .SmartHome import control_lights, AC_TOOLS, execute_tool
+from SmartHome import control_lights, AC_TOOLS, execute_tool
 
 client = OpenAI(
     base_url='http://localhost:11434/v1/',
