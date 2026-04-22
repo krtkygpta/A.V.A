@@ -29,6 +29,9 @@ class Settings:
     tts_port: int
     tts_startup_timeout: float
     conversation_dir: Path
+    groq_api_key: str | None
+    google_ai_api_key: str | None
+    tavily_api_key: str | None
 
 
 
@@ -44,4 +47,7 @@ def get_settings() -> Settings:
         tts_port=int(os.getenv("AVA_LOCAL_PIPER_PORT", "5000")),
         tts_startup_timeout=float(os.getenv("AVA_LOCAL_PIPER_TIMEOUT", "60")),
         conversation_dir=Path(os.getenv("AVA_SERVER_CONVERSATIONS_DIR", ROOT_DIR / "Server" / "data" / "conversations")),
+        groq_api_key=os.getenv("GROQ_API_KEY"),
+        google_ai_api_key=os.getenv("GOOGLE_AI_API_KEY"),
+        tavily_api_key=os.getenv("TAVILY_API_KEY"),
     )

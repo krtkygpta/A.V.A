@@ -8,7 +8,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from config import ROOT_DIR, get_settings
-from services import ConversationStore, LLMService, TTSService
+from services import ConversationStore, LLMService, TTSService, ToolService
 
 
 @dataclass
@@ -51,6 +51,11 @@ class AvaServer:
             startup_timeout=settings.tts_startup_timeout,
             root_dir=ROOT_DIR,
         )
+        self.tools = ToolService(
+            groq_api_key=settings.groq_api_key,
+            google_ai_api_key=settings.google_ai_api_key,
+            tavily_api_key=settings.tavily_api_key,
+        )
 
         # Route table is intentionally explicit so adding endpoints is easy.
         self.routes: dict[tuple[str, str], Callable[[dict[str, Any]], Response]] = {
@@ -62,6 +67,11 @@ class AvaServer:
             ("POST", "/conversation/message"): self.conversation_message,
             ("POST", "/conversation/save"): self.conversation_save,
             ("POST", "/conversation/list"): self.conversation_list,
+            # Tool endpoints
+            ("POST", "/tools/google_ai"): self.tools_google_ai,
+            ("POST", "/tools/image_analysis"): self.tools_image_analysis,
+            ("POST", "/tools/code_execute"): self.tools_code_execute,
+            ("POST", "/tools/research"): self.tools_research,
         }
 
     def startup(self) -> None:
@@ -78,6 +88,8 @@ class AvaServer:
         try:
             return route(payload)
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             return Response.json({"error": str(exc)}, status=500)
 
     # Endpoints -----------------------------------------------------------------
@@ -124,6 +136,42 @@ class AvaServer:
     def conversation_list(self, payload: dict[str, Any]) -> Response:
         limit = int(payload.get("limit", 10))
         return Response.json({"conversations": self.conversations.list_recent(limit=limit)})
+
+    # Tool endpoints ------------------------------------------------------------
+
+    def tools_google_ai(self, payload: dict[str, Any]) -> Response:
+        """Google AI search with grounding."""
+        query = str(payload.get("query", "")).strip()
+        if not query:
+            return Response.json({"error": "Missing 'query'."}, status=400)
+        result = self.tools.google_ai_search(query=query)
+        return Response.json(result)
+
+    def tools_image_analysis(self, payload: dict[str, Any]) -> Response:
+        """Analyze image via Groq Vision."""
+        image_base64 = str(payload.get("image_base64", "")).strip()
+        query = str(payload.get("query", "Describe this image")).strip()
+        if not image_base64:
+            return Response.json({"error": "Missing 'image_base64'."}, status=400)
+        result = self.tools.analyze_image(image_base64=image_base64, query=query)
+        return Response.json(result)
+
+    def tools_code_execute(self, payload: dict[str, Any]) -> Response:
+        """Execute Python code in sandbox."""
+        code = str(payload.get("code", "")).strip()
+        timeout = int(payload.get("timeout", 5))
+        if not code:
+            return Response.json({"error": "Missing 'code'."}, status=400)
+        result = self.tools.execute_code(code=code, timeout=timeout)
+        return Response.json(result)
+
+    def tools_research(self, payload: dict[str, Any]) -> Response:
+        """Deep research agent."""
+        question = str(payload.get("question", "")).strip()
+        if not question:
+            return Response.json({"error": "Missing 'question'."}, status=400)
+        result = self.tools.research(question=question)
+        return Response.json(result)
 
 
 def _read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:

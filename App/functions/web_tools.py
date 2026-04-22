@@ -178,21 +178,19 @@ def webdata(query):
 # -----------------
 def get_google_ai_response(query: str) -> str:
     """
-    Get AI-generated response using Google's Gemini model with search capability
+    Get AI-generated response via the server API using Google's Gemini model with search capability.
     """
-    model_id = "gemma-4-26b-a4b-it"
-    google_search_tool = Tool(
-        google_search = GoogleSearch()
-    )
-
-    response = _client.models.generate_content(
-        model=model_id,
-        contents=query,
-        config=GenerateContentConfig(
-            tools=[google_search_tool],
-            response_modalities=["TEXT"],
-            max_output_tokens=2048
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/tools/google_ai",
+            json={"query": query},
+            timeout=DEFAULT_TIMEOUT
         )
-    )
-    
-    return json.dumps({'status': 'success', 'content': ' '.join(part.text for part in response.candidates[0].content.parts)}) # type: ignore
+        response.raise_for_status()
+        result = response.json()
+        if result.get("status") == "success":
+            return json.dumps({'status': 'success', 'content': result.get('content', '')})
+        else:
+            return json.dumps({'status': 'error', 'content': result.get('content', 'Unknown error')})
+    except requests.exceptions.RequestException as e:
+        return json.dumps({'status': 'error', 'content': f"Server request failed: {e}"})

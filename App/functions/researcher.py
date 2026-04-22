@@ -262,9 +262,28 @@ def run_research(question: str):
 
 def research(query):
     import json
-    result = run_research(query)
-    return json.dumps(result['final_answer'])
+    import requests
+    import os
     
+    SERVER_URL = os.getenv("AVA_SERVER_URL", "http://127.0.0.1:8765").rstrip("/")
+    DEFAULT_TIMEOUT = float(os.getenv("AVA_SERVER_TIMEOUT", "4"))
+    
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/tools/research",
+            json={"question": query},
+            timeout=max(DEFAULT_TIMEOUT, 600.0)
+        )
+        response.raise_for_status()
+        result = response.json()
+        
+        if result.get("status") == "success":
+            return json.dumps(result.get("content"))
+        else:
+            return json.dumps(f"Error: {result.get('content', 'Unknown error')}")
+    except requests.exceptions.RequestException as e:
+        return json.dumps(f"Error: Server request failed: {str(e)}")
+
 # ── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

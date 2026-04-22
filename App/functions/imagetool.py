@@ -4,8 +4,10 @@ import os
 import cv2
 import base64
 import json
-from groq import Groq
-from config import GROQ_API_KEY
+import requests
+
+SERVER_URL = os.getenv("AVA_SERVER_URL", "http://127.0.0.1:8765").rstrip("/")
+DEFAULT_TIMEOUT = float(os.getenv("AVA_SERVER_TIMEOUT", "4"))
 
 # BASE DIRECTORIES
 FUNCTIONS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,8 +18,8 @@ DATA_DIR = os.path.join(CLIENT_DIR, 'data')
 CAPTURED_IMAGES_DIR = os.path.join(DATA_DIR, 'captured_images')
 CAPTURED_SCREENS_DIR = os.path.join(DATA_DIR, 'captured_screens')
 
-# Initialize Groq client
-client = Groq(api_key=GROQ_API_KEY)
+# Initialize Groq client (kept for backwards compatibility, but image_tool now uses server API)
+client = None
 
 def encode_image(image_path):
     """Encode image to base64 string."""
@@ -59,31 +61,22 @@ def capture_and_save_image(camera_index=1, folder=None):
         return None
 
 def analyze_image_with_groq(image_path, query):
-    """Analyze an image using Groq's Vision model."""
+    """Analyze an image via the server API using Groq Vision."""
     try:
         base64_image = encode_image(image_path)
-        
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": query},
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}",
-                            },
-                        },
-                    ],
-                }
-            ],
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
+        response = requests.post(
+            f"{SERVER_URL}/tools/image_analysis",
+            json={"image_base64": base64_image, "query": query},
+            timeout=max(DEFAULT_TIMEOUT, 60.0)
         )
-        
-        return chat_completion.choices[0].message.content
-    except Exception as e:
-        return f"Error analyzing image with Groq: {str(e)}"
+        response.raise_for_status()
+        result = response.json()
+        if result.get("status") == "success":
+            return result.get("content", "")
+        else:
+            return f"Error: {result.get('content', 'Unknown error')}"
+    except requests.exceptions.RequestException as e:
+        return f"Error: Server request failed: {str(e)}"
 
 def capture_screen():
     """Capture a screenshot and return the file path."""

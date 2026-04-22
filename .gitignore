@@ -27,3 +27,5 @@ ENV/
 **/piper.zip
 **/**.onnx
 **/**.onnx.json
+
+**/.claude**
