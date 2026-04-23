@@ -7,6 +7,7 @@ Provides:
   - Mode switcher (continuous, text, wakeword)
   - Tool-call display with collapsible panels
   - Status bar showing current state
+  - Theme switching (AVA dark + Textual built-in themes)
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.message import Message
 from textual.reactive import reactive
+from textual.theme import Theme
 from textual.widgets import (
     Collapsible,
     Button,
@@ -50,6 +52,56 @@ from core.messageHandler import add_message, reset_messages
 from core.TaskManager import CompletionQueue, check_and_format_completions
 from knowledge.ConversationManager import start_new_conversation, save_current_conversation
 
+# ── Import theme definitions ──────────────────────────────────────────────────
+"""
+AVA Theme definitions.
+Provides custom "AVA" theme and configuration for other Textual themes.
+"""
+
+from textual.theme import Theme
+
+# Custom AVA theme - preserves original color scheme
+AVA_THEME = Theme(
+    name="ava",
+    primary="#a78bfa",           # Purple
+    secondary="#4f9cf9",         # Blue
+    background="#0d1117",        # Dark background
+    surface="#0a0f1a",          # Slightly lighter surface
+    panel="#131929",            # Panel background
+    boost="#bd93f9",            # Boosted primary (for hover)
+    foreground="#e2e8f0",       # Main text
+    success="#4ade80",          # Green for success
+    warning="#facc15",          # Yellow for warning
+    error="#ef4444",            # Red for error
+    accent="#38bdf8",           # Cyan accent
+)
+
+# Available built-in Textual themes
+AVAILABLE_THEMES = [
+    "ava",           # Custom AVA theme
+    "default",       # Textual default
+    "nord",          # Nord color scheme
+    "dracula",       # Dracula color scheme
+    "monochrome",    # Monochrome (B&W)
+    "sunset",        # Sunset colors
+    "copper",        # Copper theme
+    "tokyo-night",   # Tokyo Night theme
+    "fruity",        # Fruity theme
+    "forest",        # Forest theme
+]
+
+THEME_DESCRIPTIONS = {
+    "ava": "Custom AVA dark theme with purple accents",
+    "default": "Textual default theme",
+    "nord": "Nord color palette",
+    "dracula": "Dracula dark theme",
+    "monochrome": "Black and white monochrome",
+    "sunset": "Warm sunset colors",
+    "copper": "Copper metallic tones",
+    "tokyo-night": "Tokyo Night color scheme",
+    "fruity": "Fruity vibrant colors",
+    "forest": "Forest green tones",
+}
 # ── Constants ────────────────────────────────────────────────────────────────
 CONFIG_PATH = "settings.json"
 
@@ -61,6 +113,7 @@ CONFIG_DESCRIPTIONS = {
     "AVA_START_MODE":     "Startup mode: tui / continuous / wakeword",
     "GOOGLE_AI_API_KEY":  "Google AI (Gemini) API key",
     "WEATHER_API_KEY":    "OpenWeatherMap API key",
+    "THEME":              "UI theme: ava, default, nord, dracula, monochrome, sunset, copper, tokyo-night, fruity, forest",
 }
 
 CONFIG_SECRET_KEYS = {"GROQ_API_KEY", "GOOGLE_AI_API_KEY", "WEATHER_API_KEY"}
@@ -116,25 +169,25 @@ class ChatMessage(Static):
         margin: 0 0 1 0;
     }
     ChatMessage.user-msg {
-        color: #e2e8f0;
-        background: #1e2433;
-        border-left: thick #4f9cf9;
+        background: $panel;
+        border-left: thick $secondary;
         padding: 1 2 1 3;
+        color: $text;
     }
     ChatMessage.assistant-msg {
-        color: #e2e8f0;
-        background: #171c2a;
-        border-left: thick #a78bfa;
+        background: $boost;
+        border-left: thick $primary;
         padding: 1 2 1 3;
+        color: $text;
     }
     ChatMessage.tool-msg {
-        color: #94a3b8;
-        background: #131929;
-        border-left: thick #38bdf8;
+        background: $panel;
+        border-left: thick $accent;
         padding: 1 2 1 3;
+        color: $text-muted;
     }
     ChatMessage.system-msg {
-        color: #64748b;
+        color: $text-disabled;
         text-style: italic;
         padding: 0 2;
         margin: 0;
@@ -149,31 +202,31 @@ class ToolCallPanel(Static):
     ToolCallPanel {
         width: 100%;
         margin: 0 0 1 0;
-        background: #0f1520;
-        border-left: thick #f59e0b;
+        background: $panel;
+        border-left: thick $warning;
         opacity: 0.95;
     }
     ToolCallPanel Collapsible {
-        background: #0f1520;
+        background: $panel;
         border: none;
         padding: 0;
         margin: 0;
     }
     ToolCallPanel CollapsibleTitle {
-        color: #fbbf24;
-        background: #0f1520;
+        color: $warning;
+        background: $panel;
         padding: 0 2;
     }
     ToolCallPanel CollapsibleTitle:hover {
-        background: #131929;
-        color: #fcd34d;
+        background: $accent;
+        color: $boost;
     }
     ToolCallPanel .tool-args {
-        color: #475569;
+        color: $text-muted;
         padding: 0 2 0 4;
     }
     ToolCallPanel .tool-result {
-        color: #38bdf8;
+        color: $accent;
         padding: 0 2 1 4;
     }
     """
@@ -196,10 +249,10 @@ class ToolCallPanel(Static):
         with Collapsible(title=f"{self._func_name}", collapsed=False):
             if args_str and args_str != "{}":
                 display_args = args_str[:500] + ("..." if len(args_str) > 500 else "")
-                yield Static(f"[#475569]{display_args}[/]", classes="tool-args")
+                yield Static(f"{display_args}", classes="tool-args")
             if self._result:
                 display_result = self._result[:300] + ("..." if len(self._result) > 300 else "")
-                yield Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result")
+                yield Static(f"↳ {display_result}", classes="tool-result")
 
 
 class ModeSwitcher(Static):
@@ -207,22 +260,33 @@ class ModeSwitcher(Static):
 
     DEFAULT_CSS = """
     ModeSwitcher {
-    dock: top;
-    height: 5;
-    padding: 0 1;
-    background: #0a0f1a;
-    border-bottom: solid #1e2433;
-}
-ModeSwitcher Horizontal {
-    height: 5;
-    align-horizontal: left;
-    align-vertical: middle;
-}
-ModeSwitcher Button {
-    min-width: 16;
-    height: 3;
-    margin: 0 1 0 0;
-}
+        dock: top;
+        height: 5;
+        padding: 0 1;
+        background: $surface;
+        border-bottom: solid $panel;
+    }
+    ModeSwitcher Horizontal {
+        height: 5;
+        align-horizontal: left;
+        align-vertical: middle;
+    }
+    ModeSwitcher Button {
+        min-width: 16;
+        height: 3;
+        margin: 0 1 0 0;
+        border: none;
+    }
+    ModeSwitcher Button:focus {
+        border: none;
+        color: $foreground;
+    }
+    ModeSwitcher Button.-primary {
+        background: $primary;
+        color: $foreground;
+        text-style: bold;
+        border: none;
+    }
     """
 
     current_mode: reactive[str] = reactive("text")
@@ -272,9 +336,9 @@ class StatusBar(Static):
         dock: bottom;
         height: 1;
         padding: 0 2;
-        background: #0a0f1a;
-        color: #334155;
-        border-top: solid #1e2433;
+        background: $surface;
+        color: $text-muted;
+        border-top: solid $panel;
     }
     """
 
@@ -294,12 +358,12 @@ class SettingsScreen(Static):
         padding: 1 2;
     }
     SettingsScreen .settings-title {
-        color: #a78bfa;
+        color: $primary;
         text-style: bold;
         margin-bottom: 1;
     }
     SettingsScreen .settings-hint {
-        color: #334155;
+        color: $text-muted;
         text-style: italic;
         margin-bottom: 1;
     }
@@ -312,35 +376,35 @@ class SettingsScreen(Static):
         width: 24;
         height: 3;
         content-align: left middle;
-        color: #94a3b8;
+        color: $text-muted;
         text-style: bold;
     }
     SettingsScreen .setting-desc {
         width: 1fr;
         height: 3;
         content-align: left middle;
-        color: #334155;
+        color: $text-disabled;
         text-style: italic;
         padding: 0 1;
     }
     SettingsScreen .setting-input {
         width: 40;
         height: 3;
-        border: round #1e2433;
-        background: #131929;
-        color: #e2e8f0;
+        border: round $panel;
+        background: $boost;
+        color: $text;
         padding: 0 1;
     }
     SettingsScreen .setting-input:focus {
-        border: round #a78bfa;
+        border: round $primary;
     }
     SettingsScreen .settings-footer {
-        color: #334155;
+        color: $text-disabled;
         margin-top: 1;
         text-style: italic;
     }
     SettingsScreen .save-hint {
-        color: #38bdf8;
+        color: $accent;
         margin-top: 0;
     }
     """
@@ -351,9 +415,9 @@ class SettingsScreen(Static):
         self._inputs: dict[str, Input] = {}
 
     def compose(self) -> ComposeResult:
-        yield Static("[bold #a78bfa]⚙  settings[/]", classes="settings-title")
+        yield Static("[bold]⚙  settings[/]", classes="settings-title")
         yield Static(
-            "[#334155 italic]edit values below  ·  ctrl+s to save  ·  /settings or ctrl+, to close[/]",
+            "[italic]edit values below  ·  ctrl+s to save  ·  /settings or ctrl+, to close[/]",
             classes="settings-hint",
         )
         yield Rule()
@@ -363,8 +427,8 @@ class SettingsScreen(Static):
             is_secret = key in CONFIG_SECRET_KEYS
             placeholder = "••••••••" if (is_secret and val) else (str(val) if val else "not set")
             with Horizontal(classes="setting-row"):
-                yield Static(f"[bold #94a3b8]{key}[/]", classes="setting-label")
-                yield Static(f"[#334155]{desc}[/]", classes="setting-desc")
+                yield Static(f"[bold]{key}[/]", classes="setting-label")
+                yield Static(f"{desc}", classes="setting-desc")
                 inp = Input(
                     value="" if (is_secret and val) else str(val),
                     placeholder=placeholder,
@@ -377,11 +441,11 @@ class SettingsScreen(Static):
 
         yield Rule()
         yield Static(
-            "[#334155 italic]changes take effect after restart for most settings[/]",
+            "[italic]changes take effect after restart for most settings[/]",
             classes="settings-footer",
         )
         yield Static(
-            "[#38bdf8]ctrl+s[/] [#334155]save  ·[/] [#38bdf8]ctrl+,[/] [#334155]close[/]",
+            "[bold]ctrl+s[/] save  ·  [bold]ctrl+,[/] close",
             classes="save-hint",
         )
 
@@ -399,78 +463,77 @@ class SettingsScreen(Static):
             except NoMatches:
                 pass
         return result
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main Application
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MAIN_CSS = """
 Screen {
-    background: #0d1117;
+    background: $background;
 }
 Header {
-    background: #0a0f1a;
-    color: #64748b;
-    border-bottom: solid #1e2433;
+    background: $surface;
+    color: $text-muted;
+    border-bottom: solid $panel;
     height: 1;
 }
 Header .header--title {
-    color: #a78bfa;
+    color: $primary;
     text-style: bold;
 }
 Header .header--sub-title {
-    color: #334155;
+    color: $text-muted;
 }
 Header .header--clock {
-    color: #334155;
+    color: $text-muted;
 }
 Footer {
-    background: #0a0f1a;
-    color: #334155;
-    opacity:0.55;
+    background: $surface;
+    color: $text-muted;
+    opacity: 0.55;
 }
 Button.-primary {
-    background: #bd93f9;
-    color: #000000;
-    border-top: tall #d6b8fb;
-    border-bottom: tall #9b6fd4;
+    background: $boost;
+    color: $background;
+    border: none;
 }
 Button.-primary:hover {
-    background: #caa8fb;
-    color: #000000;
+    background: $primary;
+    color: $background;
 }
 Button.-primary:focus {
-    background: #bd93f9;
-    color: #000000;
+    background: $boost;
+    color: $background;
+    border: none;
 }
 Footer .footer--key {
-    color: #4f9cf9;
-    background: #0a0f1a;
+    color: $secondary;
+    background: $surface;
 }
 Footer .footer--description {
-    color: #334155;
-    background: #0a0f1a;
+    color: $text-muted;
+    background: $surface;
 }
 #app-grid {
     width: 100%;
     height: 1fr;
-    background: #0d1117;
+    background: $background;
 }
 
 #chat-scroll {
     width: 100%;
-    height: 1fr;      /* ← takes all remaining space inside app-grid */
+    height: 1fr;
     padding: 1 0;
-    background: #0d1117;
-    scrollbar-color: #1e2433;
-    scrollbar-color-hover: #334155;
-    scrollbar-background: #0d1117;
+    background: $background;
 }
 
 #input-bar {
-    height: 4;        /* ← fixed height, no dock */
+    height: 4;
     padding: 0 0;
-    background: #0a0f1a;
-    border-top: solid #1e2433;
+    background: $surface;
+    border-top: solid $panel;
     align-vertical: middle;
 }
 #chat-log {
@@ -480,27 +543,26 @@ Footer .footer--description {
 }
 #user-input {
     width: 100%;
-    background: #131929;
-    color: #e2e8f0;
-    
+    background: $boost;
+    color: $text;
 }
 #user-input:focus {
-    background: #131929;
-    border: tall #caa8fb;
+    background: $boost;
+    border: tall $primary;
 }
 #user-input>.input--placeholder {
-    color: #2d3748;
+    color: $text-disabled;
 }
 
 Rule {
-    color: #1e243300;
+    color: transparent;
     margin: 0 0;
 }
 """
 
 
 class AVAApp(App):
-    """AVA Terminal UI — Claude Code inspired."""
+    """AVA Terminal UI — Claude Code inspired with Textual theming."""
 
     CSS = MAIN_CSS
     TITLE = f"AVA  ·  {ASSISTANT_NAME}"
@@ -512,20 +574,22 @@ class AVAApp(App):
         Binding("escape", "focus_input", "Focus Input", show=False),
         Binding("ctrl+i", "toggle_settings", "Settings", show=True),
         Binding("ctrl+s", "save_settings", "Save Settings", show=False),
-
+        Binding("ctrl+t", "cycle_theme", "Cycle Theme", show=True),
     ]
     settings_open: reactive[bool] = reactive(False)
     _settings_widget: "SettingsScreen | None" = None
     current_mode: reactive[str] = reactive("text")
+    app_theme: reactive[str] = reactive("ava")
     is_processing: reactive[bool] = reactive(False)
     conversation_active: reactive[bool] = reactive(False)
 
-    def __init__(self, start_mode: str = "text", **kwargs):
+    def __init__(self, start_mode: str = "text", start_theme: str = "ava", **kwargs):
         super().__init__(**kwargs)
         self.current_mode = start_mode
+        self.app_theme = start_theme
         self._voice_thread: threading.Thread | None = None
 
-    # ── Add these methods to AVAApp ───────────────────────────────────────────────
+    # ── Theme management ──────────────────────────────────────────────────────
 
     def _load_config(self) -> dict:
         try:
@@ -542,6 +606,44 @@ class AVAApp(App):
         except Exception as e:
             self._add_system_message(f"save failed: {e}")
             return False
+
+    def _register_themes(self) -> None:
+        """Register custom AVA theme and set initial theme."""
+        # Register custom AVA theme
+        self.register_theme(AVA_THEME)
+        
+        # Set initial theme from config
+        config = self._load_config()
+        theme = config.get("THEME", "ava")
+        if theme not in AVAILABLE_THEMES:
+            theme = "ava"
+        self.app_theme = theme
+        self.theme = theme
+
+    def action_cycle_theme(self) -> None:
+        """Cycle through available themes."""
+        current_idx = AVAILABLE_THEMES.index(self.app_theme) if self.app_theme in AVAILABLE_THEMES else 0
+        next_idx = (current_idx + 1) % len(AVAILABLE_THEMES)
+        next_theme = AVAILABLE_THEMES[next_idx]
+        self._set_theme(next_theme)
+
+    def _set_theme(self, theme_name: str) -> None:
+        """Change the application theme."""
+        if theme_name not in AVAILABLE_THEMES:
+            self._add_system_message(f"theme '{theme_name}' not found")
+            return
+        
+        self.app_theme = theme_name
+        self.theme = theme_name
+        desc = THEME_DESCRIPTIONS.get(theme_name, "")
+        self._add_system_message(f"theme → {theme_name}  ·  {desc}")
+        
+        # Update config
+        config = self._load_config()
+        config["THEME"] = theme_name
+        self._save_config(config)
+
+    # ── Settings management ───────────────────────────────────────────────────
 
     def action_toggle_settings(self) -> None:
         if self.settings_open:
@@ -579,6 +681,7 @@ class AVAApp(App):
         data = self._settings_widget.collect_values()
         if self._save_config(data):
             self._add_system_message("settings saved  ·  restart to apply changes")
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield ModeSwitcher(id="mode-switcher")
@@ -597,10 +700,13 @@ class AVAApp(App):
         global _app_instance
         _app_instance = self
 
+        # Register themes and set initial theme
+        self._register_themes()
+
         # ASCII splash
         log = self.query_one("#chat-log", Vertical)
         log.mount(Static(
-            f"[bold #a78bfa]{AVA_ASCII}[/]\n[#334155 italic]personal intelligence  ·  {ASSISTANT_NAME}[/]",
+            f"[bold]{AVA_ASCII}[/]\n[italic]personal intelligence  ·  {ASSISTANT_NAME}[/]",
             classes="system-msg"
         ))
 
@@ -613,16 +719,16 @@ class AVAApp(App):
         self._add_system_message(
             f"online  ·  {USER_NAME}  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode"
         )
+        self._add_system_message(f"theme: {self.app_theme}")
 
         threading.Thread(target=self._main_loop, daemon=True).start()
 
-        # if self.current_mode != "text":
-        #     self._start_voice_mode(self.current_mode)
-
         self.query_one("#user-input", Input).focus()
+
     def on_ready(self) -> None:
         if self.current_mode != "text":
             self._start_voice_mode(self.current_mode)
+
     # ── Mode switching ────────────────────────────────────────────────────────
 
     def on_mode_switcher_mode_changed(self, message: ModeSwitcher.ModeChanged) -> None:
@@ -717,11 +823,11 @@ class AVAApp(App):
         self._add_system_message("new conversation")
         start_new_conversation()
         reset_messages()
-        self.conversation_active = True          # ← mark active so next message works
+        self.conversation_active = True
         self.query_one("#user-input", Input).focus()
 
     def _end_conversation(self) -> None:
-        if not self.conversation_active:         # ← guard against double-call crash
+        if not self.conversation_active:
             return
         save_current_conversation()
         self.conversation_active = False
@@ -969,7 +1075,7 @@ class AVAApp(App):
         log = self.query_one("#chat-log", Vertical)
         log.mount(
             ChatMessage(
-                f"[bold #4f9cf9]{USER_NAME}[/]  [#456186]{ts}[/]\n[#e2e8f0]{text}[/]",
+                f"[bold]{USER_NAME}[/]  [{ts}]\n{text}",
                 classes="user-msg",
             )
         )
@@ -980,7 +1086,7 @@ class AVAApp(App):
         log = self.query_one("#chat-log", Vertical)
         log.mount(
             ChatMessage(
-                f"[bold #a78bfa]{ASSISTANT_NAME}[/]  [#456186]{ts}[/]\n[#e2e8f0]{text}[/]",
+                f"[bold]{ASSISTANT_NAME}[/]  [{ts}]\n{text}",
                 classes="assistant-msg",
             )
         )
@@ -1003,18 +1109,18 @@ class AVAApp(App):
                 from textual.widgets._collapsible import CollapsibleTitle
                 contents = last_panel.query_one("Collapsible > Contents")
                 contents.mount(
-                    Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result")
+                    Static(f"↳ {display_result}", classes="tool-result")
                 )
             except NoMatches:
                 last_panel.mount(
-                    Static(f"[#38bdf8]↳ {display_result}[/]", classes="tool-result")
+                    Static(f"↳ {display_result}", classes="tool-result")
                 )
             self._scroll_to_bottom()
 
     def _add_system_message(self, text: str) -> None:
         log = self.query_one("#chat-log", Vertical)
         log.mount(
-            ChatMessage(f"[#2d3748]─[/] [#475569 italic]{text}[/]", classes="system-msg")
+            ChatMessage(f"─ [italic]{text}[/]", classes="system-msg")
         )
         self._scroll_to_bottom()
 
@@ -1040,7 +1146,7 @@ class AVAApp(App):
             return
         ts = datetime.now().strftime("%H:%M")
         self._live_msg = ChatMessage(
-            f"[bold #4f9cf9]{USER_NAME} [italic #94a3b8](listening...)[/][/]  [#456186]{ts}[/]\n",
+            f"[bold]{USER_NAME} [italic](listening...)[/][/]  [{ts}]\n",
             classes="user-msg",
         )
         self._live_text = ""
@@ -1052,7 +1158,7 @@ class AVAApp(App):
         self._live_text = text
         if getattr(self, "_live_msg", None):
             ts = datetime.now().strftime("%H:%M")
-            self._live_msg.update(f"[bold #4f9cf9]{USER_NAME} [italic #94a3b8](listening...)[/][/]  [#456186]{ts}[/]\n[#e2e8f0]{text}[/]")
+            self._live_msg.update(f"[bold]{USER_NAME} [italic](listening...)[/][/]  [{ts}]\n{text}")
             self._scroll_to_bottom()
 
     def _end_live_transcription(self) -> None:
@@ -1082,7 +1188,7 @@ class AVAApp(App):
 # Entry point
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_tui(start_mode: str = "text") -> None:
+def run_tui(start_mode: str = "text", start_theme: str = "ava") -> None:
     """Launch the AVA TUI."""
-    app = AVAApp(start_mode=start_mode)
+    app = AVAApp(start_mode=start_mode, start_theme=start_theme)
     app.run()

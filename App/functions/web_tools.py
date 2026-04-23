@@ -18,7 +18,8 @@ except Exception:
     pass
 
 # Singleton Gemini client for AI tasks
-_client = genai.Client(api_key=os.getenv("GOOGLE_AI_API_KEY"))
+# _client = genai.Client(api_key=os.getenv("GOOGLE_AI_API_KEY"))
+SERVER_URL = os.getenv("SERVER_URL")
 
 # -----------------
 # 1. WEATHER & GPS
