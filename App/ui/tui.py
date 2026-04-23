@@ -78,29 +78,17 @@ AVA_THEME = Theme(
 
 # Available built-in Textual themes
 AVAILABLE_THEMES = [
-    "ava",           # Custom AVA theme
-    "default",       # Textual default
-    "nord",          # Nord color scheme
-    "dracula",       # Dracula color scheme
-    "monochrome",    # Monochrome (B&W)
-    "sunset",        # Sunset colors
-    "copper",        # Copper theme
-    "tokyo-night",   # Tokyo Night theme
-    "fruity",        # Fruity theme
-    "forest",        # Forest theme
+    "ava",
+    "nord",
+    "dracula",
+    "tokyo-night",
 ]
 
 THEME_DESCRIPTIONS = {
     "ava": "Custom AVA dark theme with purple accents",
-    "default": "Textual default theme",
     "nord": "Nord color palette",
     "dracula": "Dracula dark theme",
-    "monochrome": "Black and white monochrome",
-    "sunset": "Warm sunset colors",
-    "copper": "Copper metallic tones",
     "tokyo-night": "Tokyo Night color scheme",
-    "fruity": "Fruity vibrant colors",
-    "forest": "Forest green tones",
 }
 # ── Constants ────────────────────────────────────────────────────────────────
 CONFIG_PATH = "settings.json"
@@ -113,7 +101,7 @@ CONFIG_DESCRIPTIONS = {
     "AVA_START_MODE":     "Startup mode: tui / continuous / wakeword",
     "GOOGLE_AI_API_KEY":  "Google AI (Gemini) API key",
     "WEATHER_API_KEY":    "OpenWeatherMap API key",
-    "THEME":              "UI theme: ava, default, nord, dracula, monochrome, sunset, copper, tokyo-night, fruity, forest",
+    "THEME":              "UI theme: ava, nord, dracula, tokyo-night",
 }
 
 CONFIG_SECRET_KEYS = {"GROQ_API_KEY", "GOOGLE_AI_API_KEY", "WEATHER_API_KEY"}
@@ -169,25 +157,26 @@ class ChatMessage(Static):
         margin: 0 0 1 0;
     }
     ChatMessage.user-msg {
-        background: $panel;
+        background: $surface;
         border-left: thick $secondary;
         padding: 1 2 1 3;
-        color: $text;
+        color: $foreground;
     }
     ChatMessage.assistant-msg {
-        background: $boost;
+        background: $surface;
         border-left: thick $primary;
         padding: 1 2 1 3;
-        color: $text;
+        color: $foreground;
     }
     ChatMessage.tool-msg {
-        background: $panel;
+        background: $surface;
         border-left: thick $accent;
         padding: 1 2 1 3;
-        color: $text-muted;
+        color: $foreground;
     }
     ChatMessage.system-msg {
-        color: $text-disabled;
+        background: transparent;
+        color: $foreground;
         text-style: italic;
         padding: 0 2;
         margin: 0;
@@ -202,27 +191,27 @@ class ToolCallPanel(Static):
     ToolCallPanel {
         width: 100%;
         margin: 0 0 1 0;
-        background: $panel;
+        background: $surface;
         border-left: thick $warning;
         opacity: 0.95;
     }
     ToolCallPanel Collapsible {
-        background: $panel;
+        background: $surface;
         border: none;
         padding: 0;
         margin: 0;
     }
     ToolCallPanel CollapsibleTitle {
         color: $warning;
-        background: $panel;
+        background: $surface;
         padding: 0 2;
     }
     ToolCallPanel CollapsibleTitle:hover {
         background: $accent;
-        color: $boost;
+        color: $background;
     }
     ToolCallPanel .tool-args {
-        color: $text-muted;
+        color: $foreground;
         padding: 0 2 0 4;
     }
     ToolCallPanel .tool-result {
@@ -283,7 +272,7 @@ class ModeSwitcher(Static):
     }
     ModeSwitcher Button.-primary {
         background: $primary;
-        color: $foreground;
+        color: $background;
         text-style: bold;
         border: none;
     }
@@ -363,7 +352,7 @@ class SettingsScreen(Static):
         margin-bottom: 1;
     }
     SettingsScreen .settings-hint {
-        color: $text-muted;
+        color: $secondary;
         text-style: italic;
         margin-bottom: 1;
     }
@@ -376,30 +365,30 @@ class SettingsScreen(Static):
         width: 24;
         height: 3;
         content-align: left middle;
-        color: $text-muted;
+        color: $primary;
         text-style: bold;
     }
     SettingsScreen .setting-desc {
         width: 1fr;
         height: 3;
         content-align: left middle;
-        color: $text-disabled;
+        color: $foreground;
         text-style: italic;
         padding: 0 1;
     }
     SettingsScreen .setting-input {
         width: 40;
         height: 3;
-        border: round $panel;
-        background: $boost;
-        color: $text;
+        border: round $secondary;
+        background: $surface;
+        color: $foreground;
         padding: 0 1;
     }
     SettingsScreen .setting-input:focus {
         border: round $primary;
     }
     SettingsScreen .settings-footer {
-        color: $text-disabled;
+        color: $secondary;
         margin-top: 1;
         text-style: italic;
     }
@@ -475,8 +464,8 @@ Screen {
 }
 Header {
     background: $surface;
-    color: $text-muted;
-    border-bottom: solid $panel;
+    color: $foreground;
+    border-bottom: solid $secondary;
     height: 1;
 }
 Header .header--title {
@@ -484,27 +473,27 @@ Header .header--title {
     text-style: bold;
 }
 Header .header--sub-title {
-    color: $text-muted;
+    color: $foreground;
 }
 Header .header--clock {
-    color: $text-muted;
+    color: $foreground;
 }
 Footer {
     background: $surface;
-    color: $text-muted;
+    color: $foreground;
     opacity: 0.55;
 }
 Button.-primary {
-    background: $boost;
+    background: $primary;
     color: $background;
     border: none;
 }
 Button.-primary:hover {
-    background: $primary;
+    background: $boost;
     color: $background;
 }
 Button.-primary:focus {
-    background: $boost;
+    background: $primary;
     color: $background;
     border: none;
 }
@@ -513,7 +502,7 @@ Footer .footer--key {
     background: $surface;
 }
 Footer .footer--description {
-    color: $text-muted;
+    color: $foreground;
     background: $surface;
 }
 #app-grid {
@@ -533,7 +522,7 @@ Footer .footer--description {
     height: 4;
     padding: 0 0;
     background: $surface;
-    border-top: solid $panel;
+    border-top: solid $secondary;
     align-vertical: middle;
 }
 #chat-log {
@@ -543,15 +532,15 @@ Footer .footer--description {
 }
 #user-input {
     width: 100%;
-    background: $boost;
-    color: $text;
+    background: $surface;
+    color: $foreground;
 }
 #user-input:focus {
-    background: $boost;
+    background: $surface;
     border: tall $primary;
 }
 #user-input>.input--placeholder {
-    color: $text-disabled;
+    color: $foreground;
 }
 
 Rule {
@@ -609,16 +598,18 @@ class AVAApp(App):
 
     def _register_themes(self) -> None:
         """Register custom AVA theme and set initial theme."""
-        # Register custom AVA theme
         self.register_theme(AVA_THEME)
         
-        # Set initial theme from config
         config = self._load_config()
         theme = config.get("THEME", "ava")
         if theme not in AVAILABLE_THEMES:
             theme = "ava"
         self.app_theme = theme
-        self.theme = theme
+        try:
+            self.theme = theme
+        except Exception:
+            self.app_theme = "ava"
+            self.theme = "ava"
 
     def action_cycle_theme(self) -> None:
         """Cycle through available themes."""
@@ -634,11 +625,15 @@ class AVAApp(App):
             return
         
         self.app_theme = theme_name
-        self.theme = theme_name
+        try:
+            self.theme = theme_name
+        except Exception:
+            self.app_theme = "ava"
+            self.theme = "ava"
+            self._add_system_message("theme not available, using ava")
+            return
         desc = THEME_DESCRIPTIONS.get(theme_name, "")
         self._add_system_message(f"theme → {theme_name}  ·  {desc}")
-        
-        # Update config
         config = self._load_config()
         config["THEME"] = theme_name
         self._save_config(config)
