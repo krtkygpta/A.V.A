@@ -63,18 +63,151 @@ from textual.theme import Theme
 # Custom AVA theme - preserves original color scheme
 AVA_THEME = Theme(
     name="ava",
-    primary="#a78bfa",           # Purple
-    secondary="#4f9cf9",         # Blue
-    background="#0d1117",        # Dark background
-    surface="#0a0f1a",          # Slightly lighter surface
-    panel="#131929",            # Panel background
-    boost="#bd93f9",            # Boosted primary (for hover)
-    foreground="#e2e8f0",       # Main text
-    success="#4ade80",          # Green for success
-    warning="#facc15",          # Yellow for warning
-    error="#ef4444",            # Red for error
-    accent="#38bdf8",           # Cyan accent
+    primary="#a78bfa",
+    secondary="#4f9cf9",
+    background="#0d1117",
+    surface="#0a0f1a",
+    panel="#131929",
+    boost="#bd93f9",
+    foreground="#e2e8f0",
+    success="#4ade80",
+    warning="#facc15",
+    error="#ef4444",
+    accent="#38bdf8",
 )
+
+FLEXOKI_DARK = Theme(
+    name="flexoki-dark",
+    primary="#205EA6",
+    secondary="#3AA99F",
+    background="#1C1B1A",
+    surface="#282726",
+    panel="#343331",
+    boost="#4385BE",
+    foreground="#CECDC3",
+    success="#66800B",
+    warning="#AD8301",
+    error="#AF3029",
+    accent="#DA702C",
+)
+
+FLEXOKI_LIGHT = Theme(
+    name="flexoki-light",
+    primary="#205EA6",
+    secondary="#3AA99F",
+    background="#FFFCF0",
+    surface="#F2F0E5",
+    panel="#E6E4D9",
+    boost="#4385BE",
+    foreground="#403E3C",
+    success="#66800B",
+    warning="#AD8301",
+    error="#AF3029",
+    accent="#DA702C",
+)
+
+EVERFOREST = Theme(
+    name="everforest",
+    primary="#83C092",
+    secondary="#7FBBB3",
+    background="#2D353B",
+    surface="#343F44",
+    panel="#3D484D",
+    boost="#A7C080",
+    foreground="#D3C6AA",
+    success="#A7C080",
+    warning="#DBBC7F",
+    error="#E67E80",
+    accent="#E69875",
+)
+
+CATPPUCCIN_MOCHA = Theme(
+    name="catppuccin-mocha",
+    primary="#cba6f7",
+    secondary="#89b4fa",
+    background="#1e1e2e",
+    surface="#313244",
+    panel="#45475a",
+    boost="#b4befe",
+    foreground="#cdd6f4",
+    success="#a6e3a1",
+    warning="#f9e2af",
+    error="#f38ba8",
+    accent="#94e2d5",
+)
+
+CATPPUCCIN_LATTE = Theme(
+    name="catppuccin-latte",
+    primary="#8839ef",
+    secondary="#04a5e5",
+    background="#eff1f5",
+    surface="#ccd0da",
+    panel="#bcc0cc",
+    boost="#7287fd",
+    foreground="#4c4f69",
+    success="#40a02b",
+    warning="#df8e1d",
+    error="#d20f39",
+    accent="#179299",
+)
+
+GRUVBOX_DARK = Theme(
+    name="gruvbox-dark",
+    primary="#fabd2f",
+    secondary="#83a598",
+    background="#282828",
+    surface="#3c3836",
+    panel="#504945",
+    boost="#fabd2f",
+    foreground="#ebdbb2",
+    success="#b8bb26",
+    warning="#fabd2f",
+    error="#fb4934",
+    accent="#8ec07c",
+)
+
+MONOKAI = Theme(
+    name="monokai",
+    primary="#f92672",
+    secondary="#66d9ef",
+    background="#272822",
+    surface="#3e3d32",
+    panel="#49483e",
+    boost="#fd5ff3",
+    foreground="#f8f8f2",
+    success="#a6e22e",
+    warning="#e6db74",
+    error="#f92672",
+    accent="#a6e22e",
+)
+
+ORANGES = Theme(
+    name="oranges",
+    primary="#FF8C00",
+    secondary="#FF6B00",
+    background="#000000",
+    surface="#0A0A0A",
+    panel="#1A1A1A",
+    boost="#FFA500",
+    foreground="#F5E6D3",
+    success="#9ACD32",
+    warning="#FFD700",
+    error="#FF6347",
+    accent="#FF7F50",
+)
+
+# ── Register custom themes ────────────────────────────────────────────────────
+_ALL_CUSTOM_THEMES = [
+    AVA_THEME,
+    FLEXOKI_DARK,
+    FLEXOKI_LIGHT,
+    EVERFOREST,
+    CATPPUCCIN_MOCHA,
+    CATPPUCCIN_LATTE,
+    GRUVBOX_DARK,
+    MONOKAI,
+    ORANGES,
+]
 
 # Available built-in Textual themes
 AVAILABLE_THEMES = [
@@ -82,6 +215,14 @@ AVAILABLE_THEMES = [
     "nord",
     "dracula",
     "tokyo-night",
+    "flexoki-dark",
+    "flexoki-light",
+    "everforest",
+    "catppuccin-mocha",
+    "catppuccin-latte",
+    "gruvbox-dark",
+    "monokai",
+    "oranges",
 ]
 
 THEME_DESCRIPTIONS = {
@@ -89,6 +230,14 @@ THEME_DESCRIPTIONS = {
     "nord": "Nord color palette",
     "dracula": "Dracula dark theme",
     "tokyo-night": "Tokyo Night color scheme",
+    "flexoki-dark": "Flexoki dark - inky dark theme",
+    "flexoki-light": "Flexoki light - warm paper theme",
+    "everforest": "Everforest - green forest tones",
+    "catppuccin-mocha": "Catppuccin Mocha - cozy dark",
+    "catppuccin-latte": "Catppuccin Latte - light pastel",
+    "gruvbox-dark": "Gruvbox - retro earthy tones",
+    "monokai": "Monokai - classic syntax colors",
+    "oranges": "Orange - warm citrus tones",
 }
 # ── Constants ────────────────────────────────────────────────────────────────
 CONFIG_PATH = "settings.json"
@@ -396,6 +545,18 @@ class SettingsScreen(Static):
         color: $accent;
         margin-top: 0;
     }
+    SettingsScreen #settings-buttons {
+        align-horizontal: right;
+        height: 3;
+    }
+    SettingsScreen #settings-buttons Button {
+        width: 14;
+        height: 3;
+    }
+    SettingsScreen #settings-scroll {
+        width: 100%;
+        height: auto;
+    }
     """
 
     def __init__(self, config: dict, **kwargs):
@@ -404,38 +565,40 @@ class SettingsScreen(Static):
         self._inputs: dict[str, Input] = {}
 
     def compose(self) -> ComposeResult:
-        yield Static("[bold]⚙  settings[/]", classes="settings-title")
-        yield Static(
-            "[italic]edit values below  ·  ctrl+s to save  ·  /settings or ctrl+, to close[/]",
-            classes="settings-hint",
-        )
-        yield Rule()
+        with VerticalScroll(id="settings-scroll"):
+            yield Static("[bold]⚙  settings[/]", classes="settings-title")
+            yield Static(
+                "[italic]edit values below  ·  /settings or ctrl+, to close[/]",
+                classes="settings-hint",
+            )
+            yield Rule()
 
-        for key, val in self._config.items():
-            desc = CONFIG_DESCRIPTIONS.get(key, "")
-            is_secret = key in CONFIG_SECRET_KEYS
-            placeholder = "••••••••" if (is_secret and val) else (str(val) if val else "not set")
-            with Horizontal(classes="setting-row"):
-                yield Static(f"[bold]{key}[/]", classes="setting-label")
-                yield Static(f"{desc}", classes="setting-desc")
-                inp = Input(
-                    value="" if (is_secret and val) else str(val),
-                    placeholder=placeholder,
-                    password=is_secret,
-                    classes="setting-input",
-                    id=f"cfg-{key}",
-                )
-                self._inputs[key] = inp
-                yield inp
+            for key, val in self._config.items():
+                desc = CONFIG_DESCRIPTIONS.get(key, "")
+                is_secret = key in CONFIG_SECRET_KEYS
+                placeholder = "••••••••" if (is_secret and val) else (str(val) if val else "not set")
+                with Horizontal(classes="setting-row"):
+                    yield Static(f"[bold]{key}[/]", classes="setting-label")
+                    yield Static(f"{desc}", classes="setting-desc")
+                    inp = Input(
+                        value="" if (is_secret and val) else str(val),
+                        placeholder=placeholder,
+                        password=is_secret,
+                        classes="setting-input",
+                        id=f"cfg-{key}",
+                    )
+                    self._inputs[key] = inp
+                    yield inp
 
-        yield Rule()
-        yield Static(
-            "[italic]changes take effect after restart for most settings[/]",
-            classes="settings-footer",
-        )
-        yield Static(
-            "[bold]ctrl+s[/] save  ·  [bold]ctrl+,[/] close",
-            classes="save-hint",
+            yield Rule()
+            yield Static(
+                "[italic]changes take effect after restart for most settings[/]",
+                classes="settings-footer",
+            )
+        yield Horizontal(
+            Button("save", id="btn-save", variant="primary"),
+            Button("cancel", id="btn-cancel"),
+            id="settings-buttons",
         )
 
     def collect_values(self) -> dict:
@@ -452,6 +615,22 @@ class SettingsScreen(Static):
             except NoMatches:
                 pass
         return result
+
+    @on(Button.Pressed, "#btn-save")
+    def on_save(self) -> None:
+        self.post_message(self.SaveRequested(self.collect_values()))
+
+    @on(Button.Pressed, "#btn-cancel")
+    def on_cancel(self) -> None:
+        self.post_message(self.CancelRequested())
+
+    class SaveRequested(Message):
+        def __init__(self, config: dict) -> None:
+            super().__init__()
+            self.config = config
+
+    class CancelRequested(Message):
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -562,7 +741,6 @@ class AVAApp(App):
         Binding("ctrl+m", "cycle_mode", "Cycle Mode", show=True),
         Binding("escape", "focus_input", "Focus Input", show=False),
         Binding("ctrl+i", "toggle_settings", "Settings", show=True),
-        Binding("ctrl+s", "save_settings", "Save Settings", show=False),
         Binding("ctrl+t", "cycle_theme", "Cycle Theme", show=True),
     ]
     settings_open: reactive[bool] = reactive(False)
@@ -597,9 +775,10 @@ class AVAApp(App):
             return False
 
     def _register_themes(self) -> None:
-        """Register custom AVA theme and set initial theme."""
-        self.register_theme(AVA_THEME)
-        
+        """Register all custom themes and set initial theme."""
+        for theme in _ALL_CUSTOM_THEMES:
+            self.register_theme(theme)
+
         config = self._load_config()
         theme = config.get("THEME", "ava")
         if theme not in AVAILABLE_THEMES:
@@ -651,12 +830,20 @@ class AVAApp(App):
             return
         self.settings_open = True
         config = self._load_config()
-        log = self.query_one("#chat-log", Vertical)
+        try:
+            chat_scroll = self.query_one("#chat-scroll", VerticalScroll)
+            chat_scroll.display = False
+        except NoMatches:
+            pass
+        try:
+            input_bar = self.query_one("#input-bar", Horizontal)
+            input_bar.display = False
+        except NoMatches:
+            pass
         self._settings_widget = SettingsScreen(config, id="settings-panel")
-        log.mount(self._settings_widget)
-        self.call_after_refresh(
-            self.query_one("#chat-scroll", VerticalScroll).scroll_end, animate=False
-        )
+        grid = self.query_one("#app-grid", Vertical)
+        grid.mount(self._settings_widget, before=self.query_one("#input-bar"))
+        self.set_focus(self._settings_widget)
 
     def _close_settings(self) -> None:
         if not self.settings_open:
@@ -668,14 +855,25 @@ class AVAApp(App):
         except NoMatches:
             pass
         self._settings_widget = None
-        self._add_system_message("settings closed")
+        try:
+            chat_scroll = self.query_one("#chat-scroll", VerticalScroll)
+            chat_scroll.display = True
+        except NoMatches:
+            pass
+        try:
+            input_bar = self.query_one("#input-bar", Horizontal)
+            input_bar.display = True
+        except NoMatches:
+            pass
+        self.query_one("#user-input", Input).focus()
 
-    def action_save_settings(self) -> None:
-        if not self.settings_open or not self._settings_widget:
-            return
-        data = self._settings_widget.collect_values()
-        if self._save_config(data):
+    def on_settings_screen_save_requested(self, event: SettingsScreen.SaveRequested) -> None:
+        if self._save_config(event.config):
             self._add_system_message("settings saved  ·  restart to apply changes")
+        self._close_settings()
+
+    def on_settings_screen_cancel_requested(self, event: SettingsScreen.CancelRequested) -> None:
+        self._close_settings()
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
