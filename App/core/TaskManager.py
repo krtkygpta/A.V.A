@@ -243,7 +243,7 @@ class ResearchAgent(SubAgent):
         
         # Perform the research
         # result = get_google_ai_response(query=self.topic)
-        from functions.researcher import research
+        from functions.web.deep_research import research
         result = research(self.topic)
         return result
 
@@ -259,7 +259,7 @@ class WebScrapingAgent(SubAgent):
         self.url = url
     
     def execute(self, **kwargs) -> str:
-        from functions.web_tools import fetch_website_data
+        from functions.web.internet import fetch_website_data
         result = fetch_website_data(url=self.url)
         return result
 
@@ -291,7 +291,7 @@ class SmartHomeAgent(SubAgent):
         self.command = command
     
     def execute(self, **kwargs) -> str:
-        from functions.smarthome_agent import run_smarthome_agent
+        from functions.system.smart_home_agent import run_smarthome_agent
         result = run_smarthome_agent(self.command)
         return result
 

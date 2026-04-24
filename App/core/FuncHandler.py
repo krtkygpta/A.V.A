@@ -1,5 +1,7 @@
 import json
 import functions as functions
+from functions.productivity.calendar import calendar
+from functions.web.internet import web
 from knowledge.memory import handle_memory_manager
 from core.TaskManager import dispatch_background_task, get_running_tasks_summary
 from knowledge.ConversationManager import handle_conversation_history
@@ -22,33 +24,38 @@ def handle_get_background_status() -> str:
 
 
 TOOL_CONFIGS = {
-        # 'timer': functions.timer,
+        # Media
         'music_control': functions.music_control,
-        'get_weather_info': functions.get_weather,
         'image_description_tool': functions.image_tool,
+        
+        # System
         'get_time_date': functions.timedate,
         'shutdown_pc': functions.system_action,
-        'webdata': functions.get_google_ai_response,
-        'get_url_results': functions.fetch_website_data,
-        'link_data': functions.fetch_website_data,
+        'ping': functions.ring_timer,
+        'send_notification': functions.send_notification,
+        
+        # Web (unified)
+        'web': web,
+        
+        # File operations
         'save_text': functions.save_text,
-        # 'light_control': functions.control_lights,
-        'get_current_location': functions.get_gps_location,
         'create_file': functions.create_file,
         'open_file': functions.open_file,
         'delete_file': functions.delete_file,
         'list_files': functions.list_files,
+        'create_pdf': functions.create_pdf,
+        
+        # Code execution
         'code_executor': functions.run_code_in_sandbox,
+        
+        # Calendar
+        'calendar': calendar,
+        
+        # Memory & Tasks
         'memory_manager': handle_memory_manager,
-        # Background task handlers
         'background_task': handle_background_task,
         'get_background_tasks_status': handle_get_background_status,
-        # Conversation history
         'conversation_history': handle_conversation_history,
-        'createPDF': functions.create_pdf,
-        # 'music_control': functions.mc.control,
-        'ping': functions.ring_timer,
-        'send_notification': functions.send_notification,
     }
 
 

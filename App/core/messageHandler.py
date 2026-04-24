@@ -289,27 +289,29 @@ tools = [
 #         }
 #     }
 # },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'get_weather_info',
-                'description': 'Retrieve weather information',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'location': {'type': 'string', 'description': 'City name or current'}
-                    },
-                    'required': ['location']
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'get_current_location',
-                'description': 'Retrieve current location',
-            }
-        },
+        # Replaced by unified 'web' tool below
+#         {
+#             'type': 'function',
+#             'function': {
+#                 'name': 'get_weather_info',
+#                 'description': 'Retrieve weather information',
+#                 'parameters': {
+#                     'type': 'object',
+#                     'properties': {
+#                         'location': {'type': 'string', 'description': 'City name or current'}
+#                     },
+#                     'required': ['location']
+#                 }
+#             }
+#         },
+# Replaced by unified 'web' tool below
+#         {
+#             'type': 'function',
+#             'function': {
+#                 'name': 'get_current_location',
+#                 'description': 'Retrieve current location',
+#             }
+#         },
         {
             'type': 'function',
             'function': {
@@ -368,38 +370,40 @@ tools = [
         #         }
         #     }
         # },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'webdata',
-                'description': 'Search the web for information based on a query',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'query': {'type': 'string', 'description': 'Search query to find information from the web'}
-                    },
-                    'required': ['query']
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'link_data',
-                'description': 'Get the data from a website using the search address or the URL',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'url': {'type': 'string', 'description': 'The URL needed to get the data'}
-                    },
-                    'required': ['url']
-                }
-            }
-        },
+        # Replaced by unified 'web' tool below
+#         {
+#             'type': 'function',
+#             'function': {
+#                 'name': 'webdata',
+#                 'description': 'Search the web for information based on a query',
+#                 'parameters': {
+#                     'type': 'object',
+#                     'properties': {
+#                         'query': {'type': 'string', 'description': 'Search query to find information from the web'}
+#                     },
+#                     'required': ['query']
+#                 }
+#             }
+#         },
+# Replaced by unified 'web' tool below
+#         {
+#             'type': 'function',
+#             'function': {
+#                 'name': 'link_data',
+#                 'description': 'Get the data from a website using the search address or the URL',
+#                 'parameters': {
+#                     'type': 'object',
+#                     'properties': {
+#                         'url': {'type': 'string', 'description': 'The URL needed to get the data'}
+#                     },
+#                     'required': ['url']
+#                 }
+#             }
+#         },
         {
             "type": "function",
             "function": {
-                "name": "createPDF",
+                "name": "create_pdf",
                 "description": "Convert Markdown content to PDF with support for tables, code blocks, headings, lists, and embedded charts/images",
                 "parameters": {
                     "type": "object",
@@ -495,20 +499,21 @@ tools = [
                 }
             }
         },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'get_url_results',
-                'description': 'Retrieve the raw HTML data from a URL, this function can also be reused to open internal links for a website',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'url': {'type': 'string', 'description': 'The URL from which to retrieve the data'}
-                    },
-                    'required': ['url']
-                }
-            }
-        },
+        # Replaced by unified 'web' tool below
+#         {
+#             'type': 'function',
+#             'function': {
+#                 'name': 'get_url_results',
+#                 'description': 'Retrieve the raw HTML data from a URL, this function can also be reused to open internal links for a website',
+#                 'parameters': {
+#                     'type': 'object',
+#                     'properties': {
+#                         'url': {'type': 'string', 'description': 'The URL from which to retrieve the data'}
+#                     },
+#                     'required': ['url']
+#                 }
+#             }
+#         },
         {
     'type': 'function',
     'function': {
@@ -658,9 +663,49 @@ tools = [
                     'description': 'Specific conversation ID to retrieve (use with action="get")'
                 }
             },
-            'required': ['action']
+'required': ['action']
+        }
+    }
+},
+{
+    'type': 'function',
+    'function': {
+        'name': 'calendar',
+        'description': 'Google Calendar: list upcoming events, create new events, or delete events. Use when user wants to check, add, or remove calendar events.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'operation': {'type': 'string', 'description': 'What to do: "list", "create", or "delete"', 'enum': ['list', 'create', 'delete']},
+                'max_results': {'type': 'integer', 'description': 'Max events to return (for list)'},
+                'days_ahead': {'type': 'integer', 'description': 'Days ahead to look (for list)'},
+                'title': {'type': 'string', 'description': 'Event title (for create)'},
+                'start_datetime': {'type': 'string', 'description': 'Start time ISO format (for create, e.g., "2024-04-25T14:00:00")'},
+                'duration_minutes': {'type': 'integer', 'description': 'Duration in minutes (for create)'},
+                'description': {'type': 'string', 'description': 'Event description (for create)'},
+                'location': {'type': 'string', 'description': 'Event location (for create)'},
+                'event_id': {'type': 'string', 'description': 'Event ID to delete (for delete)'}
+            },
+            'required': ['operation']
+        }
+    }
+},
+{
+    'type': 'function',
+    'function': {
+        'name': 'web',
+        'description': 'Unified web: search, fetch URLs, AI search, weather, GPS. Use for any internet task.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'operation': {'type': 'string', 'description': 'Operation: "search", "fetch", "ai_search", "weather", or "gps"', 'enum': ['search', 'fetch', 'ai_search', 'weather', 'gps']},
+                'query': {'type': 'string', 'description': 'Search query (for search/ai_search)'},
+                'num_results': {'type': 'integer', 'description': 'Number of results (for search)'},
+                'url': {'type': 'string', 'description': 'URL to fetch (for fetch)'},
+                'location': {'type': 'string', 'description': 'City for weather, or "current" for GPS location'}
+            },
+            'required': ['operation']
         }
     }
 }
 
-    ]
+]

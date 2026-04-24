@@ -492,7 +492,9 @@ class SettingsScreen(Static):
     DEFAULT_CSS = """
     SettingsScreen {
         width: 100%;
-        height: auto;
+        height: 1fr;
+        layout: vertical;
+        overflow: hidden;
         padding: 1 2;
     }
     SettingsScreen .settings-title {
@@ -546,8 +548,10 @@ class SettingsScreen(Static):
         margin-top: 0;
     }
     SettingsScreen #settings-buttons {
+        width: 100%;
         align-horizontal: right;
         height: 3;
+        margin-top: 1;
     }
     SettingsScreen #settings-buttons Button {
         width: 14;
@@ -555,7 +559,7 @@ class SettingsScreen(Static):
     }
     SettingsScreen #settings-scroll {
         width: 100%;
-        height: auto;
+        height: 1fr;
     }
     """
 
@@ -568,7 +572,7 @@ class SettingsScreen(Static):
         with VerticalScroll(id="settings-scroll"):
             yield Static("[bold]⚙  settings[/]", classes="settings-title")
             yield Static(
-                "[italic]edit values below  ·  /settings or ctrl+, to close[/]",
+                "[italic]edit values below  ·  /settings or ctrl+i to close[/]",
                 classes="settings-hint",
             )
             yield Rule()
