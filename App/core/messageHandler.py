@@ -692,6 +692,21 @@ tools = [
 {
     'type': 'function',
     'function': {
+        'name': 'bash',
+        'description': 'Execute Windows bash command. First time prompts user for permission (Always/Session/Deny).',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'command': {'type': 'string', 'description': 'Command to execute'},
+                'timeout': {'type': 'integer', 'description': 'Timeout in seconds (default 30)'}
+            },
+            'required': ['command']
+        }
+    }
+},
+{
+    'type': 'function',
+    'function': {
         'name': 'web',
         'description': 'Unified web: search, fetch URLs, AI search, weather, GPS. Use for any internet task.',
         'parameters': {

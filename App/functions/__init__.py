@@ -10,6 +10,7 @@ from .system.smart_home_agent import run_smarthome_agent
 from .system.notifiers import ring_timer, send_notification
 from .system.time_tools import *
 from .system.sandbox import *
+from .system.bash_executor import *
 
 from .web.internet import *
 

@@ -145,6 +145,7 @@ scan_and_store_bulbs_sync()
 
 import asyncio
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -152,27 +153,26 @@ from typing import Any
 from aiohttp import ClientSession
 from thinqconnect.thinq_api import ThinQApi
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
 
-SETTINGS_FILE = Path(__file__).parent.parent.parent / "settings.json"
 DEVICE_TYPE = "DEVICE_AIR_CONDITIONER"
 
 
 def _load_settings() -> dict:
-    if not SETTINGS_FILE.exists():
-        raise FileNotFoundError(
-            f"settings.json not found at {SETTINGS_FILE}. "
-            "Create it with keys: pat, country_code, (optionally) client_id"
+    pat = os.getenv("pat")
+    country_code = os.getenv("country_code")
+    if not pat or not country_code:
+        raise ValueError(
+            "Environment variables 'pat' and 'country_code' are required. "
+            "Make sure they are set in settings.json and loaded into the environment."
         )
-    with open(SETTINGS_FILE) as f:
-        cfg = json.load(f)
-    if "pat" not in cfg or "country_code" not in cfg:
-        raise ValueError("settings.json must contain 'pat' and 'country_code'.")
-    cfg.setdefault("client_id", str(uuid.uuid4()))
-    return cfg
+    return {
+        "pat": pat,
+        "country_code": country_code,
+        "client_id": os.getenv("client_id", str(uuid.uuid4())),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +276,7 @@ async def _find_ac_device_id(api: ThinQApi) -> str:
 # ---------------------------------------------------------------------------
 
 # Valid options for enum-like parameters
-_VALID_MODES   = {"COOL", "AIR_DRY", "AIR_CLEAN", "FAN"}
+_VALID_MODES   = {"COOL", "AIR_DRY", "FAN"}
 _VALID_SPEEDS  = {"LOW", "MID", "HIGH"}
 _VALID_ACTIONS = {
     "get_status", "get_air_quality", "get_filter_info", "list_devices",
@@ -831,5 +831,5 @@ async def _main():
         input("\n  Press Enter to continue...")
 
 
-# if __name__ == "__main__":
-#     asyncio.run(_main())
+if __name__ == "__main__":
+    asyncio.run(_main())

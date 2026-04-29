@@ -398,8 +398,13 @@ def voice_mode_wakeword():
                 # Send to LLM
                 add_message(role="user", content=full_transcription, tool_id='')
                 
+                # Freeze threshold adaptation while TTS plays — speaker bleed through
+                # the mic would otherwise inflate the noise floor and make the user's
+                # next speech appear quieter than the threshold
+                recorder.freeze_noise_floor = True
                 # Wait for response to complete
                 _wait_for_response_complete()
+                recorder.freeze_noise_floor = False
                 
                 # Listen for continued conversation
                 timeout = tts_piper.get_last_duration() + 7

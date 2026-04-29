@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 # ── Import AVA internals (same ones __main__.py uses) ───────────────────────
 from config import USER_NAME, ASSISTANT_NAME
-from core.AppStates import main_runner, stop_event
+from core.AppStates import main_runner, stop_event, voice_stop_event, wakeword_stop_event
 _mode_switch_event = threading.Event()
 from core.FuncHandler import handle_tool_call
 from core.generate import generate_response
@@ -341,8 +341,8 @@ class ToolCallPanel(Static):
         width: 100%;
         margin: 0 0 1 0;
         background: $surface;
-        border-left: thick $warning;
-        opacity: 0.95;
+        border: none;
+        opacity: 0.9;
     }
     ToolCallPanel Collapsible {
         background: $surface;
@@ -352,20 +352,27 @@ class ToolCallPanel(Static):
     }
     ToolCallPanel CollapsibleTitle {
         color: $warning;
-        background: $surface;
-        padding: 0 2;
+        background: $panel;
+        padding: 0 1;
+        text-style: bold;
     }
     ToolCallPanel CollapsibleTitle:hover {
         background: $accent;
         color: $background;
     }
+    ToolCallPanel .tool-header {
+        color: $warning;
+        text-style: bold;
+        padding: 0 1;
+    }
     ToolCallPanel .tool-args {
         color: $foreground;
-        padding: 0 2 0 4;
+        padding: 0 2 0 3;
+        opacity: 0.8;
     }
     ToolCallPanel .tool-result {
         color: $accent;
-        padding: 0 2 1 4;
+        padding: 0 2 1 3;
     }
     """
 
@@ -384,7 +391,7 @@ class ToolCallPanel(Static):
         else:
             args_str = str(self._args)
 
-        with Collapsible(title=f"{self._func_name}", collapsed=False):
+        with Collapsible(title=f"⚡ {self._func_name}", collapsed=True):
             if args_str and args_str != "{}":
                 display_args = args_str[:500] + ("..." if len(args_str) > 500 else "")
                 yield Static(f"{display_args}", classes="tool-args")
@@ -484,6 +491,37 @@ class StatusBar(Static):
 
     def render(self) -> str:
         return self.status_text
+
+
+class TypingIndicator(Static):
+    """Animated typing indicator."""
+
+    DEFAULT_CSS = """
+    TypingIndicator {
+        height: 2;
+        padding: 0 2;
+        color: $secondary;
+    }
+    """
+
+    _dots = ["", ".", "..", "..."]
+    _idx = 0
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._timer = None
+
+    def on_mount(self) -> None:
+        self._update_dots()
+
+    def _update_dots(self) -> None:
+        self._idx = (self._idx + 1) % 4
+        self.update(f"typing{self._dots[self._idx]}")
+        self._timer = self.set_timer(0.4, self._update_dots)
+
+    def on_unmount(self) -> None:
+        if self._timer:
+            self._timer.stop()
 
 
 class SettingsScreen(Static):
@@ -637,6 +675,170 @@ class SettingsScreen(Static):
         pass
 
 
+class HelpOverlay(Static):
+    """Keyboard shortcuts overlay."""
+
+    DEFAULT_CSS = """
+    HelpOverlay {
+        width: 100%;
+        height: 100%;
+        background: $panel;
+        opacity: 0.95;
+        padding: 2 4;
+    }
+    HelpOverlay .help-title {
+        color: $primary;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    HelpOverlay .help-section {
+        color: $secondary;
+        text-style: bold;
+        margin-top: 1;
+    }
+    HelpOverlay .help-row {
+        color: $foreground;
+        width: 100%;
+    }
+    HelpOverlay .help-key {
+        color: $primary;
+        text-style: bold;
+        width: 18;
+    }
+    HelpOverlay .help-desc {
+        color: $foreground;
+    }
+    HelpOverlay .commands-title {
+        color: $accent;
+        text-style: bold;
+        margin-top: 1;
+    }
+    HelpOverlay .help-cmd {
+        color: $foreground;
+    }
+    HelpOverlay #help-close {
+        width: 100%;
+        align-horizontal: right;
+        margin-top: 2;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "close_help", "Close", show=False),
+        Binding("q", "close_help", "Close", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Static("[bold]⌨  keyboard shortcuts[/]", classes="help-title")
+        yield Static("General:", classes="help-section")
+        yield Static("[bold]?[/]  Show this help", classes="help-row")
+        yield Static("[bold]ctrl+q[/]  Quit", classes="help-row")
+        yield Static("[bold]ctrl+n[/]  New conversation", classes="help-row")
+        yield Static("[bold]ctrl+i[/]  Toggle settings", classes="help-row")
+        yield Static("[bold]ctrl+f[/]  Search in chat", classes="help-row")
+        yield Static("[bold]ctrl+t[/]  Cycle theme", classes="help-row")
+        yield Static("[bold]ctrl+m[/]  Cycle mode", classes="help-row")
+        yield Static("[bold]escape[/]  Focus input", classes="help-row")
+        yield Static(":", classes="help-section")
+        yield Static("[bold]/help[/]  Show commands", classes="help-row")
+        yield Static("[bold]/theme[/]  Next theme", classes="help-row")
+        yield Static("[bold]/themes[/]  List themes", classes="help-row")
+        yield Static("[bold]/mode text|continuous|wakeword[/]  Switch mode", classes="help-row")
+        yield Static("[bold]/clear[/]  Clear chat", classes="help-row")
+        yield Static("[bold]/settings[/]  Open settings", classes="help-row")
+        yield Static("[bold]/new[/]  New conversation", classes="help-row")
+        yield Static("[bold]/quit[/]  Exit", classes="help-row")
+        yield Static("Press [bold]?[/] or [bold]escape[/] to close", classes="help-row")
+
+    def action_close_help(self) -> None:
+        self.remove()
+
+
+class SearchOverlay(Static):
+    """Search in chat overlay."""
+
+    DEFAULT_CSS = """
+    SearchOverlay {
+        width: 100%;
+        height: auto;
+        background: $surface;
+        padding: 1 2;
+        border-bottom: solid $secondary;
+    }
+    SearchOverlay #search-label {
+        color: $secondary;
+        width: 10;
+        height: 1;
+    }
+    SearchOverlay #search-input {
+        width: 30;
+        height: 1;
+        border: round $secondary;
+    }
+    SearchOverlay #search-input:focus {
+        border: round $primary;
+    }
+    SearchOverlay #search-count {
+        color: $foreground;
+        width: 20;
+        height: 1;
+    }
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._search_term = ""
+        self._matches: list = []
+        self._current_idx = 0
+
+    def compose(self) -> ComposeResult:
+        with Horizontal():
+            yield Static("search:", id="search-label")
+            yield Input(placeholder="type to search...", id="search-input")
+            yield Static("", id="search-count")
+
+    @on(Input.Changed, "#search-input")
+    def on_search_changed(self, event: Input.Changed) -> None:
+        self._search_term = event.value.strip().lower()
+        self._current_idx = 0
+        if not self._search_term:
+            self.query_one("#search-count", Static).update("")
+            return
+        self._find_matches()
+        count = len(self._matches)
+        self.query_one("#search-count", Static).update(
+            f"{self._current_idx + 1}/{count}" if count > 0 else "no matches"
+        )
+
+    @on(Input.Submitted, "#search-input")
+    def on_search_submit(self, event: Input.Submitted) -> None:
+        if not self._matches:
+            return
+        if event.key == "enter":
+            self._current_idx = (self._current_idx + 1) % len(self._matches)
+            self._scroll_to_match()
+
+    def _find_matches(self) -> None:
+        self._matches = []
+        try:
+            chat_log = self.query_one("#chat-log", Vertical)
+            for msg in chat_log.children:
+                if isinstance(msg, ChatMessage):
+                    if self._search_term in str(msg.renderable).lower():
+                        self._matches.append(msg)
+        except NoMatches:
+            pass
+
+    def _scroll_to_match(self) -> None:
+        if self._matches and 0 <= self._current_idx < len(self._matches):
+            try:
+                scroll = self.query_one("#chat-scroll", VerticalScroll)
+                match = self._matches[self._current_idx]
+                scroll.scroll_to_widget(match, animate=True)
+            except NoMatches:
+                pass
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Main Application
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -746,8 +948,12 @@ class AVAApp(App):
         Binding("escape", "focus_input", "Focus Input", show=False),
         Binding("ctrl+i", "toggle_settings", "Settings", show=True),
         Binding("ctrl+t", "cycle_theme", "Cycle Theme", show=True),
+        Binding("?", "toggle_help", "Help", show=True),
+        Binding("ctrl+f", "toggle_search", "Search", show=True),
     ]
     settings_open: reactive[bool] = reactive(False)
+    help_open: reactive[bool] = reactive(False)
+    search_open: reactive[bool] = reactive(False)
     _settings_widget: "SettingsScreen | None" = None
     current_mode: reactive[str] = reactive("text")
     app_theme: reactive[str] = reactive("ava")
@@ -871,6 +1077,79 @@ class AVAApp(App):
             pass
         self.query_one("#user-input", Input).focus()
 
+    def action_toggle_help(self) -> None:
+        if self.help_open:
+            self._close_help()
+        else:
+            self._open_help()
+
+    def _open_help(self) -> None:
+        if self.help_open:
+            return
+        self.help_open = True
+        try:
+            chat_scroll = self.query_one("#chat-scroll", VerticalScroll)
+            chat_scroll.display = False
+        except NoMatches:
+            pass
+        try:
+            input_bar = self.query_one("#input-bar", Horizontal)
+            input_bar.display = False
+        except NoMatches:
+            pass
+        grid = self.query_one("#app-grid", Vertical)
+        grid.mount(HelpOverlay(id="help-overlay"), before=self.query_one("#input-bar"))
+
+    def _close_help(self) -> None:
+        if not self.help_open:
+            return
+        self.help_open = False
+        try:
+            overlay = self.query_one("#help-overlay", HelpOverlay)
+            overlay.remove()
+        except NoMatches:
+            pass
+        try:
+            chat_scroll = self.query_one("#chat-scroll", VerticalScroll)
+            chat_scroll.display = True
+        except NoMatches:
+            pass
+        try:
+            input_bar = self.query_one("#input-bar", Horizontal)
+            input_bar.display = True
+        except NoMatches:
+            pass
+        self.query_one("#user-input", Input).focus()
+
+    def action_toggle_search(self) -> None:
+        if self.search_open:
+            self._close_search()
+        else:
+            self._open_search()
+
+    def _open_search(self) -> None:
+        if self.search_open:
+            return
+        self.search_open = True
+        try:
+            input_bar = self.query_one("#input-bar", Horizontal)
+        except NoMatches:
+            return
+        search = SearchOverlay(id="search-overlay")
+        input_bar.mount(search, before=self.query_one("#user-input"))
+        self.set_focus(search.query_one("#search-input", Input))
+
+    def _close_search(self) -> None:
+        if not self.search_open:
+            return
+        self.search_open = False
+        try:
+            overlay = self.query_one("#search-overlay", SearchOverlay)
+            overlay.remove()
+        except NoMatches:
+            pass
+        self.query_one("#user-input", Input).focus()
+
     def on_settings_screen_save_requested(self, event: SettingsScreen.SaveRequested) -> None:
         if self._save_config(event.config):
             self._add_system_message("settings saved  ·  restart to apply changes")
@@ -949,6 +1228,10 @@ class AVAApp(App):
         self._update_status(f"ready  ·  {MODE_LABELS.get(new_mode, new_mode).lower()} mode")
 
         if self._voice_thread and self._voice_thread.is_alive():
+            if old_mode == "continuous":
+                voice_stop_event.set()
+            elif old_mode == "wakeword":
+                wakeword_stop_event.set()
             _mode_switch_event.set()
             self._voice_thread.join(timeout=3.0)
             _mode_switch_event.clear()
@@ -979,23 +1262,107 @@ class AVAApp(App):
         event.input.clear()
 
         # Settings command
-        if text.lower() in {"/settings", "/config", "/set"}:
+        if text.lower().startswith("/settings") or text.lower().startswith("/config") or text.lower().startswith("/set"):
             self.action_toggle_settings()
             return
 
-        elif text.lower() == "print messages":
+        # Help command
+        if text.lower() in {"/help", "/commands"}:
+            self._add_system_message("available commands:")
+            self._add_system_message("/help - show this help")
+            self._add_system_message("/theme [name] - cycle/set theme")
+            self._add_system_message("/themes - list themes")
+            self._add_system_message("/mode text|continuous|wakeword - switch mode")
+            self._add_system_message("/clear - clear chat log")
+            self._add_system_message("/settings - open settings")
+            self._add_system_message("/new - new conversation")
+            self._add_system_message("/quit - exit")
+            return
+
+        # New conversation command
+        if text.lower() == "/new":
+            self.action_new_conversation()
+            return
+
+        # Quit command
+        if text.lower() == "/quit":
+            self.action_quit()
+            return
+
+        # Print messages command
+        if text.lower() == "print messages":
             from core.messageHandler import messages
             self._add_system_message(str(messages))
             return
-        elif text.lower() == "print memories":
+        if text.lower() == "print memories":
             from knowledge.memory import retrieve_memories
             self._add_system_message(str(retrieve_memories()))
             return
 
-        if not self.conversation_active:
-            start_new_conversation()
-            reset_messages()
-            self.conversation_active = True
+        # Theme command
+        if text.lower().startswith("/theme"):
+            if text.lower() == "/theme":
+                self.action_cycle_theme()
+            elif text.lower().startswith("/theme "):
+                theme_name = text[7:].strip().lower()
+                if theme_name in AVAILABLE_THEMES:
+                    self._set_theme(theme_name)
+                else:
+                    self._add_system_message(f"unknown theme: {theme_name}  ·  /themes for list")
+            return
+
+        # Themes list
+        if text.lower() == "/themes":
+            self._add_system_message("available themes:")
+            for t in AVAILABLE_THEMES:
+                desc = THEME_DESCRIPTIONS.get(t, "")
+                marker = "◉" if t == self.app_theme else "○"
+                self._add_system_message(f"  {marker} {t}  —  {desc}")
+            return
+
+        # Mode command
+        if text.lower().startswith("/mode"):
+            if text.lower().startswith("/mode "):
+                mode_arg = text[6:].strip().lower()
+                if mode_arg in MODES:
+                    try:
+                        switcher = self.query_one(ModeSwitcher)
+                        switcher.set_mode(mode_arg)
+                    except NoMatches:
+                        self._switch_mode(mode_arg)
+                else:
+                    self._add_system_message(f"invalid mode: {mode_arg}  ·  text/continuous/wakeword")
+            return
+
+        # Clear command
+        if text.lower() == "/clear":
+            try:
+                log = self.query_one("#chat-log", Vertical)
+                for child in log.children:
+                    child.remove()
+            except NoMatches:
+                pass
+            return
+
+        # New conversation command
+        if text.lower() == "/new":
+            self.action_new_conversation()
+            return
+
+        # Quit command
+        if text.lower() == "/quit":
+            self.action_quit()
+            return
+
+        # Print messages command
+        if text.lower() == "print messages":
+            from core.messageHandler import messages
+            self._add_system_message(str(messages))
+            return
+        if text.lower() == "print memories":
+            from knowledge.memory import retrieve_memories
+            self._add_system_message(str(retrieve_memories()))
+            return
 
         if any(cmd in text.lower() for cmd in SHUTUP_COMMANDS):
             response = random.choice(EXIT_RESPONSES)
@@ -1115,8 +1482,32 @@ class AVAApp(App):
 
     def _set_processing(self, val: bool) -> None:
         self.is_processing = val
+        if val:
+            self._show_typing_indicator()
+        else:
+            self._hide_typing_indicator()
         if not val:
             self._update_status(f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode")
+
+    def _show_typing_indicator(self) -> None:
+        try:
+            existing = self.query_one("#typing-indicator", TypingIndicator)
+            return
+        except NoMatches:
+            pass
+        try:
+            log = self.query_one("#chat-log", Vertical)
+            log.mount(TypingIndicator(id="typing-indicator"))
+            self._scroll_to_bottom()
+        except NoMatches:
+            pass
+
+    def _hide_typing_indicator(self) -> None:
+        try:
+            indicator = self.query_one("#typing-indicator", TypingIndicator)
+            indicator.remove()
+        except NoMatches:
+            pass
 
     # ── Voice modes ───────────────────────────────────────────────────────────
 
@@ -1227,11 +1618,19 @@ class AVAApp(App):
                     full = f"{USER_NAME}: {transcription}"
                     add_message(role="user", content=full, tool_id="")
 
+                    # Freeze noise floor while TTS plays - prevents speaker bleed
+                    # from inflating the threshold and killing second-utterance sensitivity
+                    recorder.freeze_noise_floor = True
                     main_running.wait(timeout=5.0)
-                    if _mode_switch_event.is_set(): break
+                    if _mode_switch_event.is_set():
+                        recorder.freeze_noise_floor = False
+                        break
                     while main_running.is_set() and not _mode_switch_event.is_set():
                         time.sleep(0.01)
-                    if _mode_switch_event.is_set(): break
+                    if _mode_switch_event.is_set():
+                        recorder.freeze_noise_floor = False
+                        break
+                    recorder.freeze_noise_floor = False
 
                     timeout = tts_piper.get_last_duration() + 7
                     continued, _ = recorder.record(timeout=timeout)

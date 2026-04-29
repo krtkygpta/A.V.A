@@ -31,7 +31,7 @@ from vosk import Model, KaldiRecognizer
 from groq import Groq
 import logging
 
-from core.AppStates import stop_event
+from core.AppStates import stop_event, voice_stop_event
 _settings_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'settings.json')
 try:
     with open(_settings_path, 'r') as _f:
@@ -129,7 +129,7 @@ class VoiceRecorder:
             text = recorder.get_whisper_result(timeout=15)
     """
 
-    def __init__(self, sample_rate=16000, threshold=0.002, silence_duration=1.5, min_record_time=1.0, status_callback=None):
+    def __init__(self, sample_rate=16000, threshold=0.00008, silence_duration=1.5, min_record_time=1.0, status_callback=None):
         self.sample_rate = sample_rate
         self.status_callback = status_callback
         self.chunk_size = 4000
@@ -256,7 +256,7 @@ class VoiceRecorder:
         self.noise_samples.append(energy)
         if len(self.noise_samples) >= self.noise_calibration_frames:
             self.noise_floor = np.mean(self.noise_samples)
-            self.threshold = max(self.base_threshold, (self.noise_floor + np.std(self.noise_samples)) * 4.0)
+            self.threshold = max(self.base_threshold, (self.noise_floor + np.std(self.noise_samples)) * 2.0)
             self.threshold = max(0.004, min(0.1, self.threshold))
             self.is_calibrated = True
             self.last_calibration_time = time.time()
@@ -331,12 +331,21 @@ class VoiceRecorder:
         """
         self.frames = []
         self.consecutive_voice = 0
+        self.freeze_noise_floor = False  # Always unfreeze at the start of a new listen
 
-        # Drain any stale audio from the queue (accumulated between calls)
+        # Drain stale audio accumulated between calls.
+        # Stop the stream first so the callback thread can't refill the queue
+        # with TTS bleed while we're draining — then restart immediately.
+        if self.stream is not None and self.stream.is_active():
+            try: self.stream.stop_stream()
+            except Exception: pass
         while not self.audio_queue.empty():
             try: self.audio_queue.get_nowait()
             except queue.Empty: break
-            
+        if self.stream is not None:
+            try: self.stream.start_stream()
+            except Exception: pass
+
         # Reset Vosk recognizer for a clean slate (much faster than constructing a new one)
         if self.recognizer:
             self.recognizer.Reset()
@@ -375,6 +384,11 @@ class VoiceRecorder:
                 # Get next audio chunk from callback queue
                 try: data = self.audio_queue.get(timeout=0.1)
                 except queue.Empty: continue
+                
+                # Check for external stop request (e.g., mode switch)
+                if voice_stop_event.is_set():
+                    voice_stop_event.clear()
+                    return False, None
                 
                 # Run noise calibration if needed
                 if not self.is_calibrated:

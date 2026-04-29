@@ -13,6 +13,9 @@ import numpy as np
 import sounddevice as sd
 from vosk import Model, KaldiRecognizer
 import os
+import threading
+
+from core.AppStates import wakeword_stop_event
 
 # Wake words to detect (including common mishearings)
 WAKE_WORDS = {"ava", "assistant"}
@@ -134,6 +137,11 @@ class WakeWordDetector:
                     data = self.audio_queue.get(timeout=0.1)
                 except queue.Empty:
                     continue
+                
+                # Check for external stop request (e.g., mode switch)
+                if wakeword_stop_event.is_set():
+                    wakeword_stop_event.clear()
+                    return False
                 
                 # Calibrate noise floor from initial frames
                 if not self.is_calibrated:

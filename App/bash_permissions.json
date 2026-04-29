@@ -1,0 +1,10 @@
+{
+  "always_allowed": [
+    "mkdir random",
+    "mkdir -p random",
+    "rm -rf wassupdanger",
+    "rmdir /s /q wassupdanger",
+    "dir user"
+  ],
+  "denied": []
+}

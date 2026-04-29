@@ -2,6 +2,7 @@ import json
 import functions as functions
 from functions.productivity.calendar import calendar
 from functions.web.internet import web
+from functions.system.bash_executor import run_bash
 from knowledge.memory import handle_memory_manager
 from core.TaskManager import dispatch_background_task, get_running_tasks_summary
 from knowledge.ConversationManager import handle_conversation_history
@@ -50,6 +51,9 @@ TOOL_CONFIGS = {
         
         # Calendar
         'calendar': calendar,
+        
+        # Bash
+        'bash': run_bash,
         
         # Memory & Tasks
         'memory_manager': handle_memory_manager,
