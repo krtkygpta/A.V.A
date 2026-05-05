@@ -1,24 +1,23 @@
 """Merged SmartHome.py containing AC and Lights control"""
 
-from pywizlight import wizlight, discovery, PilotBuilder
 import asyncio
 import json
 import threading
 
+from pywizlight import PilotBuilder, discovery, wizlight
+
 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
-main_dict = {
-    'Lights': 'd8a0118d79e9',
-    'Lamp': 'd8a011fe9baf'
-}
+main_dict = {"Lights": "d8a0118d79e9", "Lamp": "d8a011fe9baf"}
 
 
-bulbs_ip_dict = {}
+bulbs_ip_dict = {"Lights": "192.168.1.101", "Lamp": "192.168.1.100"}
 
 # Persistent event loop — shared across all async light operations
 _loop = None
 _loop_thread = None
+
 
 def _get_loop():
     """Get or create a persistent asyncio event loop running on a background thread."""
@@ -29,6 +28,7 @@ def _get_loop():
         _loop_thread.start()
     return _loop
 
+
 def scan_and_store_bulbs_sync(retries=3, timeout=15):
     async def async_scan():
         global bulbs_ip_dict
@@ -37,7 +37,7 @@ def scan_and_store_bulbs_sync(retries=3, timeout=15):
             try:
                 bulbs = await asyncio.wait_for(
                     discovery.discover_lights(broadcast_space="192.168.1.255"),
-                    timeout=timeout
+                    timeout=timeout,
                 )
                 for bulb in bulbs:
                     for name, mac in main_dict.items():
@@ -61,11 +61,18 @@ def scan_and_store_bulbs_sync(retries=3, timeout=15):
     future = asyncio.run_coroutine_threadsafe(async_scan(), loop)
     future.result(timeout=timeout * retries + 10)
 
-def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int = 255, color: tuple = (255, 255, 255)):
+
+def control_bulb_sync(
+    light_name: str,
+    action: str = "turn_on",
+    brightness: int = 255,
+    color: tuple = (255, 255, 255),
+):
     """
     Synchronous wrapper for controlling bulbs.
     Uses the shared persistent event loop instead of creating a new one each time.
     """
+
     async def async_control():
         if light_name not in bulbs_ip_dict:
             print(f"[LightCtrl] Light '{light_name}' not found. Run scan first.")
@@ -93,6 +100,7 @@ def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int 
         finally:
             await light.async_close()
             return True
+
     loop = _get_loop()
     future = asyncio.run_coroutine_threadsafe(async_control(), loop)
     result = future.result(timeout=10)
@@ -101,7 +109,7 @@ def control_bulb_sync(light_name: str, action: str = "turn_on", brightness: int 
 
 def control_lights(Light_name, action, brightness=100, color=(255, 255, 255)):
     """Control smart lights (WiZ bulbs).
-    
+
     Args:
         Light_name: Name of the light ('Lights' or 'Lamp')
         action: 'turn_on', 'turn_off', or 'set'
@@ -111,34 +119,55 @@ def control_lights(Light_name, action, brightness=100, color=(255, 255, 255)):
     try:
         brightness = float(brightness) * 2.5
         brightness = int(brightness)
-        
+
         if isinstance(color, list):
             color = tuple(color)
-        
+
         if not bulbs_ip_dict:
             scan_and_store_bulbs_sync()
             if not bulbs_ip_dict:
-                return json.dumps({'status': 'error', 'content': "Couldn't find bulbs on the network"})
-        
+                return json.dumps(
+                    {"status": "error", "content": "Couldn't find bulbs on the network"}
+                )
+
         if action == "set":
             if len(color) != 3:
-                return json.dumps({'status': 'error', 'content': 'Invalid color input. Must be 3 integers (R, G, B)'})
-            
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "content": "Invalid color input. Must be 3 integers (R, G, B)",
+                    }
+                )
+
             success = control_bulb_sync(Light_name, action, brightness, color)
             if success:
-                return json.dumps({'status': 'success', 'content': f'Set {Light_name} to brightness {brightness//2.5:.0f}%'})
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "content": f"Set {Light_name} to brightness {brightness // 2.5:.0f}%",
+                    }
+                )
             else:
-                return json.dumps({'status': 'error', 'content': f'Failed to set {Light_name}'})
+                return json.dumps(
+                    {"status": "error", "content": f"Failed to set {Light_name}"}
+                )
         else:
             success = control_bulb_sync(Light_name, action)
             if success:
-                return json.dumps({'status': 'success', 'content': f'{Light_name} {action} completed'})
+                return json.dumps(
+                    {"status": "success", "content": f"{Light_name} {action} completed"}
+                )
             else:
-                return json.dumps({'status': 'error', 'content': f'Failed to {action} {Light_name}'})
+                return json.dumps(
+                    {"status": "error", "content": f"Failed to {action} {Light_name}"}
+                )
     except Exception as e:
-        return json.dumps({'status': 'error', 'content': f'Light control error: {str(e)}'})
+        return json.dumps(
+            {"status": "error", "content": f"Light control error: {str(e)}"}
+        )
 
-scan_and_store_bulbs_sync()
+
+# scan_and_store_bulbs_sync()
 
 
 # ----- LG AC CODE BELOW -----
@@ -179,6 +208,7 @@ def _load_settings() -> dict:
 # Low-level API helpers
 # ---------------------------------------------------------------------------
 
+
 async def _get_api(session: ClientSession) -> ThinQApi:
     cfg = _load_settings()
     return ThinQApi(
@@ -199,9 +229,12 @@ def _extract_device_id(device: dict) -> str:
 def _get_device_type(device: dict) -> str:
     info = device.get("deviceInfo", {})
     return (
-        info.get("deviceType") or info.get("device_type")
-        or device.get("deviceType") or device.get("device_type")
-        or device.get("type") or ""
+        info.get("deviceType")
+        or info.get("device_type")
+        or device.get("deviceType")
+        or device.get("device_type")
+        or device.get("type")
+        or ""
     )
 
 
@@ -238,6 +271,7 @@ async def _list_ac_devices(api: ThinQApi) -> list[dict]:
 _selected_device: dict | None = None
 _current_target_ac_name: str | None = None
 
+
 async def _find_ac_device_id(api: ThinQApi) -> str:
     global _selected_device, _current_target_ac_name
 
@@ -269,21 +303,36 @@ async def _find_ac_device_id(api: ThinQApi) -> str:
         return _extract_device_id(_selected_device)
 
     aliases = [_get_device_alias(d) for d in ac_devices]
-    raise RuntimeError(f"Multiple ACs found, set 'main_ac_alias' in settings.json. Available: {aliases}")
+    raise RuntimeError(
+        f"Multiple ACs found, set 'main_ac_alias' in settings.json. Available: {aliases}"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Unified LGTHINQAC function
 # ---------------------------------------------------------------------------
 
 # Valid options for enum-like parameters
-_VALID_MODES   = {"COOL", "AIR_DRY", "FAN"}
-_VALID_SPEEDS  = {"LOW", "MID", "HIGH"}
+_VALID_MODES = {"COOL", "AIR_DRY", "FAN"}
+_VALID_SPEEDS = {"LOW", "MID", "HIGH"}
 _VALID_ACTIONS = {
-    "get_status", "get_air_quality", "get_filter_info", "list_devices",
-    "set_power", "set_mode", "set_temperature", "set_fan_speed", "set_fan_step",
-    "set_wind_direction", "set_power_save", "set_display_light",
-    "set_sleep_timer", "set_schedule_on", "set_schedule_off",
+    "get_status",
+    "get_air_quality",
+    "get_filter_info",
+    "list_devices",
+    "set_power",
+    "set_mode",
+    "set_temperature",
+    "set_fan_speed",
+    "set_fan_step",
+    "set_wind_direction",
+    "set_power_save",
+    "set_display_light",
+    "set_sleep_timer",
+    "set_schedule_on",
+    "set_schedule_off",
 }
+
 
 async def LGTHINQAC(
     action: str,
@@ -300,7 +349,7 @@ async def LGTHINQAC(
     up_down: str = None,
     left_right: str = None,
     # Feature toggles
-    enabled: bool = None,        # power_save
+    enabled: bool = None,  # power_save
     # Timer / schedule
     hours: int = None,
     minutes: int = None,
@@ -337,7 +386,9 @@ async def LGTHINQAC(
     action = action.strip().lower()
 
     if action not in _VALID_ACTIONS:
-        return {"error": f"Unknown action '{action}'. Valid actions: {sorted(_VALID_ACTIONS)}"}
+        return {
+            "error": f"Unknown action '{action}'. Valid actions: {sorted(_VALID_ACTIONS)}"
+        }
 
     # --- Read-only queries ---------------------------------------------------
 
@@ -353,7 +404,11 @@ async def LGTHINQAC(
             api = await _get_api(session)
             device_id = await _find_ac_device_id(api)
             status = await api.async_get_device_status(device_id)
-            aq = status.get("airQualitySensor", status.get("air_quality_sensor", {})) if isinstance(status, dict) else {}
+            aq = (
+                status.get("airQualitySensor", status.get("air_quality_sensor", {}))
+                if isinstance(status, dict)
+                else {}
+            )
             return {"device_id": device_id, "air_quality": aq}
 
     if action == "get_filter_info":
@@ -361,7 +416,11 @@ async def LGTHINQAC(
             api = await _get_api(session)
             device_id = await _find_ac_device_id(api)
             status = await api.async_get_device_status(device_id)
-            fi = status.get("filterInfo", status.get("filter_info", {})) if isinstance(status, dict) else {}
+            fi = (
+                status.get("filterInfo", status.get("filter_info", {}))
+                if isinstance(status, dict)
+                else {}
+            )
             return {"device_id": device_id, "filter_info": fi}
 
     if action == "list_devices":
@@ -379,14 +438,18 @@ async def LGTHINQAC(
         if action == "set_power":
             if on is None:
                 return {"error": "set_power requires 'on' (bool)."}
-            command = {"operation": {"airConOperationMode": "POWER_ON" if on else "POWER_OFF"}}
+            command = {
+                "operation": {"airConOperationMode": "POWER_ON" if on else "POWER_OFF"}
+            }
 
         elif action == "set_mode":
             if mode is None:
                 return {"error": "set_mode requires 'mode'."}
             mode = mode.upper()
             if mode not in _VALID_MODES:
-                return {"error": f"Invalid mode '{mode}'. Choose from {sorted(_VALID_MODES)}."}
+                return {
+                    "error": f"Invalid mode '{mode}'. Choose from {sorted(_VALID_MODES)}."
+                }
             command = {"airConJobMode": {"currentJobMode": mode}}
 
         elif action == "set_temperature":
@@ -403,7 +466,9 @@ async def LGTHINQAC(
                 return {"error": "set_fan_speed requires 'speed'."}
             speed = speed.upper()
             if speed not in _VALID_SPEEDS:
-                return {"error": f"Invalid speed '{speed}'. Choose from {sorted(_VALID_SPEEDS)}."}
+                return {
+                    "error": f"Invalid speed '{speed}'. Choose from {sorted(_VALID_SPEEDS)}."
+                }
             command = {"airFlow": {"windStrength": speed}}
 
         elif action == "set_fan_step":
@@ -415,7 +480,9 @@ async def LGTHINQAC(
 
         elif action == "set_wind_direction":
             if up_down is None and left_right is None:
-                return {"error": "set_wind_direction requires at least one of 'up_down' or 'left_right'."}
+                return {
+                    "error": "set_wind_direction requires at least one of 'up_down' or 'left_right'."
+                }
             wind_dir = {}
             if up_down is not None:
                 wind_dir["windRotateUpDown"] = up_down.upper()
@@ -446,12 +513,16 @@ async def LGTHINQAC(
         elif action == "set_schedule_on":
             if hour is None or minute is None:
                 return {"error": "set_schedule_on requires 'hour' and 'minute'."}
-            command = {"timer": {"absoluteHourToStart": hour, "absoluteMinuteToStart": minute}}
+            command = {
+                "timer": {"absoluteHourToStart": hour, "absoluteMinuteToStart": minute}
+            }
 
         elif action == "set_schedule_off":
             if hour is None or minute is None:
                 return {"error": "set_schedule_off requires 'hour' and 'minute'."}
-            command = {"timer": {"absoluteHourToStop": hour, "absoluteMinuteToStop": minute}}
+            command = {
+                "timer": {"absoluteHourToStop": hour, "absoluteMinuteToStop": minute}
+            }
 
         result = await api.async_post_device_control(device_id, command)
 
@@ -584,6 +655,7 @@ AC_TOOLS = [
 
 import inspect
 
+
 async def execute_tool(tool_name: str, tool_input: dict):
     """Route tool calls from the LLM to LGTHINQAC (the only AC tool)."""
     if tool_name != "LGTHINQAC":
@@ -592,24 +664,33 @@ async def execute_tool(tool_name: str, tool_input: dict):
     # Coerce string booleans that some LLMs emit
     for bool_param in ("on", "enabled"):
         if isinstance(tool_input.get(bool_param), str):
-            tool_input[bool_param] = tool_input[bool_param].lower() in ("true", "1", "on")
+            tool_input[bool_param] = tool_input[bool_param].lower() in (
+                "true",
+                "1",
+                "on",
+            )
 
     print(f"[EXECUTOR] LGTHINQAC → {tool_input}")
-# In execute_tool — replace the result normalization block
+    # In execute_tool — replace the result normalization block
     try:
-        result = await LGTHINQAC(**{
-            k: v for k, v in tool_input.items()
-            if k in inspect.signature(LGTHINQAC).parameters
-        })
+        result = await LGTHINQAC(
+            **{
+                k: v
+                for k, v in tool_input.items()
+                if k in inspect.signature(LGTHINQAC).parameters
+            }
+        )
 
-        print(f"[EXECUTOR] Raw result: {result}")   # ← add this to see what the API returns
+        print(
+            f"[EXECUTOR] Raw result: {result}"
+        )  # ← add this to see what the API returns
 
         if result is None:
             return {"status": "success", "message": "Command sent (no response body)"}
 
         # Only treat it as success if there's no error key
         if isinstance(result, dict) and "error" in result:
-            return result   # pass the error through, don't mask it
+            return result  # pass the error through, don't mask it
 
         if isinstance(result, dict) and not result.get("result"):
             return {"status": "success", "message": "Command sent"}
@@ -618,9 +699,12 @@ async def execute_tool(tool_name: str, tool_input: dict):
 
     except Exception as e:
         return {"error": "LGTHINQAC failed", "details": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # CLI helpers (unchanged)
 # ---------------------------------------------------------------------------
+
 
 def _print_result(result: Any):
     print("\n" + json.dumps(result, indent=2, default=str))
@@ -671,6 +755,7 @@ def _sep():
 # Main interactive menu
 # ---------------------------------------------------------------------------
 
+
 async def _handle(choice: str):
     match choice:
         case "1":
@@ -686,12 +771,16 @@ async def _handle(choice: str):
         case "6":
             _print_result(await LGTHINQAC("set_power", on=False))
         case "7":
-            mode = _choose("Select mode:", ["COOL", "HEAT", "AIR_DRY", "AIR_CLEAN", "FAN"])
+            mode = _choose(
+                "Select mode:", ["COOL", "HEAT", "AIR_DRY", "AIR_CLEAN", "FAN"]
+            )
             _print_result(await LGTHINQAC("set_mode", mode=mode))
         case "8":
             temp = _ask_float("Target temperature", 24.0)
             unit = _choose("Unit:", ["C", "F"])
-            _print_result(await LGTHINQAC("set_temperature", temperature=temp, unit=unit))
+            _print_result(
+                await LGTHINQAC("set_temperature", temperature=temp, unit=unit)
+            )
         case "9":
             speed = _choose("Fan speed:", ["LOW", "MID", "HIGH", "AUTO"])
             _print_result(await LGTHINQAC("set_fan_speed", speed=speed))
@@ -702,9 +791,13 @@ async def _handle(choice: str):
             print("\n  Leave blank to skip an axis.")
             ud = _ask("Up/down  (SWING / OFF / FIXED, or blank)")
             lr = _ask("Left/right (SWING / OFF / FIXED, or blank)")
-            _print_result(await LGTHINQAC("set_wind_direction",
-                up_down=ud.upper() if ud else None,
-                left_right=lr.upper() if lr else None))
+            _print_result(
+                await LGTHINQAC(
+                    "set_wind_direction",
+                    up_down=ud.upper() if ud else None,
+                    left_right=lr.upper() if lr else None,
+                )
+            )
         case "12":
             state = _choose("Power save:", ["ON", "OFF"])
             _print_result(await LGTHINQAC("set_power_save", enabled=(state == "ON")))
@@ -774,7 +867,11 @@ async def _main():
     await _pick_device()
 
     while True:
-        active = f"  Active AC : {_get_device_alias(_selected_device)}" if _selected_device else "  Active AC : none selected"
+        active = (
+            f"  Active AC : {_get_device_alias(_selected_device)}"
+            if _selected_device
+            else "  Active AC : none selected"
+        )
         print()
         _sep()
         print(active)

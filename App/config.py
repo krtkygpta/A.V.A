@@ -1,9 +1,12 @@
-import os
 import json
+import os
+from pathlib import Path
 
-env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'settings.json')
+ROOT_DIR = Path(__file__).resolve().parent.parent
+_settings_path = ROOT_DIR / "App" / "settings.json"
+
 try:
-    with open(env_path, 'r') as _f:
+    with open(_settings_path, "r") as _f:
         os.environ.update({k: str(v) for k, v in json.load(_f).items()})
 except Exception:
     pass

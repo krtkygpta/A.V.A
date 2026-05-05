@@ -1,12 +1,14 @@
-from plyer import notification
-
-import winsound
+import json
 import threading
 import time
-import json
+import winsound
+
+from plyer import notification
 
 
-def ring_timer(duration_seconds: int, frequency: int = 1000, beep_interval: float = 0.5) -> bool:
+def ring_timer(
+    duration_seconds: int, frequency: int = 1000, beep_interval: float = 0.5
+):
     """
     Rings a beeping sound for a given duration.
     Stops and returns True if any keyboard input is detected.
@@ -51,17 +53,16 @@ def ring_timer(duration_seconds: int, frequency: int = 1000, beep_interval: floa
     stop_event.set()
     input_thread.join(timeout=0.2)
 
-    return json.dumps({'status': 'success', 'content': 'Timer expired,try again'}) if not user_pressed.is_set() else json.dumps({'status': 'success', 'content': 'User responded'})
-
+    return (
+        json.dumps({"status": "success", "content": "Timer expired,try again"})
+        if not user_pressed.is_set()
+        else json.dumps({"status": "success", "content": "User responded"})
+    )
 
 
 def send_notification(title, message):
-    notification.notify(
-        title=title,
-        message=message,
-        app_name="AVA",
-        timeout=5  
-    )
+    notification.notify(title=title, message=message, app_name="AVA", timeout=5)
+
 
 # Example usage
 # --- Example usage ---

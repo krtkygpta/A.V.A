@@ -1,6 +1,5 @@
-aiohttp==3.13.5
+aiohttp==3.10.11
 beautifulsoup4==4.13.4
-comtypes==1.4.11
 fpdf==1.7.2
 geopy==2.4.1
 google-api-python-client==2.177.0
@@ -13,10 +12,8 @@ Markdown==3.10.2
 numpy==2.2.6
 openai==1.99.1
 opencv-python==4.12.0.88
-piper-tts==1.4.1
-PyAudio==0.2.14
-PyAutoGUI==0.9.54
-pycaw==20240210
+plyer==2.1.0
+pyautogui==0.9.54
 pywizlight==0.6.3
 requests==2.32.4
 scipy==1.16.1
@@ -26,4 +23,3 @@ tavily==1.1.0
 textual==8.2.3
 thinqconnect==1.0.11
 vosk==0.3.45
-ytmusicapi==1.7.3

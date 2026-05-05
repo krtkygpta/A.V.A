@@ -1,11 +1,12 @@
 import json
+
 import functions as functions
-from functions.productivity.calendar import calendar
-from functions.web.internet import web
-from functions.system.bash_executor import run_bash
-from knowledge.memory import handle_memory_manager
 from core.TaskManager import dispatch_background_task, get_running_tasks_summary
+from functions.productivity.calendar import calendar
+from functions.system.bash_executor import run_bash
+from functions.web.internet import web
 from knowledge.ConversationManager import handle_conversation_history
+from knowledge.memory import handle_memory_manager
 
 
 def handle_background_task(task_type: str, **kwargs) -> str:
@@ -25,42 +26,35 @@ def handle_get_background_status() -> str:
 
 
 TOOL_CONFIGS = {
-        # Media
-        'music_control': functions.music_control,
-        'image_description_tool': functions.image_tool,
-        
-        # System
-        'get_time_date': functions.timedate,
-        'shutdown_pc': functions.system_action,
-        'ping': functions.ring_timer,
-        'send_notification': functions.send_notification,
-        
-        # Web (unified)
-        'web': web,
-        
-        # File operations
-        'save_text': functions.save_text,
-        'create_file': functions.create_file,
-        'open_file': functions.open_file,
-        'delete_file': functions.delete_file,
-        'list_files': functions.list_files,
-        'create_pdf': functions.create_pdf,
-        
-        # Code execution
-        'code_executor': functions.run_code_in_sandbox,
-        
-        # Calendar
-        'calendar': calendar,
-        
-        # Bash
-        'bash': run_bash,
-        
-        # Memory & Tasks
-        'memory_manager': handle_memory_manager,
-        'background_task': handle_background_task,
-        'get_background_tasks_status': handle_get_background_status,
-        'conversation_history': handle_conversation_history,
-    }
+    # Media
+    "music_agent": functions.run_music_controller,
+    "image_description_tool": functions.image_tool,
+    # System
+    "get_time_date": functions.timedate,
+    "shutdown_pc": functions.system_action,
+    "ping": functions.ring_timer,
+    "send_notification": functions.send_notification,
+    # Web (unified)
+    "web": web,
+    # File operations
+    "save_text": functions.save_text,
+    "create_file": functions.create_file,
+    "open_file": functions.open_file,
+    "delete_file": functions.delete_file,
+    "list_files": functions.list_files,
+    "create_pdf": functions.create_pdf,
+    # Code execution
+    "code_executor": functions.run_code_in_sandbox,
+    # Calendar
+    "calendar": calendar,
+    # Bash
+    "bash": run_bash,
+    # Memory & Tasks
+    "memory_manager": handle_memory_manager,
+    "background_task": handle_background_task,
+    "get_background_tasks_status": handle_get_background_status,
+    "conversation_history": handle_conversation_history,
+}
 
 
 def handle_tool_call(tool_call):
@@ -69,10 +63,10 @@ def handle_tool_call(tool_call):
     try:
         # Support both OpenAI SDK tool_call objects and plain dict payloads
         if isinstance(tool_call, dict):
-            tool_id = tool_call.get('id')
-            function_payload = tool_call.get('function', {}) or {}
-            args_raw = function_payload.get('arguments', '{}')
-            func_name = function_payload.get('name')
+            tool_id = tool_call.get("id")
+            function_payload = tool_call.get("function", {}) or {}
+            args_raw = function_payload.get("arguments", "{}")
+            func_name = function_payload.get("name")
         else:
             tool_id = tool_call.id
             args_raw = tool_call.function.arguments
@@ -89,12 +83,22 @@ def handle_tool_call(tool_call):
 
         if function:
             result = function(**args)
-            return result if result is not None else "Success", tool_id
+            if result is None:
+                result = "Success"
+            elif not isinstance(result, str):
+                # OpenAI requires tool content to be a string — coerce defensively
+                import json as _json
+
+                try:
+                    result = _json.dumps(result)
+                except Exception:
+                    result = str(result)
+            return result, tool_id
         else:
             return f"Unknown function: {func_name}", tool_id
     except Exception as e:
         if isinstance(tool_call, dict):
-            fname = tool_call.get('function', {}).get('name', 'unknown')
+            fname = tool_call.get("function", {}).get("name", "unknown")
         else:
             fname = tool_call.function.name
         print(f"[FuncHandler] Error calling {fname}: {e}")

@@ -12,8 +12,8 @@ Provides:
 
 from __future__ import annotations
 
-import os
 import json
+import os
 import random
 import threading
 import time
@@ -29,8 +29,8 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.theme import Theme
 from textual.widgets import (
-    Collapsible,
     Button,
+    Collapsible,
     Footer,
     Header,
     Input,
@@ -43,14 +43,24 @@ if TYPE_CHECKING:
     pass
 
 # ── Import AVA internals (same ones __main__.py uses) ───────────────────────
-from config import USER_NAME, ASSISTANT_NAME
-from core.AppStates import main_runner, stop_event, voice_stop_event, wakeword_stop_event
+from config import ASSISTANT_NAME, USER_NAME
+from core.AppStates import (
+    main_runner,
+    stop_event,
+    voice_stop_event,
+    wakeword_stop_event,
+)
+from utils import chime
+
 _mode_switch_event = threading.Event()
 from core.FuncHandler import handle_tool_call
 from core.generate import generate_response
 from core.messageHandler import add_message, reset_messages
 from core.TaskManager import CompletionQueue, check_and_format_completions
-from knowledge.ConversationManager import start_new_conversation, save_current_conversation
+from knowledge.ConversationManager import (
+    save_current_conversation,
+    start_new_conversation,
+)
 
 # ── Import theme definitions ──────────────────────────────────────────────────
 """
@@ -243,21 +253,21 @@ THEME_DESCRIPTIONS = {
 CONFIG_PATH = "settings.json"
 
 CONFIG_DESCRIPTIONS = {
-    "GROQ_API_KEY":       "Groq API key for LLM inference",
-    "USER_NAME":          "Your name (used in prompts)",
-    "ASSISTANT_NAME":     "Assistant's name",
-    "AVA_SERVER_URL":     "AVA WebSocket server URL",
-    "AVA_START_MODE":     "Startup mode: tui / continuous / wakeword",
-    "GOOGLE_AI_API_KEY":  "Google AI (Gemini) API key",
-    "WEATHER_API_KEY":    "OpenWeatherMap API key",
-    "THEME":              "UI theme: ava, nord, dracula, tokyo-night",
+    "GROQ_API_KEY": "Groq API key for LLM inference",
+    "USER_NAME": "Your name (used in prompts)",
+    "ASSISTANT_NAME": "Assistant's name",
+    "AVA_SERVER_URL": "AVA WebSocket server URL",
+    "AVA_START_MODE": "Startup mode: tui / continuous / wakeword",
+    "GOOGLE_AI_API_KEY": "Google AI (Gemini) API key",
+    "WEATHER_API_KEY": "OpenWeatherMap API key",
+    "THEME": "UI theme: ava, nord, dracula, tokyo-night",
 }
 
 CONFIG_SECRET_KEYS = {"GROQ_API_KEY", "GOOGLE_AI_API_KEY", "WEATHER_API_KEY"}
 
-AVA_ASCII = r"""   
-_____ ___  _______   
-\__  \\  \/ /\__  \  
+AVA_ASCII = r"""
+_____ ___  _______
+\__  \\  \/ /\__  \
  / __ \\   /  / __ \_
 (____  /\_/  (____  /
      \/           \/ """
@@ -295,6 +305,7 @@ main_running = threading.Event()
 # ═══════════════════════════════════════════════════════════════════════════════
 # Custom Widgets
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 class ChatMessage(Static):
     """A single message bubble in the chat log."""
@@ -396,7 +407,9 @@ class ToolCallPanel(Static):
                 display_args = args_str[:500] + ("..." if len(args_str) > 500 else "")
                 yield Static(f"{display_args}", classes="tool-args")
             if self._result:
-                display_result = self._result[:300] + ("..." if len(self._result) > 300 else "")
+                display_result = self._result[:300] + (
+                    "..." if len(self._result) > 300 else ""
+                )
                 yield Static(f"↳ {display_result}", classes="tool-result")
 
 
@@ -618,7 +631,11 @@ class SettingsScreen(Static):
             for key, val in self._config.items():
                 desc = CONFIG_DESCRIPTIONS.get(key, "")
                 is_secret = key in CONFIG_SECRET_KEYS
-                placeholder = "••••••••" if (is_secret and val) else (str(val) if val else "not set")
+                placeholder = (
+                    "••••••••"
+                    if (is_secret and val)
+                    else (str(val) if val else "not set")
+                )
                 with Horizontal(classes="setting-row"):
                     yield Static(f"[bold]{key}[/]", classes="setting-label")
                     yield Static(f"{desc}", classes="setting-desc")
@@ -743,7 +760,9 @@ class HelpOverlay(Static):
         yield Static("[bold]/help[/]  Show commands", classes="help-row")
         yield Static("[bold]/theme[/]  Next theme", classes="help-row")
         yield Static("[bold]/themes[/]  List themes", classes="help-row")
-        yield Static("[bold]/mode text|continuous|wakeword[/]  Switch mode", classes="help-row")
+        yield Static(
+            "[bold]/mode text|continuous|wakeword[/]  Switch mode", classes="help-row"
+        )
         yield Static("[bold]/clear[/]  Clear chat", classes="help-row")
         yield Static("[bold]/settings[/]  Open settings", classes="help-row")
         yield Static("[bold]/new[/]  New conversation", classes="help-row")
@@ -1002,7 +1021,11 @@ class AVAApp(App):
 
     def action_cycle_theme(self) -> None:
         """Cycle through available themes."""
-        current_idx = AVAILABLE_THEMES.index(self.app_theme) if self.app_theme in AVAILABLE_THEMES else 0
+        current_idx = (
+            AVAILABLE_THEMES.index(self.app_theme)
+            if self.app_theme in AVAILABLE_THEMES
+            else 0
+        )
         next_idx = (current_idx + 1) % len(AVAILABLE_THEMES)
         next_theme = AVAILABLE_THEMES[next_idx]
         self._set_theme(next_theme)
@@ -1012,7 +1035,7 @@ class AVAApp(App):
         if theme_name not in AVAILABLE_THEMES:
             self._add_system_message(f"theme '{theme_name}' not found")
             return
-        
+
         self.app_theme = theme_name
         try:
             self.theme = theme_name
@@ -1150,12 +1173,16 @@ class AVAApp(App):
             pass
         self.query_one("#user-input", Input).focus()
 
-    def on_settings_screen_save_requested(self, event: SettingsScreen.SaveRequested) -> None:
+    def on_settings_screen_save_requested(
+        self, event: SettingsScreen.SaveRequested
+    ) -> None:
         if self._save_config(event.config):
             self._add_system_message("settings saved  ·  restart to apply changes")
         self._close_settings()
 
-    def on_settings_screen_cancel_requested(self, event: SettingsScreen.CancelRequested) -> None:
+    def on_settings_screen_cancel_requested(
+        self, event: SettingsScreen.CancelRequested
+    ) -> None:
         self._close_settings()
 
     def compose(self) -> ComposeResult:
@@ -1181,17 +1208,21 @@ class AVAApp(App):
 
         # ASCII splash
         log = self.query_one("#chat-log", Vertical)
-        log.mount(Static(
-            f"[bold]{AVA_ASCII}[/]\n[italic]personal intelligence  ·  {ASSISTANT_NAME}[/]",
-            classes="system-msg"
-        ))
+        log.mount(
+            Static(
+                f"[bold]{AVA_ASCII}[/]\n[italic]personal intelligence  ·  {ASSISTANT_NAME}[/]",
+                classes="system-msg",
+            )
+        )
 
         try:
             switcher = self.query_one(ModeSwitcher)
             switcher.set_mode(self.current_mode)
         except NoMatches:
             pass
-        self._update_status(f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode")
+        self._update_status(
+            f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode"
+        )
         self._add_system_message(
             f"online  ·  {USER_NAME}  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode"
         )
@@ -1224,8 +1255,12 @@ class AVAApp(App):
         if new_mode == old_mode:
             return
         self.current_mode = new_mode
-        self._add_system_message(f"mode → {MODE_LABELS.get(new_mode, new_mode).lower()}")
-        self._update_status(f"ready  ·  {MODE_LABELS.get(new_mode, new_mode).lower()} mode")
+        self._add_system_message(
+            f"mode → {MODE_LABELS.get(new_mode, new_mode).lower()}"
+        )
+        self._update_status(
+            f"ready  ·  {MODE_LABELS.get(new_mode, new_mode).lower()} mode"
+        )
 
         if self._voice_thread and self._voice_thread.is_alive():
             if old_mode == "continuous":
@@ -1262,7 +1297,11 @@ class AVAApp(App):
         event.input.clear()
 
         # Settings command
-        if text.lower().startswith("/settings") or text.lower().startswith("/config") or text.lower().startswith("/set"):
+        if (
+            text.lower().startswith("/settings")
+            or text.lower().startswith("/config")
+            or text.lower().startswith("/set")
+        ):
             self.action_toggle_settings()
             return
 
@@ -1292,10 +1331,12 @@ class AVAApp(App):
         # Print messages command
         if text.lower() == "print messages":
             from core.messageHandler import messages
+
             self._add_system_message(str(messages))
             return
         if text.lower() == "print memories":
             from knowledge.memory import retrieve_memories
+
             self._add_system_message(str(retrieve_memories()))
             return
 
@@ -1308,7 +1349,9 @@ class AVAApp(App):
                 if theme_name in AVAILABLE_THEMES:
                     self._set_theme(theme_name)
                 else:
-                    self._add_system_message(f"unknown theme: {theme_name}  ·  /themes for list")
+                    self._add_system_message(
+                        f"unknown theme: {theme_name}  ·  /themes for list"
+                    )
             return
 
         # Themes list
@@ -1331,7 +1374,9 @@ class AVAApp(App):
                     except NoMatches:
                         self._switch_mode(mode_arg)
                 else:
-                    self._add_system_message(f"invalid mode: {mode_arg}  ·  text/continuous/wakeword")
+                    self._add_system_message(
+                        f"invalid mode: {mode_arg}  ·  text/continuous/wakeword"
+                    )
             return
 
         # Clear command
@@ -1357,10 +1402,12 @@ class AVAApp(App):
         # Print messages command
         if text.lower() == "print messages":
             from core.messageHandler import messages
+
             self._add_system_message(str(messages))
             return
         if text.lower() == "print memories":
             from knowledge.memory import retrieve_memories
+
             self._add_system_message(str(retrieve_memories()))
             return
 
@@ -1396,7 +1443,9 @@ class AVAApp(App):
         save_current_conversation()
         self.conversation_active = False
         self._add_system_message("conversation saved")
-        self._update_status(f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode")
+        self._update_status(
+            f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode"
+        )
 
     def action_focus_input(self) -> None:
         self.query_one("#user-input", Input).focus()
@@ -1412,7 +1461,10 @@ class AVAApp(App):
                 if completion_queue.has_notifications():
                     completed_summary = check_and_format_completions()
                     if completed_summary:
-                        self.call_from_thread(self._add_system_message, f"background task update: {completed_summary}")
+                        self.call_from_thread(
+                            self._add_system_message,
+                            f"background task update: {completed_summary}",
+                        )
                         add_message(
                             role="user",
                             content=f"[SYSTEM NOTIFICATION] {completed_summary}",
@@ -1450,12 +1502,18 @@ class AVAApp(App):
 
                         if func_name == "inform_user_between_tool_calls":
                             if isinstance(args, dict):
-                                arg_text = args.get("message", args.get("text", str(args)))
+                                arg_text = args.get(
+                                    "message", args.get("text", str(args))
+                                )
                             else:
                                 arg_text = str(args)
 
                             self.call_from_thread(self._speak_to_ui, arg_text)
-                            add_message(role="tool", content="informed the user", tool_id=tool_id)
+                            add_message(
+                                role="tool",
+                                content="informed the user",
+                                tool_id=tool_id,
+                            )
                         else:
                             self.call_from_thread(
                                 self._update_status, f"running  ·  {func_name}"
@@ -1465,7 +1523,8 @@ class AVAApp(App):
                             )
                             func_resp, t_id = handle_tool_call(tool_call)
                             self.call_from_thread(
-                                self._update_last_tool_result, str(func_resp) if func_resp else "done"
+                                self._update_last_tool_result,
+                                str(func_resp) if func_resp else "done",
                             )
                             add_message(role="tool", content=func_resp, tool_id=t_id)
                     else:
@@ -1474,7 +1533,8 @@ class AVAApp(App):
                             self.call_from_thread(self._speak_to_ui, content)
                         else:
                             self.call_from_thread(
-                                self._speak_to_ui, "I'm not sure how to respond to that."
+                                self._speak_to_ui,
+                                "I'm not sure how to respond to that.",
                             )
                 finally:
                     main_running.clear()
@@ -1487,7 +1547,9 @@ class AVAApp(App):
         else:
             self._hide_typing_indicator()
         if not val:
-            self._update_status(f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode")
+            self._update_status(
+                f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode"
+            )
 
     def _show_typing_indicator(self) -> None:
         try:
@@ -1512,11 +1574,17 @@ class AVAApp(App):
     # ── Voice modes ───────────────────────────────────────────────────────────
 
     def _voice_continuous(self) -> None:
-        from utils import stt_hybrid as stt, tts_piper
+        from utils import stt_hybrid as stt
+        from utils import tts_piper
+
         tts_piper.init_tts()
         self.call_from_thread(self._add_system_message, "continuous listening active")
 
-        recorder = stt.VoiceRecorder(status_callback=lambda txt: self.call_from_thread(self._handle_status_update, txt))
+        recorder = stt.VoiceRecorder(
+            status_callback=lambda txt: self.call_from_thread(
+                self._handle_status_update, txt
+            )
+        )
         while self.current_mode == "continuous" and not _mode_switch_event.is_set():
             success, filename = recorder.record()
             if _mode_switch_event.is_set():
@@ -1525,16 +1593,27 @@ class AVAApp(App):
                 prompt = recorder.get_whisper_result(timeout=15)
                 transcription = prompt if prompt is not None else ""
 
-                if any(word in transcription.lower() for word in ["ava", "assistant", "eva", "ayva", "evaa"]):
-                    self.call_from_thread(self._add_system_message, "wake word detected")
+                if any(
+                    word in transcription.lower()
+                    for word in ["ava", "assistant", "eva", "ayva", "evaa"]
+                ):
+                    self.call_from_thread(
+                        self._add_system_message, "wake word detected"
+                    )
                     start_new_conversation()
                     reset_messages()
                     self.call_from_thread(self._set_conversation_active, True)
 
-                    while self.current_mode == "continuous" and not _mode_switch_event.is_set():
-                        while (main_runner.is_set() or main_running.is_set()) and not _mode_switch_event.is_set():
+                    while (
+                        self.current_mode == "continuous"
+                        and not _mode_switch_event.is_set()
+                    ):
+                        while (
+                            main_runner.is_set() or main_running.is_set()
+                        ) and not _mode_switch_event.is_set():
                             time.sleep(0.01)
-                        if _mode_switch_event.is_set(): break
+                        if _mode_switch_event.is_set():
+                            break
 
                         self.call_from_thread(self._add_user_message, transcription)
 
@@ -1547,13 +1626,17 @@ class AVAApp(App):
                         add_message(role="user", content=user_msg, tool_id="")
 
                         main_running.wait(timeout=5.0)
-                        if _mode_switch_event.is_set(): break
+                        if _mode_switch_event.is_set():
+                            break
                         while main_running.is_set() and not _mode_switch_event.is_set():
                             time.sleep(0.01)
-                        if _mode_switch_event.is_set(): break
+                        if _mode_switch_event.is_set():
+                            break
 
                         timeout = tts_piper.get_last_duration() + 7
-                        continued, _ = recorder.record(timeout=timeout, silence_duration=2.5)
+                        continued, _ = recorder.record(
+                            timeout=timeout, silence_duration=2.5
+                        )
                         if continued:
                             stop_event.clear()
                             transcription = str(recorder.get_whisper_result(timeout=15))
@@ -1564,27 +1647,42 @@ class AVAApp(App):
 
                     save_current_conversation()
                     self.call_from_thread(self._set_conversation_active, False)
-                    self.call_from_thread(self._add_system_message, "conversation ended  ·  listening...")
+                    self.call_from_thread(
+                        self._add_system_message, "conversation ended  ·  listening..."
+                    )
 
     def _voice_wakeword(self) -> None:
+        from utils import stt_hybrid as stt
+        from utils import tts_piper
         from utils.wakeword import WakeWordDetector
-        from utils import stt_hybrid as stt, tts_piper
+
         tts_piper.init_tts()
 
         try:
             detector = WakeWordDetector()
         except FileNotFoundError as e:
-            self.call_from_thread(self._add_system_message, f"wake word model not found: {e}  ·  falling back to continuous")
+            self.call_from_thread(
+                self._add_system_message,
+                f"wake word model not found: {e}  ·  falling back to continuous",
+            )
             self._voice_continuous()
             return
 
-        recorder = stt.VoiceRecorder(status_callback=lambda txt: self.call_from_thread(self._handle_status_update, txt))
-        self.call_from_thread(self._add_system_message, f"wake word mode active  ·  say '{ASSISTANT_NAME}' to activate")
+        recorder = stt.VoiceRecorder(
+            status_callback=lambda txt: self.call_from_thread(
+                self._handle_status_update, txt
+            )
+        )
+        self.call_from_thread(
+            self._add_system_message,
+            f"wake word mode active  ·  say '{ASSISTANT_NAME}' to activate",
+        )
 
         while self.current_mode == "wakeword" and not _mode_switch_event.is_set():
             self.call_from_thread(self._update_status, "listening for wake word...")
             detector.listen_for_wakeword()
 
+            chime.play()
             start_new_conversation()
             reset_messages()
             self.call_from_thread(self._set_conversation_active, True)
@@ -1592,7 +1690,10 @@ class AVAApp(App):
 
             success, filename = recorder.record(timeout=5)
             if not success:
-                self.call_from_thread(self._add_system_message, "didn't catch that  ·  going back to sleep")
+                self.call_from_thread(
+                    self._add_system_message,
+                    "didn't catch that  ·  going back to sleep",
+                )
                 save_current_conversation()
                 detector.reset()
                 self.call_from_thread(self._set_conversation_active, False)
@@ -1600,7 +1701,10 @@ class AVAApp(App):
 
             transcription = recorder.get_whisper_result(timeout=15) or ""
             if not transcription.strip():
-                self.call_from_thread(self._add_system_message, "didn't hear anything  ·  going back to sleep")
+                self.call_from_thread(
+                    self._add_system_message,
+                    "didn't hear anything  ·  going back to sleep",
+                )
                 save_current_conversation()
                 detector.reset()
                 self.call_from_thread(self._set_conversation_active, False)
@@ -1662,6 +1766,7 @@ class AVAApp(App):
 
         if self.current_mode != "text":
             from utils import tts_piper
+
             threading.Thread(
                 target=tts_piper.speak, args=(text, stop_event), daemon=True
             ).start()
@@ -1688,7 +1793,9 @@ class AVAApp(App):
         )
         self._scroll_to_bottom()
 
-    def _add_tool_call(self, func_name: str, args: dict | str, result: str = "") -> None:
+    def _add_tool_call(
+        self, func_name: str, args: dict | str, result: str = ""
+    ) -> None:
         log = self.query_one("#chat-log", Vertical)
         panel = ToolCallPanel(func_name, args, result, id=f"tool-{id(args)}")
         log.mount(panel)
@@ -1703,21 +1810,16 @@ class AVAApp(App):
             try:
                 # Textual stores collapsible body content in a `Contents` widget
                 from textual.widgets._collapsible import CollapsibleTitle
+
                 contents = last_panel.query_one("Collapsible > Contents")
-                contents.mount(
-                    Static(f"↳ {display_result}", classes="tool-result")
-                )
+                contents.mount(Static(f"↳ {display_result}", classes="tool-result"))
             except NoMatches:
-                last_panel.mount(
-                    Static(f"↳ {display_result}", classes="tool-result")
-                )
+                last_panel.mount(Static(f"↳ {display_result}", classes="tool-result"))
             self._scroll_to_bottom()
 
     def _add_system_message(self, text: str) -> None:
         log = self.query_one("#chat-log", Vertical)
-        log.mount(
-            ChatMessage(f"─ [italic]{text}[/]", classes="system-msg")
-        )
+        log.mount(ChatMessage(f"─ [italic]{text}[/]", classes="system-msg"))
         self._scroll_to_bottom()
 
     def _add_separator(self) -> None:
@@ -1754,7 +1856,9 @@ class AVAApp(App):
         self._live_text = text
         if getattr(self, "_live_msg", None):
             ts = datetime.now().strftime("%H:%M")
-            self._live_msg.update(f"[bold]{USER_NAME} [italic](listening...)[/][/]  [{ts}]\n{text}")
+            self._live_msg.update(
+                f"[bold]{USER_NAME} [italic](listening...)[/][/]  [{ts}]\n{text}"
+            )
             self._scroll_to_bottom()
 
     def _end_live_transcription(self) -> None:
@@ -1783,6 +1887,7 @@ class AVAApp(App):
 # ═══════════════════════════════════════════════════════════════════════════════
 # Entry point
 # ═══════════════════════════════════════════════════════════════════════════════
+
 
 def run_tui(start_mode: str = "text", start_theme: str = "ava") -> None:
     """Launch the AVA TUI."""

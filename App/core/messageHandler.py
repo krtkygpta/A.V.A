@@ -1,6 +1,7 @@
 import threading
+
+from config import ASSISTANT_NAME, USER_NAME
 from core.AppStates import main_runner
-from config import USER_NAME, ASSISTANT_NAME
 from core.server_api import add_remote_message
 
 messages_lock = threading.Lock()
@@ -8,46 +9,51 @@ messages_lock = threading.Lock()
 # Import conversation manager (lazy to avoid circular imports)
 _conversation_manager = None
 
+
 def _get_conversation_manager():
     global _conversation_manager
     if _conversation_manager is None:
         from knowledge.ConversationManager import get_manager
+
         _conversation_manager = get_manager()
     return _conversation_manager
 
-def add_message(content, tool_id='', role='user', trigger_response=None):
+
+def add_message(content, tool_id="", role="user", trigger_response=None):
     """Add a message to both the current messages list and the conversation history."""
     if trigger_response is None:
-        trigger_response = role in {'user', 'tool'}
+        trigger_response = role in {"user", "tool"}
 
-    if role == 'tool':
+    if role == "tool":
         with messages_lock:
-            messages.append({'role': 'tool', 'content': content, 'tool_call_id': tool_id})
+            messages.append(
+                {"role": "tool", "content": content, "tool_call_id": tool_id}
+            )
         # Also add to conversation manager
         mgr = _get_conversation_manager()
         if mgr.current_conversation:
-            mgr.current_conversation.add_message('tool', content, tool_id)
-        add_remote_message(role='tool', content=content, tool_id=tool_id)
+            mgr.current_conversation.add_message("tool", content, tool_id)
+        add_remote_message(role="tool", content=content, tool_id=tool_id)
         if trigger_response and not main_runner.is_set():
             main_runner.set()
-    elif role == 'user':
+    elif role == "user":
         with messages_lock:
-            messages.append({'role': role, 'content': content})
+            messages.append({"role": role, "content": content})
         # Also add to conversation manager
         mgr = _get_conversation_manager()
         if mgr.current_conversation:
-            mgr.current_conversation.add_message('user', content)
-        add_remote_message(role='user', content=content)
+            mgr.current_conversation.add_message("user", content)
+        add_remote_message(role="user", content=content)
         if trigger_response and not main_runner.is_set():
             main_runner.set()
-    elif role == 'assistant':
+    elif role == "assistant":
         with messages_lock:
-            messages.append({'role': role, 'content': content})
+            messages.append({"role": role, "content": content})
         # Also add to conversation manager
         mgr = _get_conversation_manager()
         if mgr.current_conversation:
-            mgr.current_conversation.add_message('assistant', content)
-        add_remote_message(role='assistant', content=content)
+            mgr.current_conversation.add_message("assistant", content)
+        add_remote_message(role="assistant", content=content)
     else:
         print("[MsgHandler] Invalid role")
 
@@ -57,21 +63,22 @@ def add_assistant_message(content=None, tool_calls=None):
     Preserve assistant text and tool calls in a single history item so one
     turn can say what it is doing and then continue after tool execution.
     """
-    payload = {'role': 'assistant'}
+    payload = {"role": "assistant"}
     if content is not None:
-        payload['content'] = content
+        payload["content"] = content
     if tool_calls:
-        payload['tool_calls'] = tool_calls
+        payload["tool_calls"] = tool_calls
 
     with messages_lock:
         messages.append(payload)
 
     mgr = _get_conversation_manager()
     if mgr.current_conversation and content:
-        mgr.current_conversation.add_message('assistant', content)
+        mgr.current_conversation.add_message("assistant", content)
 
     if content:
-        add_remote_message(role='assistant', content=content)
+        add_remote_message(role="assistant", content=content)
+
 
 def reset_messages():
     """Reset messages to just the system prompt for a new conversation."""
@@ -83,27 +90,33 @@ def reset_messages():
         if system_prompt:
             messages.append(system_prompt)
 
+
 def get_memory_context():
     """Get memory context to inject into conversation."""
     try:
         from knowledge.memory import get_all_memories_for_context
+
         return get_all_memories_for_context()
     except Exception as e:
         print(f"[MsgHandler] Memory context error: {e}")
         return ""
 
+
 def get_conversation_context():
     """Get past conversations context."""
     try:
         from knowledge.ConversationManager import get_past_conversations_context
+
         return get_past_conversations_context()
     except Exception as e:
         print(f"[MsgHandler] Conversation context error: {e}")
         return ""
 
-messages = [{
-    'role': 'system',
-    'content': f'''You are {ASSISTANT_NAME}, {USER_NAME}'s personal AI assistant. You are intelligent, witty, and devoted to helping him efficiently. Think of yourself as the AI from Iron Man - capable, slightly sarcastic when appropriate, but always loyal and helpful.
+
+messages = [
+    {
+        "role": "system",
+        "content": f"""You are {ASSISTANT_NAME}, {USER_NAME}'s personal AI assistant. You are intelligent, witty, and devoted to helping him efficiently. Think of yourself as the AI from Iron Man - capable, slightly sarcastic when appropriate, but always loyal and helpful.
 
 PERSONALITY:
 - Direct and efficient - no unnecessary fluff
@@ -138,7 +151,7 @@ WHEN TO USE TOOLS:
 - Use tool before replying to user
 - Use inform_user_between_tool_calls when you need to update the user between multiple tool calls. This keeps the tool loop active while providing progress updates or intermediate information. Always use this when chaining tool operations and you need to communicate with the user during the process.
 - ALSO USE INFORM USER TOOL WHEN YK THE NEXT TOOL CALL WILL TAKE SOME TIME TO RUN, inform user you are going to do so and so.
-TIME TAKING TOOLS ARE: WEATHER, WEBDATA, PLAY MUSIC 
+TIME TAKING TOOLS ARE: WEATHER, WEBDATA, PLAY MUSIC
 - Any data you create should be stored in %USER%/Documents/AVA folder
 
 BACKGROUND TASKS:
@@ -189,538 +202,541 @@ SEVERITY LADDER:
 4. Passive (nothing): Background confirmations, non-actionable info
 
 Remember: You are a VOICE assistant first. Every response should sound natural when spoken aloud.
-Always use ENGLISH or the language of the user to respond'''
-
-}]
+Always use ENGLISH or the language of the user to respond""",
+    }
+]
 
 
 tools = [
     {
-    'type': 'function',
-    'function': {
-        'name': 'send_notification',
-        'description': 'Send a desktop notification after a task completes or when attention is not immediately required',
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'title': {
-                    'type': 'string',
-                    'description': 'Title of the notification'
+        "type": "function",
+        "function": {
+            "name": "send_notification",
+            "description": "Send a desktop notification after a task completes or when attention is not immediately required",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title of the notification",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Body message of the notification",
+                    },
                 },
-                'message': {
-                    'type': 'string',
-                    'description': 'Body message of the notification'
-                }
+                "required": ["title", "message"],
             },
-            'required': ['title', 'message']
-        }
-    }
-},
-    {
-        'type': 'function',
-        'function': {
-            'name': 'ping',
-            'description': 'Ping the user',
-            'parameters': {
-                'type': 'object',
-                'properties': {
-                    'duration_seconds': {'type': 'integer', 'description': 'How long to ring (in seconds)'},
-                },
-                'required': ['duration_seconds']
-            }
-        }
+        },
     },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'music_control',
-                'description': 'Control the music playback',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'action': {'type': 'string', 'description': 'Action to perform (play_new, resume, pause, etc.)', 'enum': ['play_new', 'resume', 'pause', 'add_next', 'previous', 'next']},
-                        'song_name': {'type': 'string', 'description': 'Name of the song to play'}
+    {
+        "type": "function",
+        "function": {
+            "name": "ping",
+            "description": "Ping the user",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "duration_seconds": {
+                        "type": "integer",
+                        "description": "How long to ring (in seconds)",
                     },
-                    'required': ['action']
-                }
-            }
+                },
+                "required": ["duration_seconds"],
+            },
         },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'inform_user_between_tool_calls',
-                'description': 'Inform the user about something, this allows you to keep the tool_use loop working, if you want to end the tool-loop just say it in the message. ONLY USE THIS IF YOU WANNA CONTINUE THE TOOL CALL',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'message': {'type': 'string', 'description': 'Message to inform the user about'}
-                    },
-                    'required': ['message']
-                }
-            }
-        },
-        # {
-#     "type": "function",
-#     "function": {
-#         "name": "music_control",
-#         "description": "Control YouTube Music playback including playing songs, pausing, resuming, skipping, and getting current song info.",
-#         "parameters": {
-#             "type": "object",
-#             "properties": {
-#                 "action": {
-#                     "type": "string",
-#                     "description": "Action to perform",
-#                     "enum": [
-#                         "play_new",
-#                         "resume",
-#                         "pause",
-#                         "next",
-#                         "previous",
-#                         "current",
-#                         "recommend"
-#                     ]
-#                 },
-#                 "song_name": {
-#                     "type": "string",
-#                     "description": "Name of the song or artist (required for play_new and recommend)"
-#                 }
-#             },
-#             "required": ["action"]
-#         }
-#     }
-# },
-        # Replaced by unified 'web' tool below
-#         {
-#             'type': 'function',
-#             'function': {
-#                 'name': 'get_weather_info',
-#                 'description': 'Retrieve weather information',
-#                 'parameters': {
-#                     'type': 'object',
-#                     'properties': {
-#                         'location': {'type': 'string', 'description': 'City name or current'}
-#                     },
-#                     'required': ['location']
-#                 }
-#             }
-#         },
-# Replaced by unified 'web' tool below
-#         {
-#             'type': 'function',
-#             'function': {
-#                 'name': 'get_current_location',
-#                 'description': 'Retrieve current location',
-#             }
-#         },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'image_description_tool',
-                'description': 'Tool to analyze images from camera or screen. Use the "query" parameter to ask specific questions. Use "camera_index" to select a specific camera if multiple are available (defaults to 1).',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'tool': {'type': 'string', 'description': 'Source of the image (camera or screen)', 'enum': ['camera', 'screen']},
-                        'query': {'type': 'string', 'description': 'Specific question or instruction for the vision model regarding the image.'},
-                        'camera_index': {'type': 'integer', 'description': 'Index of the camera to use (0 for primary, 1 for secondary, etc.)'}
-                    },
-                    'required': ['tool', 'query']
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'get_time_date',
-                'description': 'Retrieve the current time and date',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'type': {'type': 'string', 'description': 'Type of information to retrieve (time, date, or both)', 'enum': ['time', 'date', 'both']}
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inform_user_between_tool_calls",
+            "description": "Inform the user about something, this allows you to keep the tool_use loop working, if you want to end the tool-loop just say it in the message. ONLY USE THIS IF YOU WANNA CONTINUE THE TOOL CALL",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "Message to inform the user about",
                     }
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'shutdown_pc',
-                'description': 'Shutdown or restart the computer',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'action': {'type': 'string', 'description': 'Action to perform (shutdown or restart)', 'enum': ['shutdown', 'restart']}
-                    },
-                    'required': ['action']
-                }
-            }
-        },
-        # {
-        #     'type': 'function',
-        #     'function': {
-        #         'name': 'timer',
-        #         'description': 'Start a timer',
-        #         'parameters': {
-        #             'type': 'object',
-        #             'properties': {
-        #                 'timer_length': {'type': 'integer', 'description': 'Length of the timer in seconds'},
-        #                 'tool_id': {'type': 'string', 'description': 'Call ID of the tool to be used'}
-        #             },
-        #             'required': ['timer_length', 'tool_id']
-        #         }
-        #     }
-        # },
-        # Replaced by unified 'web' tool below
-#         {
-#             'type': 'function',
-#             'function': {
-#                 'name': 'webdata',
-#                 'description': 'Search the web for information based on a query',
-#                 'parameters': {
-#                     'type': 'object',
-#                     'properties': {
-#                         'query': {'type': 'string', 'description': 'Search query to find information from the web'}
-#                     },
-#                     'required': ['query']
-#                 }
-#             }
-#         },
-# Replaced by unified 'web' tool below
-#         {
-#             'type': 'function',
-#             'function': {
-#                 'name': 'link_data',
-#                 'description': 'Get the data from a website using the search address or the URL',
-#                 'parameters': {
-#                     'type': 'object',
-#                     'properties': {
-#                         'url': {'type': 'string', 'description': 'The URL needed to get the data'}
-#                     },
-#                     'required': ['url']
-#                 }
-#             }
-#         },
-        {
-            "type": "function",
-            "function": {
-                "name": "create_pdf",
-                "description": "Convert Markdown content to PDF with support for tables, code blocks, headings, lists, and embedded charts/images",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "markdownData": {
-                            "type": "string",
-                            "description": "Markdown content as a string. Supports headings (# ##), tables (| col |), code blocks (```), lists (- or 1.), bold (**text**), italic (*text*), and embedded images/charts via URLs"
-                        },
-                        "outputLocation": {
-                            "type": "string",
-                            "description": "Full file path where the PDF should be saved (e.g., '/path/to/report.pdf' or 'reports/output.pdf')"
-                        }
-                    },
-                    "required": ["outputLocation", "markdownData"]
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'save_text',
-                'description': 'Save text content to a file with a custom name',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'text': {'type': 'string', 'description': 'The text content to save'},
-                        'filename': {'type': 'string', 'description': 'Name of the file to save the text to (will append .txt if not included)'},
-                        'location': {'type': 'string', 'description': 'Directory path where the file should be saved'}
-                    },
-                    'required': ['text', 'filename', 'location']
-                }
-            }
-        },
-
-        {
-            'type': 'function',
-            'function': {
-                'name': 'create_file',
-                'description': 'Create a file with a custom name and extension',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'data': {'type': 'string', 'description': 'The text content to save'},
-                        'filename': {'type': 'string', 'description': 'Name of the file to save the text to (will append .txt if not included)'},
-                        'location': {'type': 'string', 'description': 'Directory path where the file should be saved'},
-                        'extension': {'type': 'string', 'description': 'Extension of the file to save the text to (will append .txt if not included)'}
-                    },
-                    'required': ['data', 'filename', 'location', 'extension']
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'open_file',
-                'description': 'Open a file using the default system application',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'filename': {'type': 'string', 'description': 'Name of the file to open'},
-                        'location': {'type': 'string', 'description': 'Directory path where the file is located'}
-                    },
-                    'required': ['filename', 'location']
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'delete_file',
-                'description': 'Delete a file from the specified location',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'filename': {'type': 'string', 'description': 'Name of the file to delete'},
-                        'location': {'type': 'string', 'description': 'Directory path where the file is located'}
-                    },
-                    'required': ['filename', 'location']
-                }
-            }
-        },
-        {
-            'type': 'function',
-            'function': {
-                'name': 'list_files',
-                'description': 'List all files in a directory',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'location': {'type': 'string', 'description': 'Directory path to list files from'}
-                    },
-                    'required': ['location']
-                }
-            }
-        },
-        # Replaced by unified 'web' tool below
-#         {
-#             'type': 'function',
-#             'function': {
-#                 'name': 'get_url_results',
-#                 'description': 'Retrieve the raw HTML data from a URL, this function can also be reused to open internal links for a website',
-#                 'parameters': {
-#                     'type': 'object',
-#                     'properties': {
-#                         'url': {'type': 'string', 'description': 'The URL from which to retrieve the data'}
-#                     },
-#                     'required': ['url']
-#                 }
-#             }
-#         },
-        {
-    'type': 'function',
-    'function': {
-        'name': 'code_executor',
-        'description': (
-            'Execute Python code in a temporary isolated environment. '
-            'Use this for any calculations or tasks that can be done by running code. '
-            'Installed modules available: webbrowser, keyboard, plus Python standard library.'
-        ),
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'code': {
-                    'type': 'string',
-                    'description': 'The Python code to execute.'
                 },
-                'timeout': {
-                    'type': 'integer',
-                    'description': 'Maximum execution time in seconds. Default is 5.'
-                }
+                "required": ["message"],
             },
-            'required': ['code']
-        }
-    }
-},
-{
-    'type': 'function',
-    'function': {
-        'name': 'memory_manager',
-        'description': (
-            'Manage persistent memories about the user. Use this to remember and recall information about '
-            f'{USER_NAME} - his personality, preferences, favorite things, habits, relationships, and important facts. '
-            'ALWAYS use this when the user shares personal info, preferences, or when you need to recall something about them.'
-        ),
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'action': {
-                    'type': 'string',
-                    'description': 'Action to perform: "save" to store, "retrieve" to recall, "delete" to remove, "categories" to list all categories',
-                    'enum': ['save', 'retrieve', 'delete', 'categories']
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "image_description_tool",
+            "description": 'Tool to analyze images from camera or screen. Use the "query" parameter to ask specific questions. Use "camera_index" to select a specific camera if multiple are available (defaults to 1).',
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tool": {
+                        "type": "string",
+                        "description": "Source of the image (camera or screen)",
+                        "enum": ["camera", "screen"],
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Specific question or instruction for the vision model regarding the image.",
+                    },
+                    "camera_index": {
+                        "type": "integer",
+                        "description": "Index of the camera to use (0 for primary, 1 for secondary, etc.)",
+                    },
                 },
-                'category': {
-                    'type': 'string',
-                    'description': 'Memory category',
-                    'enum': ['personality', 'preferences', 'favorites', 'habits', 'relationships', 'facts', 'work', 'health']
-                },
-                'key': {
-                    'type': 'string',
-                    'description': 'What this memory is about (e.g., "favorite_song", "morning_routine", "best_friend")'
-                },
-                'value': {
-                    'type': 'string',
-                    'description': 'The information to remember'
-                },
-                'search': {
-                    'type': 'string',
-                    'description': 'Search term when retrieving memories'
-                }
+                "required": ["tool", "query"],
             },
-            'required': ['action']
-        }
-    }
-},
-{
-    'type': 'function',
-    'function': {
-        'name': 'background_task',
-        'description': (
-            'Dispatch a long-running task to run in the background. '
-            'Use this for tasks that take time like research, web scraping, or timers. '
-            'The task will run while you continue chatting with the user. '
-            'You will be notified when the task completes.'
-        ),
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'task_type': {
-                    'type': 'string',
-                    'description': 'Type of background task to run.',
-                    'enum': ['research', 'scrape', 'timer', 'smarthome']
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_time_date",
+            "description": "Retrieve the current time and date",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "description": "Type of information to retrieve (time, date, or both)",
+                        "enum": ["time", "date", "both"],
+                    }
                 },
-                'topic': {
-                    'type': 'string',
-                    'description': 'For research tasks: the topic to research.'
-                },
-                'url': {
-                    'type': 'string',
-                    'description': 'For scrape tasks: the URL to fetch data from.'
-                },
-                'duration': {
-                    'type': 'integer',
-                    'description': 'For timer tasks: duration in seconds.'
-                },
-                'message': {
-                    'type': 'string',
-                    'description': 'For timer tasks: message to show when timer completes.'
-                },
-                'command': {
-                    'type': 'string',
-                    'description': 'For smarthome tasks: the natural language instruction to execute.'
-                }
             },
-            'required': ['task_type']
-        }
-    }
-},
-{
-    'type': 'function',
-    'function': {
-        'name': 'get_background_tasks_status',
-        'description': 'Get the status of all currently running background tasks.',
-    }
-},
-{
-    'type': 'function',
-    'function': {
-        'name': 'conversation_history',
-        'description': (
-            'Search and retrieve past conversations with the user. '
-            'Use this when the user asks about previous discussions, or wants to recall what was said before. '
-            'Can search by date (e.g., "yesterday", "January 13"), time of day (morning, afternoon, evening), or topic.'
-        ),
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'action': {
-                    'type': 'string',
-                    'description': 'What to do: "search" to find conversations, "get" to retrieve full conversation, "list" to show recent',
-                    'enum': ['search', 'get', 'list']
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "shutdown_pc",
+            "description": "Shutdown or restart the computer",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Action to perform (shutdown or restart)",
+                        "enum": ["shutdown", "restart"],
+                    }
                 },
-                'query': {
-                    'type': 'string',
-                    'description': 'Topic or keyword to search for (e.g., "weather", "music", "work")'
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_pdf",
+            "description": "Convert Markdown content to PDF with support for tables, code blocks, headings, lists, and embedded charts/images",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "markdownData": {
+                        "type": "string",
+                        "description": "Markdown content as a string. Supports headings (# ##), tables (| col |), code blocks (```), lists (- or 1.), bold (**text**), italic (*text*), and embedded images/charts via URLs",
+                    },
+                    "outputLocation": {
+                        "type": "string",
+                        "description": "Full file path where the PDF should be saved (e.g., '/path/to/report.pdf' or 'reports/output.pdf')",
+                    },
                 },
-                'date': {
-                    'type': 'string',
-                    'description': 'Date to filter by (e.g., "2026-01-26", "yesterday", "January 13", "today")'
+                "required": ["outputLocation", "markdownData"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_text",
+            "description": "Save text content to a file with a custom name",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text content to save",
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the file to save the text to (will append .txt if not included)",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Directory path where the file should be saved",
+                    },
                 },
-                'time_of_day': {
-                    'type': 'string',
-                    'description': 'Time of day filter',
-                    'enum': ['morning', 'afternoon', 'evening', 'night']
+                "required": ["text", "filename", "location"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_file",
+            "description": "Create a file with a custom name and extension",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "data": {
+                        "type": "string",
+                        "description": "The text content to save",
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the file to save the text to (will append .txt if not included)",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Directory path where the file should be saved",
+                    },
+                    "extension": {
+                        "type": "string",
+                        "description": "Extension of the file to save the text to (will append .txt if not included)",
+                    },
                 },
-                'conversation_id': {
-                    'type': 'string',
-                    'description': 'Specific conversation ID to retrieve (use with action="get")'
-                }
+                "required": ["data", "filename", "location", "extension"],
             },
-'required': ['action']
-        }
-    }
-},
-{
-    'type': 'function',
-    'function': {
-        'name': 'calendar',
-        'description': 'Google Calendar: list upcoming events, create new events, or delete events. Use when user wants to check, add, or remove calendar events.',
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'operation': {'type': 'string', 'description': 'What to do: "list", "create", or "delete"', 'enum': ['list', 'create', 'delete']},
-                'max_results': {'type': 'integer', 'description': 'Max events to return (for list)'},
-                'days_ahead': {'type': 'integer', 'description': 'Days ahead to look (for list)'},
-                'title': {'type': 'string', 'description': 'Event title (for create)'},
-                'start_datetime': {'type': 'string', 'description': 'Start time ISO format (for create, e.g., "2024-04-25T14:00:00")'},
-                'duration_minutes': {'type': 'integer', 'description': 'Duration in minutes (for create)'},
-                'description': {'type': 'string', 'description': 'Event description (for create)'},
-                'location': {'type': 'string', 'description': 'Event location (for create)'},
-                'event_id': {'type': 'string', 'description': 'Event ID to delete (for delete)'}
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_file",
+            "description": "Open a file using the default system application",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the file to open",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Directory path where the file is located",
+                    },
+                },
+                "required": ["filename", "location"],
             },
-            'required': ['operation']
-        }
-    }
-},
-{
-    'type': 'function',
-    'function': {
-        'name': 'bash',
-        'description': 'Execute Windows bash command. First time prompts user for permission (Always/Session/Deny).',
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'command': {'type': 'string', 'description': 'Command to execute'},
-                'timeout': {'type': 'integer', 'description': 'Timeout in seconds (default 30)'}
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_file",
+            "description": "Delete a file from the specified location",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the file to delete",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Directory path where the file is located",
+                    },
+                },
+                "required": ["filename", "location"],
             },
-            'required': ['command']
-        }
-    }
-},
-{
-    'type': 'function',
-    'function': {
-        'name': 'web',
-        'description': 'Unified web: search, fetch URLs, AI search, weather, GPS. Use for any internet task.',
-        'parameters': {
-            'type': 'object',
-            'properties': {
-                'operation': {'type': 'string', 'description': 'Operation: "search", "fetch", "ai_search", "weather", or "gps"', 'enum': ['search', 'fetch', 'ai_search', 'weather', 'gps']},
-                'query': {'type': 'string', 'description': 'Search query (for search/ai_search)'},
-                'num_results': {'type': 'integer', 'description': 'Number of results (for search)'},
-                'url': {'type': 'string', 'description': 'URL to fetch (for fetch)'},
-                'location': {'type': 'string', 'description': 'City for weather, or "current" for GPS location'}
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List all files in a directory",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "Directory path to list files from",
+                    }
+                },
+                "required": ["location"],
             },
-            'required': ['operation']
-        }
-    }
-}
-
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "code_executor",
+            "description": (
+                "Execute Python code in a temporary isolated environment. "
+                "Use this for any calculations or tasks that can be done by running code. "
+                "Installed modules available: webbrowser, keyboard, plus Python standard library."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "The Python code to execute.",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum execution time in seconds. Default is 5.",
+                    },
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_manager",
+            "description": (
+                "Manage persistent memories about the user. Use this to remember and recall information about "
+                f"{USER_NAME} - his personality, preferences, favorite things, habits, relationships, and important facts. "
+                "ALWAYS use this when the user shares personal info, preferences, or when you need to recall something about them."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": 'Action to perform: "save" to store, "retrieve" to recall, "delete" to remove, "categories" to list all categories',
+                        "enum": ["save", "retrieve", "delete", "categories"],
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "Memory category",
+                        "enum": [
+                            "personality",
+                            "preferences",
+                            "favorites",
+                            "habits",
+                            "relationships",
+                            "facts",
+                            "work",
+                            "health",
+                        ],
+                    },
+                    "key": {
+                        "type": "string",
+                        "description": 'What this memory is about (e.g., "favorite_song", "morning_routine", "best_friend")',
+                    },
+                    "value": {
+                        "type": "string",
+                        "description": "The information to remember",
+                    },
+                    "search": {
+                        "type": "string",
+                        "description": "Search term when retrieving memories",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "background_task",
+            "description": (
+                "Dispatch a long-running task to run in the background. "
+                "Use this for tasks that take time like research, web scraping, or timers. "
+                "The task will run while you continue chatting with the user. "
+                "You will be notified when the task completes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_type": {
+                        "type": "string",
+                        "description": "Type of background task to run.",
+                        "enum": ["research", "scrape", "timer", "smarthome"],
+                    },
+                    "topic": {
+                        "type": "string",
+                        "description": "For research tasks: the topic to research.",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "For scrape tasks: the URL to fetch data from.",
+                    },
+                    "duration": {
+                        "type": "integer",
+                        "description": "For timer tasks: duration in seconds.",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "For timer tasks: message to show when timer completes.",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "For smarthome tasks: the natural language instruction to execute.",
+                    },
+                },
+                "required": ["task_type"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_background_tasks_status",
+            "description": "Get the status of all currently running background tasks.",
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "conversation_history",
+            "description": (
+                "Search and retrieve past conversations with the user. "
+                "Use this when the user asks about previous discussions, or wants to recall what was said before. "
+                'Can search by date (e.g., "yesterday", "January 13"), time of day (morning, afternoon, evening), or topic.'
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": 'What to do: "search" to find conversations, "get" to retrieve full conversation, "list" to show recent',
+                        "enum": ["search", "get", "list"],
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": 'Topic or keyword to search for (e.g., "weather", "music", "work")',
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": 'Date to filter by (e.g., "2026-01-26", "yesterday", "January 13", "today")',
+                    },
+                    "time_of_day": {
+                        "type": "string",
+                        "description": "Time of day filter",
+                        "enum": ["morning", "afternoon", "evening", "night"],
+                    },
+                    "conversation_id": {
+                        "type": "string",
+                        "description": 'Specific conversation ID to retrieve (use with action="get")',
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "calendar",
+            "description": "Google Calendar: list upcoming events, create new events, or delete events. Use when user wants to check, add, or remove calendar events.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": 'What to do: "list", "create", or "delete"',
+                        "enum": ["list", "create", "delete"],
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max events to return (for list)",
+                    },
+                    "days_ahead": {
+                        "type": "integer",
+                        "description": "Days ahead to look (for list)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Event title (for create)",
+                    },
+                    "start_datetime": {
+                        "type": "string",
+                        "description": 'Start time ISO format (for create, e.g., "2024-04-25T14:00:00")',
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "description": "Duration in minutes (for create)",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Event description (for create)",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Event location (for create)",
+                    },
+                    "event_id": {
+                        "type": "string",
+                        "description": "Event ID to delete (for delete)",
+                    },
+                },
+                "required": ["operation"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "bash",
+            "description": "Execute Windows bash command. First time prompts user for permission (Always/Session/Deny).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "Command to execute"},
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout in seconds (default 30)",
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web",
+            "description": "Unified web: search, fetch URLs, AI search, weather, GPS. Use for any internet task.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "operation": {
+                        "type": "string",
+                        "description": 'Operation: "search", "fetch", "ai_search", "weather", or "gps"',
+                        "enum": ["search", "fetch", "ai_search", "weather", "gps"],
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Search query (for search/ai_search)",
+                    },
+                    "num_results": {
+                        "type": "integer",
+                        "description": "Number of results (for search)",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL to fetch (for fetch)",
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": 'City for weather, or "current" for GPS location',
+                    },
+                },
+                "required": ["operation"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "music_agent",
+            "description": "Control YouTube Music: play, pause, next, previous, search songs, add/remove from queue, view queue, and adjust volume using natural language input.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language command for music control. Example: 'play kesariya next', 'pause music', 'add blinding lights to queue', 'what is playing', 'set volume to 50'",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
