@@ -1,126 +1,366 @@
-<div align="center">
-<pre>
- _____ ___  _______   
-\__  \\  \/ /\__  \  
- / __ \\   /  / __ \_
-(____  /\_/  (____  /
-     \/           \/ 
-</pre>
+# A.V.A: Always Voiced Ally
 
-# 🌌 A.V.A: Always Voiced Ally
-### *The Next Generation of Personal Neural Intelligence*
+A hyper-responsive, modular neural assistant that bridges human intuition and machine precision through a sophisticated client-server architecture.
 
-[![Status](https://img.shields.io/badge/STATUS-OPERATIONAL-00FF85?style=for-the-badge&logo=statuspage&logoColor=black)]()
-[![Version](https://img.shields.io/badge/VERSION-2.4.0-7000FF?style=for-the-badge)]()
-[![Architecture](https://img.shields.io/badge/ARCHITECTURE-NEURAL_LINK-FF0055?style=for-the-badge)]()
+![Status](https://img.shields.io/badge/STATUS-OPERATIONAL-00FF85?style=for-the-badge)
+![Version](https://img.shields.io/badge/VERSION-2.4.0-7000FF?style=for-the-badge)
 
 ---
 
-</div>
+## Overview
 
-## 💠 SYNOPSIS
-**A.V.A** is a hyper-responsive, modular neural assistant designed to bridge the gap between human intuition and machine precision. Orchestrated via a sophisticated **Client-Server Neural Link**, it offloads cognitive load to a high-performance backend while maintaining a sleek, low-latency interface on your local hardware.
+A.V.A is a personal AI assistant designed to run locally with intelligent offloading to backend services. It features a modern terminal user interface, voice interaction capabilities, semantic memory, and extensible tool integrations.
 
----
+### Key Features
 
-## ⚡ CORE MODULES
-
-<table align="center">
-  <tr>
-    <td align="center"><b>🛰️ NEURAL LINK (SERVER)</b></td>
-    <td align="center"><b>🖥️ INTERFACE (CLIENT)</b></td>
-  </tr>
-  <tr>
-    <td>
-      <ul>
-        <li><b>LLM Core:</b> Driven by <i>Kimi-k2-instruct</i> for high-context logic.</li>
-        <li><b>Memory Matrix:</b> Persistent semantic storage for long-term recall.</li>
-        <li><b>Neural Synthesis:</b> High-speed <i>Piper TTS</i> backend.</li>
-      </ul>
-    </td>
-    <td>
-      <ul>
-        <li><b>Cyber-TUI:</b> Ultra-modern terminal interface with live logs.</li>
-        <li><b>Hybrid STT:</b> Vosk (Local) + Groq Whisper (Accurate).</li>
-        <li><b>Tool Orchestrator:</b> Local execution of system & web tools.</li>
-      </ul>
-    </td>
-  </tr>
-</table>
+- **Multi-Mode Voice Interaction** — Continuous listening, wake-word activation, or keyboard input
+- **Semantic Memory** — Learns and remembers user preferences over time
+- **Neural TTS** — Fast local text-to-speech using Piper
+- **Hybrid STT** — Combines local Vosk wake-word detection with Groq Whisper for accurate transcription
+- **Tool Orchestration** — Executes system commands, web searches, code, and more
+- **Smart Home Integration** — Controls WiZ smart lights natively
+- **Document Generation** — Creates PDFs and manages workspace files
 
 ---
 
-## 🖥️ VISUAL INTERFACE
+## Architecture
 
-<div align="center">
-  <img src="assets/image.png" width="600" alt="AVA TUI Conversation">
-  <br>
-  <i>— TUI Neural Conversation Flow —</i>
-</div>
+```
+CLIENT (App)                          SERVER (Backend)
+┌──────────────────────┐             ┌──────────────────────┐
+│  TUI (Textual)        │             │  LLM Service         │
+│  Voice Modes          │◄──HTTP────►│  TTS Engine          │
+│  Memory Manager       │             │  Tool Service         │
+│  Function Handler     │             │  Conversation Store   │
+│   └─ Local Tools      │             │   └─ Server Tools     │
+└──────────────────────┘             └──────────────────────┘
+```
 
-Explore a beautifully crafted terminal experience featuring live markdown rendering, real-time tool logs, and a sleek modern aesthetic.
+### Directory Structure
+
+```
+A.V.A/
+├── App/                     # Client application
+│   ├── __main__.py          # Entry point
+│   ├── core/                 # Core functionality
+│   │   ├── generate.py       # Response generation
+│   │   ├── messageHandler.py # Message management
+│   │   ├── FuncHandler.py    # Tool execution
+│   │   └── server_api.py     # HTTP client for server
+│   ├── functions/            # Tool implementations
+│   │   ├── system/           # System control tools
+│   │   ├── web/              # Web/search tools
+│   │   ├── media/            # Media control tools
+│   │   └── productivity/     # Productivity tools
+│   ├── knowledge/            # Memory system
+│   │   └── memory.py         # Semantic memory manager
+│   └── ui/
+│       └── tui.py            # Terminal UI (Textual)
+├── Server/                   # Backend server
+│   ├── __main__.py           # Server entry point
+│   ├── app.py                # HTTP API server
+│   ├── config.py             # Server configuration
+│   └── services/             # Backend services
+│       ├── llm_service.py     # LLM integration
+│       ├── tts_service.py     # Text-to-speech
+│       ├── tool_service.py    # Tool orchestration
+│       └── conversation_store.py
+├── docs/                     # Documentation
+└── requirements.txt         # Python dependencies
+```
 
 ---
 
-## 🛠️ CYBERNETIC CAPABILITIES
+## Getting Started
 
-### 🧬 Persistent Semantic Memory
-Unlike standard assistants, A.V.A builds a **Neural Profile** of you. It extracts key data points from your conversations and stores them in a semantic database, evolving with every interaction.
+### Prerequisites
 
-### 🌓 Hybrid Audio Pipeline
-* **Zero-Latency Monitoring:** Local Vosk engine monitors ambient audio for wake-words.
-* **Whisper Precision:** Groq's Whisper-v3-turbo handles final transcription with unparalleled accuracy.
+- Python 3.10+
+- [Piper TTS](https://github.com/rhasspy/piper) (for text-to-speech)
+- API keys (see Configuration below)
 
-### 🌐 Universal Tool Integration
-* **🏠 Dominion Control:** Native integration for <b>WiZ Smart Lights</b>.
-* **🌐 Data Extraction:** High-speed web scraping and Google AI fallback search.
-* **🧬 Code Sandbox:** Safe, isolated Python execution environment for dynamic calculations.
-* **📄 Neural Documentation:** MD-to-PDF generation and secure workspace management.
+### Installation
 
----
+```bash
+# Clone or navigate to the project
+cd A.V.A
 
-## 🚀 INITIALIZATION
+# Install Python dependencies
+pip install -r requirements.txt
 
-### 1️⃣ Neural Configuration (`settings.json`)
-Configure your access tokens in the root and server directories.
+# Install Playwright (for web browsing)
+playwright install
+```
 
-**Root Configuration:**
+### Configuration
+
+Configure your settings in two locations:
+
+**Root `settings.json`:**
+
 ```json
 {
-  "GROQ_API_KEY": "GSK_...",
-  "USER_NAME": "Cyber_User",
+  "GROQ_API_KEY": "your_groq_api_key",
+  "USER_NAME": "YourName",
   "ASSISTANT_NAME": "AVA",
   "AVA_SERVER_URL": "http://127.0.0.1:8765"
 }
 ```
 
-### 2️⃣ System Deployment
-```bash
-# Install Neural Dependencies
-pip install -r requirements.txt
+**Server `Server/settings.json`:**
 
-# Initialize Web Browsing Subsystems
-playwright install
+```json
+{
+  "openai_api_key": "your_api_key",
+  "openai_base_url": "https://api.groq.com/openai/v1",
+  "model_name": "kimi-k2-instruct",
+  "tts_voice": "en_US-lessac-medium",
+  "tts_host": "localhost",
+  "tts_port": 10200,
+  "groq_api_key": "your_groq_key",
+  "google_ai_api_key": "your_google_key",
+  "tavily_api_key": "your_tavily_key"
+}
+```
+
+### Running the Application
+
+**1. Start the Server (Backend):**
+
+```bash
+python -m Server
+```
+
+You should see:
+
+```
+[AVA-SERVER] Listening on http://127.0.0.1:8765
+```
+
+**2. Start the Client (in a separate terminal):**
+
+```bash
+python App/__main__.py
 ```
 
 ---
 
-## 📡 OPERATIONAL MODES
+## Operational Modes
 
-| MODE | DESCRIPTION |
-| :--- | :--- |
-| **`tui`** | Full GUI-like Terminal Interface with live telemetry. |
-| **`continuous`** | Seamless background listening with automatic transcription. |
-| **`wakeword`** | Power-efficient monitoring for "Hey AVA" activation. |
-| **`text`** | Direct neural link via keyboard (bypass audio). |
+| Mode | Command | Description |
+|------|---------|-------------|
+| **TUI** | Default | Full terminal interface with live logs |
+| **Continuous** | `--mode continuous` | Background listening with auto transcription |
+| **Wake Word** | `--mode wakeword` | Power-efficient monitoring for "Hey AVA" |
+| **Text** | `--mode text` | Direct keyboard input (no audio) |
+
+### System Controls (in TUI)
+
+- `Ctrl+C` — Emergency shutdown
+- `Ctrl+I` — Open settings
+- `Ctrl+Q` — Quit application
+
+---
+
+## Available Tools
+
+### System Tools
+
+| Tool | Function |
+|------|----------|
+| `get_time_date` | Get current time and date |
+| `shutdown_pc` | Shut down the computer |
+| `ping` | Set a timer/reminder |
+| `send_notification` | Send system notification |
+| `bash` | Execute bash commands |
+| `smart_home` | Control WiZ smart lights |
+
+### Web Tools
+
+| Tool | Function |
+|------|----------|
+| `web` | Search the web and fetch content |
+| `research` | Deep research on complex topics |
+
+### Productivity Tools
+
+| Tool | Function |
+|------|----------|
+| `calendar` | Manage calendar events |
+| `create_pdf` | Generate PDF documents |
+| `create_file` | Create text files |
+| `open_file` | Open and read files |
+| `delete_file` | Delete files |
+
+### AI Tools
+
+| Tool | Function |
+|------|----------|
+| `code_executor` | Run Python code safely in sandbox |
+| `image_description_tool` | Analyze images |
+| `memory_manager` | Save/retrieve semantic memories |
+| `conversation_history` | Search past conversations |
 
 ---
 
-## 📟 SYSTEM COMMANDS
-* **`python -m Server`** — Initialize the Neural Backend.
-* **`python App/__main__.py`** — Establish the Neural Link (Client).
-* **`Ctrl+C`** — Pulse Emergency Shutdown.
-* **`Ctrl+I`** — Access the Settings Matrix.
-* **`Ctrl+Q`** — Termination sequence (Quit).
+## API Reference
+
+The server exposes the following endpoints:
+
+### Generation
+
+```
+POST /generate
+```
+
+Generate a response from the LLM.
+
+**Request Body:**
+
+```json
+{
+  "messages": [{"role": "user", "content": "Hello"}],
+  "tools": [{"type": "function", "function": {...}}]
+}
+```
+
+**Response:**
+
+```json
+{
+  "role": "assistant",
+  "content": "Hello! How can I help you?",
+  "tool_calls": []
+}
+```
+
+### Text-to-Speech
+
+```
+POST /tts
+```
+
+Synthesize text to speech.
+
+**Request Body:**
+
+```json
+{
+  "text": "Hello, how are you today?"
+}
+```
+
+**Response:** Audio file (audio/wav)
+
+### Conversation Management
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /conversation/start` | Start new conversation |
+| `POST /conversation/message` | Add a message |
+| `POST /conversation/save` | Save current conversation |
+| `POST /conversation/list` | List recent conversations |
+
+### Tools
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /tools/google_ai` | Google AI search |
+| `POST /tools/image_analysis` | Analyze images |
+| `POST /tools/code_execute` | Execute Python code |
+| `POST /tools/research` | Deep research |
 
 ---
+
+## Memory System
+
+A.V.A maintains a semantic memory that persists across sessions. Memories are stored as natural language sentences and retrieved contextually.
+
+The LLM automatically manages memories when relevant. Examples:
+
+- "My favorite color is blue" — stored as "Your favorite color is blue"
+- "I usually wake up at 7 AM" — stored for future reference
+
+### Manual Memory Operations
+
+Available through the `memory_manager` tool:
+
+- **save**: Store new information
+- **retrieve**: Find relevant memories
+- **delete**: Remove a memory
+- **categories**: View memory statistics
+
+---
+
+## Customization
+
+### Themes
+
+The TUI supports custom themes. Theme configurations are defined in `App/ui/tui.py`.
+
+### Voice Settings
+
+Configure TTS voice in `Server/settings.json`:
+
+```json
+{
+  "tts_voice": "en_US-lessac-medium"
+}
+```
+
+Available voices depend on your Piper installation.
+
+---
+
+## Troubleshooting
+
+### Server won't start
+
+Ensure port 8765 is available:
+
+```bash
+# Windows
+netstat -ano | findstr :8765
+
+# Linux/Mac
+lsof -i :8765
+```
+
+### Voice recognition issues
+
+- Verify microphone is properly configured
+- For wake-word mode, ensure Vosk model is downloaded
+- Check audio device settings in system
+
+### Memory not persisting
+
+Ensure write permissions to `App/data/memories/` directory.
+
+---
+
+## Documentation
+
+More detailed documentation is available in the `docs/` folder:
+
+- `docs/getting-started.md` — Step-by-step setup guide
+- `docs/architecture.md` — System architecture and components
+- `docs/configuration.md` — All configuration options
+- `docs/api-reference.md` — HTTP API documentation
+- `docs/memory-system.md` — Memory system details
+- `docs/tools-reference.md` — Complete tool reference
+- `docs/SUMMARY.md` — Documentation index
+
+---
+
+## License
+
+This project is for personal use. See individual component licenses for third-party dependencies.
+
+---
+
+## Acknowledgments
+
+- [Piper TTS](https://github.com/rhasspy/piper) — Neural text-to-speech
+- [Vosk](https://alphacephei.com/vosk/) — Offline speech recognition
+- [Textual](https://textual.textualize.io/) — Terminal UI framework
+- [Groq](https://groq.com/) — Fast LLM inference
