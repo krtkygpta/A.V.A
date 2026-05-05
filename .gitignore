@@ -10,7 +10,7 @@ __pycache__/
 env/
 venv/
 ENV/
-**settings.json
+**settings**
 
 # VS Code
 .vscode/
