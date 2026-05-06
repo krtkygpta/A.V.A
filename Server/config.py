@@ -40,7 +40,7 @@ def get_settings() -> Settings:
         model_name=os.getenv("MODEL_NAME", ""),
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_base_url=os.getenv("OPENAI_BASE_URL"),
-        tts_voice=os.getenv("AVA_TTS_VOICE", "./assets/en_US-hfc_female-medium"),
+        tts_voice=os.getenv("tts_voice", "./assets/en_US-hfc_female-medium"),
         tts_host=os.getenv("AVA_LOCAL_PIPER_HOST", "127.0.0.1"),
         tts_port=int(os.getenv("AVA_LOCAL_PIPER_PORT", "5000")),
         tts_startup_timeout=float(os.getenv("AVA_LOCAL_PIPER_TIMEOUT", "60")),

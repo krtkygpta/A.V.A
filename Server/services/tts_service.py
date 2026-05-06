@@ -11,8 +11,9 @@ import requests
 class TTSService:
     """Server-owned Piper HTTP process + synthesis facade."""
 
-    def __init__(self, voice: str, host: str, port: int, startup_timeout: float, root_dir: Path):
-        self.voice = voice
+    def __init__(
+        self, voice: str, host: str, port: int, startup_timeout: float, root_dir: Path
+    ):
         self.host = host
         self.port = port
         self.startup_timeout = startup_timeout
@@ -20,18 +21,37 @@ class TTSService:
         self.base_url = f"http://{host}:{port}"
         self._server_proc: subprocess.Popen | None = None
 
-    def _download_voice_if_missing(self) -> None:
-        import glob
+        # Resolve voice path relative to root_dir if relative
+        voice_path = Path(voice)
+        if not voice_path.is_absolute():
+            # If it looks like a file path (has extension or path separators), resolve relative to root_dir
+            voice_path = root_dir / voice_path
+        self.voice = voice_path
 
-        if glob.glob(str(self.root_dir / f"{self.voice}*")):
+    def _download_voice_if_missing(self) -> None:
+        """Download voice model if the configured path doesn't exist."""
+        # Check if the voice path (or with .onnx extension) exists
+        onnx_path = (
+            self.voice.with_suffix(".onnx")
+            if self.voice.suffix and self.voice.suffix != ".onnx"
+            else self.voice.with_name(self.voice.name + ".onnx")
+        )
+
+        if onnx_path.exists() or self.voice.exists():
+            print(f"[ServerTTS] Voice found at {self.voice}")
             return
 
+        voice_name = self.voice.stem
+        print(f"[ServerTTS] Voice not found, downloading '{voice_name}'...")
         result = subprocess.run(
-            [sys.executable, "-m", "piper.download_voices", self.voice],
+            [sys.executable, "-m", "piper.download_voices", voice_name],
             capture_output=True,
         )
         if result.returncode != 0:
             print(f"[ServerTTS] Voice download exited with {result.returncode}")
+            print(
+                f"[ServerTTS] stderr: {result.stderr.decode() if result.stderr else 'none'}"
+            )
 
     def _start_piper_process(self) -> subprocess.Popen:
         return subprocess.Popen(
@@ -40,7 +60,7 @@ class TTSService:
                 "-m",
                 "piper.http_server",
                 "-m",
-                self.voice,
+                str(self.voice),
                 "--host",
                 self.host,
                 "--port",
@@ -54,7 +74,9 @@ class TTSService:
         deadline = time.time() + self.startup_timeout
         while time.time() < deadline:
             try:
-                response = requests.post(f"{self.base_url}/", json={"text": "hi"}, timeout=15)
+                response = requests.post(
+                    f"{self.base_url}/", json={"text": "hi"}, timeout=15
+                )
                 if response.status_code in (200, 400):
                     return True
             except requests.RequestException:

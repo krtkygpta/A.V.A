@@ -411,6 +411,7 @@ def voice_mode_wakeword():
             print(
                 f"[{ASSISTANT_NAME.upper()}] I didn't catch that. Going back to sleep."
             )
+            unduck_volume()
             save_current_conversation()
             detector.reset()
             continue
@@ -423,6 +424,7 @@ def voice_mode_wakeword():
             print(
                 f"[{ASSISTANT_NAME.upper()}] I didn't hear anything. Going back to sleep."
             )
+            unduck_volume()
             save_current_conversation()
             detector.reset()
             continue
