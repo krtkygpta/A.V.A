@@ -8,7 +8,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from config import ROOT_DIR, get_settings
-from services import ConversationStore, LLMService, TTSService, ToolService
+from services import ConversationStore, LLMService, ToolService, TTSService
 
 
 @dataclass
@@ -89,6 +89,7 @@ class AvaServer:
             return route(payload)
         except Exception as exc:
             import traceback
+
             traceback.print_exc()
             return Response.json({"error": str(exc)}, status=500)
 
@@ -101,7 +102,9 @@ class AvaServer:
         messages = payload.get("messages", [])
         tools = payload.get("tools", [])
         context = self.conversations.recent_hour_context()
-        result = self.llm.generate(messages=messages, tools=tools, context_message=context)
+        result = self.llm.generate(
+            messages=messages, tools=tools, context_message=context
+        )
         return Response.json(result)
 
     def tts_endpoint(self, payload: dict[str, Any]) -> Response:
@@ -135,7 +138,9 @@ class AvaServer:
 
     def conversation_list(self, payload: dict[str, Any]) -> Response:
         limit = int(payload.get("limit", 10))
-        return Response.json({"conversations": self.conversations.list_recent(limit=limit)})
+        return Response.json(
+            {"conversations": self.conversations.list_recent(limit=limit)}
+        )
 
     # Tool endpoints ------------------------------------------------------------
 
