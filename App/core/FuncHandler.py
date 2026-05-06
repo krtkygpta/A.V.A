@@ -2,11 +2,15 @@ import json
 
 import functions as functions
 from core.TaskManager import dispatch_background_task, get_running_tasks_summary
+from core.tool_registry import init_plugins, registry
 from functions.productivity.calendar import calendar
 from functions.system.bash_executor import run_bash
 from functions.web.internet import web
 from knowledge.ConversationManager import handle_conversation_history
 from knowledge.memory import handle_memory_manager
+
+# Initialize plugins on module load
+init_plugins()
 
 
 def handle_background_task(task_type: str, **kwargs) -> str:
@@ -79,7 +83,7 @@ def handle_tool_call(tool_call):
         else:
             args = {}
 
-        function = TOOL_CONFIGS.get(func_name)
+        function = registry.get(func_name) or TOOL_CONFIGS.get(func_name)
 
         if function:
             result = function(**args)

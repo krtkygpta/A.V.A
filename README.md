@@ -48,6 +48,7 @@ A.V.A/
 │   │   ├── FuncHandler.py    # Tool execution
 │   │   └── server_api.py     # HTTP client for server
 │   ├── functions/            # Tool implementations
+│   │   ├── plugins/          # Custom tools (auto-discovered)
 │   │   ├── system/           # System control tools
 │   │   ├── web/              # Web/search tools
 │   │   ├── media/            # Media control tools
@@ -203,6 +204,35 @@ python App/__main__.py
 
 ---
 
+## Plugin System
+
+A.V.A supports a plugin-based tool system for extending functionality. Plugins are auto-discovered from `App/functions/plugins/` on startup.
+
+### Adding Custom Tools
+
+Create a new `.py` file in `App/functions/plugins/`:
+
+```C:\Data\Codes\A.V.A\App\functions\plugins\my_tools.py#L1-20
+from core.tool_registry import tool
+
+@tool(
+    name="my_tool",
+    description="Does something useful",
+    params={
+        "input": {"type": "string", "description": "What to process"}
+    },
+    required=["input"]
+)
+def my_tool(input: str) -> str:
+    return f"Processed: {input}"
+```
+
+That's it — tools auto-load on startup. No configuration needed.
+
+See [`docs/PLUGINS.md`](docs/PLUGINS.md) for full documentation.
+
+---
+
 ## API Reference
 
 The server exposes the following endpoints:
@@ -342,6 +372,7 @@ Ensure write permissions to `App/data/memories/` directory.
 
 More detailed documentation is available in the `docs/` folder:
 
+- `docs/PLUGINS.md` — Plugin system guide (how to add custom tools)
 - `docs/getting-started.md` — Step-by-step setup guide
 - `docs/architecture.md` — System architecture and components
 - `docs/configuration.md` — All configuration options
