@@ -415,4 +415,7 @@ def run_music_controller(query: str) -> str:
 if __name__ == "__main__":
     main()
 else:
-    authenticate()
+    try:
+        authenticate()
+    except Exception:
+        print("Couldnt connect to pearmusic")
