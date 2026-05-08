@@ -36,6 +36,7 @@ from textual.widgets import (
     Input,
     Label,
     Rule,
+    Select,
     Static,
 )
 
@@ -537,8 +538,16 @@ class TypingIndicator(Static):
             self._timer.stop()
 
 
+# Settings that use Select (dropdown with fixed choices)
+SELECT_SETTINGS: dict[str, list[tuple[str, str]]] = {
+    "THEME": [
+        (f"{t}  —  {THEME_DESCRIPTIONS.get(t, '')}", t) for t in AVAILABLE_THEMES
+    ],
+}
+
+
 class SettingsScreen(Static):
-    """Inline settings panel that replaces chat-log content."""
+    """Inline settings panel with OptionList/OptionSelect for structured settings."""
 
     DEFAULT_CSS = """
     SettingsScreen {
@@ -560,7 +569,7 @@ class SettingsScreen(Static):
     }
     SettingsScreen .setting-row {
         width: 100%;
-        height: 3;
+        height: auto;
         margin-bottom: 1;
     }
     SettingsScreen .setting-label {
@@ -587,6 +596,15 @@ class SettingsScreen(Static):
         padding: 0 1;
     }
     SettingsScreen .setting-input:focus {
+        border: round $primary;
+    }
+    SettingsScreen .setting-select {
+        width: 40;
+        height: 3;
+        border: round $secondary;
+        background: $surface;
+    }
+    SettingsScreen .setting-select:focus-within {
         border: round $primary;
     }
     SettingsScreen .settings-footer {
@@ -618,6 +636,7 @@ class SettingsScreen(Static):
         super().__init__(**kwargs)
         self._config = config
         self._inputs: dict[str, Input] = {}
+        self._option_selects: dict[str, Select] = {}
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="settings-scroll"):
@@ -631,23 +650,46 @@ class SettingsScreen(Static):
             for key, val in self._config.items():
                 desc = CONFIG_DESCRIPTIONS.get(key, "")
                 is_secret = key in CONFIG_SECRET_KEYS
-                placeholder = (
-                    "••••••••"
-                    if (is_secret and val)
-                    else (str(val) if val else "not set")
-                )
+
                 with Horizontal(classes="setting-row"):
                     yield Static(f"[bold]{key}[/]", classes="setting-label")
                     yield Static(f"{desc}", classes="setting-desc")
-                    inp = Input(
-                        value="" if (is_secret and val) else str(val),
-                        placeholder=placeholder,
-                        password=is_secret,
-                        classes="setting-input",
-                        id=f"cfg-{key}",
-                    )
-                    self._inputs[key] = inp
-                    yield inp
+
+                    # Use Select for dropdown settings (theme, etc.)
+                    if key in SELECT_SETTINGS:
+                        options = SELECT_SETTINGS[key]
+                        select = Select(
+                            options=options,
+                            value=str(val) if val else None,
+                            id=f"cfg-{key}",
+                            classes="setting-select",
+                        )
+                        self._option_selects[key] = select
+                        yield select
+
+                    # Use password input for secrets
+                    elif is_secret:
+                        placeholder = "••••••••" if val else "not set"
+                        inp = Input(
+                            value="",
+                            placeholder=placeholder,
+                            password=True,
+                            classes="setting-input",
+                            id=f"cfg-{key}",
+                        )
+                        self._inputs[key] = inp
+                        yield inp
+
+                    # Regular text input for other settings
+                    else:
+                        inp = Input(
+                            value=str(val) if val else "",
+                            placeholder="not set",
+                            classes="setting-input",
+                            id=f"cfg-{key}",
+                        )
+                        self._inputs[key] = inp
+                        yield inp
 
             yield Rule()
             yield Static(
@@ -661,18 +703,22 @@ class SettingsScreen(Static):
         )
 
     def collect_values(self) -> dict:
-        """Read current input values, preserving old secrets if left blank."""
+        """Read current values from all widget types, preserving old secrets if left blank."""
         result = dict(self._config)
-        for key in self._config:
-            try:
-                inp = self.query_one(f"#cfg-{key}", Input)
-                new_val = inp.value.strip()
-                if key in CONFIG_SECRET_KEYS and not new_val:
-                    pass  # keep existing secret
-                else:
-                    result[key] = new_val
-            except NoMatches:
-                pass
+
+        # Handle Select widgets (dropdowns + toggles use same widget type)
+        for key, opt_sel in self._option_selects.items():
+            if opt_sel.value is not None:
+                result[key] = opt_sel.value
+
+        # Handle Input fields (secrets + text)
+        for key, inp in self._inputs.items():
+            new_val = inp.value.strip()
+            if key in CONFIG_SECRET_KEYS and not new_val:
+                pass  # keep existing secret
+            else:
+                result[key] = new_val
+
         return result
 
     @on(Button.Pressed, "#btn-save")

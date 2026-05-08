@@ -4,11 +4,79 @@ import atexit
 import json
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
 
 from config import ROOT_DIR, get_settings
 from services import ConversationStore, LLMService, ToolService, TTSService
+
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "google_ai",
+            "description": "Search the web using Google AI with grounding",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"}
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "image_analysis",
+            "description": "Analyze an image using Groq Vision",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_base64": {
+                        "type": "string",
+                        "description": "Base64-encoded image",
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Question about the image",
+                    },
+                },
+                "required": ["image_base64"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "code_execute",
+            "description": "Execute Python code in a sandbox",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python code to execute"},
+                    "timeout": {"type": "integer", "description": "Timeout in seconds"},
+                },
+                "required": ["code"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "research",
+            "description": "Deep research agent for comprehensive answers",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "Research question"}
+                },
+                "required": ["question"],
+            },
+        },
+    },
+]
 
 
 @dataclass
@@ -60,6 +128,7 @@ class AvaServer:
         # Route table is intentionally explicit so adding endpoints is easy.
         self.routes: dict[tuple[str, str], Callable[[dict[str, Any]], Response]] = {
             ("GET", "/health"): self.health,
+            ("GET", "/memories"): self.memories,
             ("POST", "/health"): self.health,
             ("POST", "/generate"): self.generate,
             ("POST", "/tts"): self.tts_endpoint,
@@ -72,6 +141,10 @@ class AvaServer:
             ("POST", "/tools/image_analysis"): self.tools_image_analysis,
             ("POST", "/tools/code_execute"): self.tools_code_execute,
             ("POST", "/tools/research"): self.tools_research,
+            # Additional endpoints
+            ("POST", "/stt"): self.stt_endpoint,
+            ("POST", "/tools/schema"): self.tools_schema,
+            ("POST", "/tools/execute"): self.tools_execute,
         }
 
     def startup(self) -> None:
@@ -94,6 +167,9 @@ class AvaServer:
             return Response.json({"error": str(exc)}, status=500)
 
     # Endpoints -----------------------------------------------------------------
+    def memories(self, _: dict[str, Any]) -> Response:
+        with open(Path("./Server/data/memories/memories.txt"), "r") as k:
+            return Response.json({"memories": k.read()})
 
     def health(self, _: dict[str, Any]) -> Response:
         return Response.json({"status": "ok"})
@@ -141,6 +217,44 @@ class AvaServer:
         return Response.json(
             {"conversations": self.conversations.list_recent(limit=limit)}
         )
+
+    # STT endpoint --------------------------------------------------------------
+
+    def stt_endpoint(self, payload: dict[str, Any]) -> Response:
+        """Speech-to-text endpoint. Takes base64-encoded audio WAV data."""
+        audio_base64 = str(payload.get("audio", "")).strip()
+        if not audio_base64:
+            return Response.json({"error": "Missing 'audio'."}, status=400)
+        # TODO: Integrate real STT via Vosk or cloud API
+        # For now, return a mock response.
+        return Response.json({"text": "Mock transcription of audio", "confidence": 0.9})
+
+    # Tool schema endpoint -------------------------------------------------------
+
+    def tools_schema(self, _: dict[str, Any]) -> Response:
+        """Returns OpenAI tool schemas for all available server-side tools."""
+        return Response.json({"tools": TOOL_SCHEMAS})
+
+    # Tool execute endpoint ------------------------------------------------------
+
+    def tools_execute(self, payload: dict[str, Any]) -> Response:
+        """Routes a tool call by name to the appropriate handler."""
+        name = str(payload.get("name", "")).strip()
+        arguments = payload.get("arguments", {})
+
+        if not name:
+            return Response.json({"error": "Missing 'name'."}, status=400)
+
+        if name == "google_ai":
+            return self.tools_google_ai(arguments)
+        elif name == "image_analysis":
+            return self.tools_image_analysis(arguments)
+        elif name == "code_execute":
+            return self.tools_code_execute(arguments)
+        elif name == "research":
+            return self.tools_research(arguments)
+        else:
+            return Response.json({"error": f"Unknown tool: {name}"}, status=400)
 
     # Tool endpoints ------------------------------------------------------------
 

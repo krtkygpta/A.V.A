@@ -1,5 +1,7 @@
+import os
 import threading
 
+import requests
 from config import ASSISTANT_NAME, USER_NAME
 from core.AppStates import main_runner
 from core.server_api import add_remote_message
@@ -86,20 +88,28 @@ def reset_messages():
     with messages_lock:
         # Keep only the system prompt
         system_prompt = messages[0] if messages else None
+
         messages.clear()
         if system_prompt:
-            messages.append(system_prompt)
+            sp = system_prompt["content"]
+            sp = sp.replace("<replaceMemoriesHere>", get_memory_context())
+            promptFinal = {"role": "system", "content": sp}
+            messages.append(promptFinal)
 
 
 def get_memory_context():
     """Get memory context to inject into conversation."""
-    try:
-        from knowledge.memory import get_all_memories_for_context
+    # try:
+    #     from knowledge.memory import get_all_memories_for_context
 
-        return get_all_memories_for_context()
-    except Exception as e:
-        print(f"[MsgHandler] Memory context error: {e}")
-        return ""
+    #     return get_all_memories_for_context()
+    # except Exception as e:
+    #     print(f"[MsgHandler] Memory context error: {e}")
+    #     return ""
+    SERVER_URL = os.getenv("AVA_SERVER_URL")
+    response = requests.get(f"{SERVER_URL}/memories")
+    data = response.json()["memories"]
+    return data
 
 
 def get_conversation_context():
@@ -150,9 +160,9 @@ WHEN TO USE TOOLS:
 - File operations → create_file, open_file, save_text
 - Use tool before replying to user
 - Use inform_user_between_tool_calls when you need to update the user between multiple tool calls. This keeps the tool loop active while providing progress updates or intermediate information. Always use this when chaining tool operations and you need to communicate with the user during the process.
-- ALSO USE INFORM USER TOOL WHEN YK THE NEXT TOOL CALL WILL TAKE SOME TIME TO RUN, inform user you are going to do so and so.
-TIME TAKING TOOLS ARE: WEATHER, WEBDATA, PLAY MUSIC
-- Any data you create should be stored in %USER%/Documents/AVA folder
+- ALSO USE INFORM USER TOOL WHEN YOU KNOW THE NEXT TOOL CALL WILL TAKE SOME TIME TO RUN, inform user you are going to do so and so.
+TIME TAKING TOOLS ARE: WEATHER, WEBDATA, PLAY MUSIC,
+- Any data you create should be stored in The USER's Desktop (depending on the os, use bash maybe)
 
 BACKGROUND TASKS:
 You can run long tasks in the background (research, timers, web scraping) while continuing to chat. When you get a [SYSTEM NOTIFICATION] about completion, summarize the results naturally.
@@ -186,6 +196,10 @@ Use notifications for lower-priority updates that do not need to interrupt the u
 - Use when: A background research task finishes, a sub-agent reports a non-urgent finding, a reminder is informational rather than time-critical, or you want to log something for the user to check later at their convenience.
 - Do not use notifications for emergencies. If something is urgent, ping first, then speak.
 - RESEARCH COMPLETION FLOW: When a background research task finishes, send a notification to let the user know it is ready. Wait for the user to respond or ask for it. Only then summarize the findings. Do not dump the results unprompted.
+
+USER MEMORIES:
+<replaceMemoriesHere>
+
 
 DECISION GUIDE (ping vs notification vs just speaking):
 - Timer ended or deadline hit → persistent ping, then speak the alert

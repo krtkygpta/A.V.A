@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from memorySystem.memoryDreamer import dreamerEvent
 from openai import OpenAI
 
 
@@ -49,8 +50,14 @@ class LLMService:
     ) -> dict[str, Any]:
         enriched_messages = list(messages)
         if context_message:
-            insert_at = 1 if enriched_messages and enriched_messages[0].get("role") == "system" else 0
-            enriched_messages.insert(insert_at, {"role": "system", "content": context_message})
+            insert_at = (
+                1
+                if enriched_messages and enriched_messages[0].get("role") == "system"
+                else 0
+            )
+            enriched_messages.insert(
+                insert_at, {"role": "system", "content": context_message}
+            )
 
         valid_tools = self._valid_tools(tools)
 
@@ -59,10 +66,11 @@ class LLMService:
             messages=enriched_messages,
             tools=valid_tools if valid_tools else None,
             tool_choice="auto" if valid_tools else None,
-            temperature=0.8, # low temp prevents the LLM from entering repeating Chinese/French loops
-            presence_penalty=0.1, # Add small penalty to avoid repeating loops
+            temperature=0.8,  # low temp prevents the LLM from entering repeating Chinese/French loops
+            presence_penalty=0.1,  # Add small penalty to avoid repeating loops
         )
         msg = response.choices[0].message
+        dreamerEvent.set()
         return {
             "role": msg.role,
             "content": msg.content,
