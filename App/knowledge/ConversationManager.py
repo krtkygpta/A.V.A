@@ -350,6 +350,13 @@ def start_new_conversation() -> Conversation:
     """Convenience function to start a new conversation."""
     conv = get_manager().start_new_conversation()
 
+    # Sync with state manager for background task tracking
+    try:
+        from core.TaskManager import update_conversation_state
+        update_conversation_state(conv.id, conv.name, is_active=True)
+    except Exception:
+        pass
+
     # Client mirrors conversations to server storage.
     if os.getenv("AVA_SERVER_MODE") != "1":
         try:

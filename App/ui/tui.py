@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 from config import ASSISTANT_NAME, USER_NAME
 from core.AppStates import (
     main_runner,
+    stop_chat_flag,
     stop_event,
     voice_stop_event,
     wakeword_stop_event,
@@ -54,14 +55,14 @@ from core.AppStates import (
 from utils import chime
 
 _mode_switch_event = threading.Event()
-from core.FuncHandler import handle_tool_call
-from core.generate import generate_response
 from core.messageHandler import add_message, reset_messages
-from core.TaskManager import CompletionQueue, check_and_format_completions
+from core.response_loop import ResponseLoopHandler, main_running, run_response_loop
 from knowledge.ConversationManager import (
     save_current_conversation,
     start_new_conversation,
 )
+# Import for background task notifications
+from core.TaskManager import BackgroundTask
 
 # ── Import theme definitions ──────────────────────────────────────────────────
 """
@@ -299,8 +300,7 @@ EXIT_RESPONSES = [
 
 # ── Global reference to the running TUI app (for callbacks) ──────────────────
 _app_instance: "AVAApp | None" = None
-
-main_running = threading.Event()
+# main_running is imported from core.response_loop (shared with CLI)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1000,6 +1000,54 @@ Rule {
 """
 
 
+# ── TUI Response Loop Handler ────────────────────────────────────────────
+
+class _TUIResponseLoopHandler(ResponseLoopHandler):
+    """Response loop handler for TUI mode."""
+
+    def __init__(self, app: "AVAApp"):
+        self.app = app
+
+    def speak(self, text: str):
+        self.app.call_from_thread(self.app._speak_to_ui, text)
+
+    def on_tool_call_start(self, func_name: str, args: dict):
+        self.app.call_from_thread(
+            self.app._update_status, f"running  ·  {func_name}"
+        )
+        self.app.call_from_thread(
+            self.app._add_tool_call, func_name, args, ""
+        )
+
+    def on_tool_call_result(self, result: str):
+        self.app.call_from_thread(
+            self.app._update_last_tool_result, result
+        )
+
+    def on_processing_end(self):
+        self.app.call_from_thread(self.app._set_processing, False)
+
+    def on_background_task_notify(self, summary: str):
+        self.app.call_from_thread(
+            self.app._add_system_message,
+            f"background task update: {summary}",
+        )
+
+    def on_immediate_notification(self, text: str):
+        """Called for immediate notifications (high/urgent priority tasks)."""
+        self.app.call_from_thread(
+            self.app._add_system_message,
+            f"[IMMEDIATE] {text}",
+        )
+
+    def on_idle_notification(self, task):
+        """Called when in idle/wake-word mode and a task completes."""
+        self.app.call_from_thread(
+            self.app._add_system_message,
+            f"[IDLE NOTIFICATION] {task.to_idle_notification()}",
+        )
+
+
 class AVAApp(App):
     """AVA Terminal UI — Claude Code inspired with Textual theming."""
 
@@ -1245,6 +1293,13 @@ class AVAApp(App):
         yield StatusBar(id="status-bar")
         yield Footer()
 
+    # ── Main response loop ────────────────────────────────────────────────────
+
+    def _start_response_loop(self) -> None:
+        """Start the shared response loop with a TUI handler."""
+        handler = _TUIResponseLoopHandler(self)
+        threading.Thread(target=run_response_loop, args=(handler,), daemon=True).start()
+
     def on_mount(self) -> None:
         global _app_instance
         _app_instance = self
@@ -1274,7 +1329,7 @@ class AVAApp(App):
         )
         self._add_system_message(f"theme: {self.app_theme}")
 
-        threading.Thread(target=self._main_loop, daemon=True).start()
+        self._start_response_loop()
 
         self.query_one("#user-input", Input).focus()
 
@@ -1496,96 +1551,6 @@ class AVAApp(App):
     def action_focus_input(self) -> None:
         self.query_one("#user-input", Input).focus()
 
-    # ── Main response loop ────────────────────────────────────────────────────
-
-    def _main_loop(self) -> None:
-        while True:
-            signaled = main_runner.wait(timeout=0.5)
-
-            if not main_runner.is_set():
-                completion_queue = CompletionQueue()
-                if completion_queue.has_notifications():
-                    completed_summary = check_and_format_completions()
-                    if completed_summary:
-                        self.call_from_thread(
-                            self._add_system_message,
-                            f"background task update: {completed_summary}",
-                        )
-                        add_message(
-                            role="user",
-                            content=f"[SYSTEM NOTIFICATION] {completed_summary}",
-                            tool_id="",
-                        )
-                continue
-
-            if main_runner.is_set():
-                main_running.set()
-                main_runner.clear()
-                try:
-                    response = generate_response()
-                    tool_calls = response.get("tool_calls")
-                    if tool_calls:
-                        tool_call = tool_calls[0]
-                        if isinstance(tool_call, dict):
-                            tool_id = tool_call.get("id")
-                            function_payload = tool_call.get("function", {}) or {}
-                            args_raw = function_payload.get("arguments", "{}")
-                            func_name = function_payload.get("name")
-                        else:
-                            tool_id = tool_call.id
-                            args_raw = tool_call.function.arguments
-                            func_name = tool_call.function.name
-
-                        if isinstance(args_raw, str):
-                            try:
-                                args = json.loads(args_raw) if args_raw.strip() else {}
-                            except json.JSONDecodeError:
-                                args = args_raw
-                        elif isinstance(args_raw, dict):
-                            args = args_raw
-                        else:
-                            args = {}
-
-                        if func_name == "inform_user_between_tool_calls":
-                            if isinstance(args, dict):
-                                arg_text = args.get(
-                                    "message", args.get("text", str(args))
-                                )
-                            else:
-                                arg_text = str(args)
-
-                            self.call_from_thread(self._speak_to_ui, arg_text)
-                            add_message(
-                                role="tool",
-                                content="informed the user",
-                                tool_id=tool_id,
-                            )
-                        else:
-                            self.call_from_thread(
-                                self._update_status, f"running  ·  {func_name}"
-                            )
-                            self.call_from_thread(
-                                self._add_tool_call, func_name, args, ""
-                            )
-                            func_resp, t_id = handle_tool_call(tool_call)
-                            self.call_from_thread(
-                                self._update_last_tool_result,
-                                str(func_resp) if func_resp else "done",
-                            )
-                            add_message(role="tool", content=func_resp, tool_id=t_id)
-                    else:
-                        content = response.get("content")
-                        if content:
-                            self.call_from_thread(self._speak_to_ui, content)
-                        else:
-                            self.call_from_thread(
-                                self._speak_to_ui,
-                                "I'm not sure how to respond to that.",
-                            )
-                finally:
-                    main_running.clear()
-                    self.call_from_thread(self._set_processing, False)
-
     def _set_processing(self, val: bool) -> None:
         self.is_processing = val
         if val:
@@ -1679,15 +1644,42 @@ class AVAApp(App):
                         if _mode_switch_event.is_set():
                             break
 
-                        timeout = tts_piper.get_last_duration() + 7
+                        # Check if we're expecting follow-up from the model (work in progress)
+                        from core.AppStates import expecting_followup, work_in_progress
+                        if expecting_followup.is_set() or work_in_progress.is_set():
+                            # Extend timeout significantly for work in progress
+                            timeout = max(tts_piper.get_last_duration() + 7, 45)  # Minimum 45 seconds
+                            print(f"[TUI VoiceMode] Extended timeout to {timeout}s (work in progress)")
+                            
+                            # Clear the flag now that we're waiting
+                            expecting_followup.clear()
+                        else:
+                            timeout = tts_piper.get_last_duration() + 7
+                            
                         continued, _ = recorder.record(
                             timeout=timeout, silence_duration=2.5
                         )
+                        if stop_chat_flag.is_set():
+                            stop_chat_flag.clear()
+                            break
+
                         if continued:
                             stop_event.clear()
                             transcription = str(recorder.get_whisper_result(timeout=15))
                             continue
                         else:
+                            # If we were expecting follow-up but timed out, try one more time
+                            if work_in_progress.is_set():
+                                work_in_progress.clear()
+                                print("[TUI VoiceMode] Work in progress timed out, giving extra grace period...")
+                                timeout = 30  # Additional grace period
+                                continued, _ = recorder.record(
+                                    timeout=timeout, silence_duration=2.5
+                                )
+                                if continued:
+                                    stop_event.clear()
+                                    transcription = str(recorder.get_whisper_result(timeout=15))
+                                    continue
                             stop_event.clear()
                             break
 
@@ -1782,7 +1774,18 @@ class AVAApp(App):
                         break
                     recorder.freeze_noise_floor = False
 
-                    timeout = tts_piper.get_last_duration() + 7
+                    # Check if we're expecting follow-up from the model (work in progress)
+                    from core.AppStates import expecting_followup, work_in_progress
+                    if expecting_followup.is_set() or work_in_progress.is_set():
+                        # Extend timeout significantly for work in progress
+                        timeout = max(tts_piper.get_last_duration() + 7, 45)  # Minimum 45 seconds
+                        print(f"[TUI WakewordMode] Extended timeout to {timeout}s (work in progress)")
+                        
+                        # Clear the flag now that we're waiting
+                        expecting_followup.clear()
+                    else:
+                        timeout = tts_piper.get_last_duration() + 7
+                        
                     continued, _ = recorder.record(timeout=timeout)
                     if continued:
                         stop_event.clear()
@@ -1792,6 +1795,17 @@ class AVAApp(App):
                         else:
                             break
                     else:
+                        # If we were expecting follow-up but timed out, try one more time
+                        if work_in_progress.is_set():
+                            work_in_progress.clear()
+                            print("[TUI WakewordMode] Work in progress timed out, giving extra grace period...")
+                            timeout = 30  # Additional grace period
+                            continued, _ = recorder.record(timeout=timeout)
+                            if continued:
+                                stop_event.clear()
+                                transcription = recorder.get_whisper_result(timeout=15) or ""
+                                if transcription.strip():
+                                    continue
                         stop_event.clear()
                         break
 

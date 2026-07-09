@@ -198,14 +198,36 @@ dreamerEvent.clear()
 
 
 def DreamerStart():
+    """
+    Background thread that processes new conversations into memories after
+    periods of inactivity.
 
+    Flow:
+      1. Wait up to 1 hour for user activity (dreamerEvent.set()).
+         If activity is detected, reset the timer.
+      2. After 1 hour of inactivity, process new conversations into memories.
+      3. Wait for the user to become active again before restarting step 1.
+         This prevents an infinite loop where step 2 keeps repeating because
+         no activity occurred during the processing window.
+    """
     while True:
+        # Phase 1: Wait 1 hour of inactivity
         ping = dreamerEvent.wait(3600)
         if ping:
+            # User was active during the hour — reset the idle timer
             dreamerEvent.clear()
             continue
-        else:
-            existing_memories, previous_behaviours = get_memories_and_behaviours()
-            conversations = str(process_new_memories())
-            print("Managing Memories")
-            periodicMemory(existing_memories, previous_behaviours, conversations)
+
+        # Phase 2: 1 hour passed with no activity — time to dream
+        existing_memories, previous_behaviours = get_memories_and_behaviours()
+        conversations = str(process_new_memories())
+        print("Managing Memories")
+        periodicMemory(existing_memories, previous_behaviours, conversations)
+
+        # Phase 3: Wait for next user activity before restarting the idle timer.
+        # Without this, the loop would immediately hit another timeout (since
+        # dreamerEvent wasn't set during the processing phase) and re-process
+        # memories in an infinite loop.
+        dreamerEvent.clear()
+        dreamerEvent.wait()  # Blocks until user speaks again
+        dreamerEvent.clear()

@@ -12,14 +12,15 @@ import sys
 import threading
 import time
 import wave
+from tracemalloc import stop
 
 from config import ASSISTANT_NAME, USER_NAME
-from core.AppStates import main_runner, stop_event
+from core.AppStates import main_runner, stop_chat_flag, stop_event
 from core.FuncHandler import handle_tool_call
 from core.generate import generate_response
 from core.messageHandler import add_message, reset_messages
 from core.server_api import list_remote_conversations
-from core.TaskManager import CompletionQueue, check_and_format_completions
+from core.response_loop import ResponseLoopHandler, main_running, run_response_loop
 from knowledge.ConversationManager import (
     save_current_conversation,
     start_new_conversation,
@@ -55,8 +56,7 @@ try:
 except Exception:
     pass
 
-# Event to track whether main() is actively processing a response
-main_running = threading.Event()
+# main_running is imported from core.response_loop (shared with TUI)
 
 
 # ── Terminal output helpers ──────────────────────────────────────────────────
@@ -165,97 +165,15 @@ def speak(text):
         speak_thread.start()
 
 
-# ── Main response loop ───────────────────────────────────────────────────────
+# ── Shared response loop ──────────────────────────────────────────────────────
 
 
-def main():
-    """
-    Main response generation loop (runs in a background thread)
+class CLIResponseLoopHandler(ResponseLoopHandler):
+    """Response loop handler for CLI mode."""
 
-    Waits for main_runner to be set (triggered by add_message), then:
-    1. Generates an LLM response
-    2. Handles tool calls if present, or speaks the response
-
-    Also periodically checks for completed background tasks and announces them.
-
-    Uses Event.wait(timeout=0.5) instead of time.sleep(0.1) polling —
-    responds to messages near-instantly while still checking completions every 500ms.
-    """
-    while True:
-        # Efficient wait: returns True immediately when main_runner is set,
-        # or returns False after 500ms timeout (used to check completion queue)
-        signaled = main_runner.wait(timeout=0.5)
-
-        if not main_runner.is_set():
-            # Timed out — check for completed background tasks while idle
-            completion_queue = CompletionQueue()
-            if completion_queue.has_notifications():
-                completed_summary = check_and_format_completions()
-                if completed_summary:
-                    # Inject background task results as a system notification
-                    add_message(
-                        role="user",
-                        content=f"[SYSTEM NOTIFICATION] {completed_summary}",
-                        tool_id="",
-                    )
-            continue
-
-        # main_runner was set — a new message is ready for processing
-        if main_runner.is_set():
-            main_running.set()
-            main_runner.clear()
-            try:
-                response = generate_response()
-                tool_calls = response.get("tool_calls")
-                if tool_calls:
-                    tool_call = tool_calls[0]
-                    if isinstance(tool_call, dict):
-                        tool_id = tool_call.get("id")
-                        function_payload = tool_call.get("function", {}) or {}
-                        args_raw = function_payload.get("arguments", "{}")
-                        func_name = function_payload.get("name")
-                    else:
-                        tool_id = tool_call.id
-                        args_raw = tool_call.function.arguments
-                        func_name = tool_call.function.name
-
-                    if func_name == "inform_user_between_tool_calls":
-                        if isinstance(args_raw, str):
-                            try:
-                                args = json.loads(args_raw) if args_raw.strip() else {}
-                            except json.JSONDecodeError:
-                                args = args_raw
-                        elif isinstance(args_raw, dict):
-                            args = args_raw
-                        else:
-                            args = {}
-
-                        if isinstance(args, dict):
-                            # The argument might be a key in a JSON object
-                            arg_text = args.get("message", args.get("text", str(args)))
-                        else:
-                            # Or it may simply be the raw string
-                            arg_text = str(args)
-
-                        speak(arg_text)
-                        # Add a tool response back into the conversation
-                        add_message(
-                            role="tool", content="informed the user", tool_id=tool_id
-                        )
-                    else:
-                        # Execute the tool and feed its result back into the conversation
-                        func_resp, t_id = handle_tool_call(tool_call)
-                        add_message(role="tool", content=func_resp, tool_id=t_id)  # type: ignore
-                else:
-                    # Direct text response — speak it
-                    content = response.get("content")
-                    if content:
-                        speak(content)
-                    else:
-                        speak("I'm not sure how to respond to that.")
-            finally:
-                # Always clear main_running, even if an error occurred
-                main_running.clear()
+    def speak(self, text: str):
+        """Speak text to the user via the CLI speak() function."""
+        speak(text)
 
 
 # ── Wake / Input Modes ───────────────────────────────────────────────────────
@@ -329,21 +247,47 @@ def voice_mode_continuous():
                         # Measure TTS audio duration to set continued conversation timeout
                         # (give user speech_duration + 7 seconds to respond)
                         timeout = tts_piper.get_last_duration() + 7
-
+                        
+                        # Check if we're expecting follow-up from the model (work in progress)
+                        from core.AppStates import expecting_followup, work_in_progress
+                        if expecting_followup.is_set() or work_in_progress.is_set():
+                            # Extend timeout significantly for work in progress
+                            timeout = max(timeout, 45)  # Minimum 45 seconds
+                            print(f"[VoiceMode] Extended timeout to {timeout}s (work in progress)")
+                            
+                            # Clear the flag now that we're waiting
+                            expecting_followup.clear()
+                        
                         # Listen for continued conversation
                         # Reduced silence_duration from 4.0s → 2.5s for faster turnaround
                         continued_convo, filename = recorder.record(
                             timeout=timeout, silence_duration=2.5
                         )
+                        if stop_chat_flag.is_set():
+                            stop_chat_flag.clear()
+                            break
                         if continued_convo:
                             stop_event.clear()
                             transcription = str(recorder.get_whisper_result(timeout=15))
                             continue
                         else:
+                            # If we were expecting follow-up but timed out, try one more time
+                            if work_in_progress.is_set():
+                                work_in_progress.clear()
+                                print("[VoiceMode] Work in progress timed out, giving extra grace period...")
+                                timeout = 30  # Additional grace period
+                                continued_convo, filename = recorder.record(
+                                    timeout=timeout, silence_duration=2.5
+                                )
+                                if continued_convo:
+                                    stop_event.clear()
+                                    transcription = str(recorder.get_whisper_result(timeout=15))
+                                    continue
                             stop_event.clear()
                             break
-
                 # Conversation ended — save before going back to listening
+                from core.AppStates import reset_conversation_flags
+                reset_conversation_flags()
                 unduck_volume()
                 save_current_conversation()
                 print(
@@ -454,7 +398,22 @@ def voice_mode_wakeword():
 
                 # Listen for continued conversation
                 timeout = tts_piper.get_last_duration() + 7
+                
+                # Check if we're expecting follow-up from the model (work in progress)
+                from core.AppStates import expecting_followup, work_in_progress
+                if expecting_followup.is_set() or work_in_progress.is_set():
+                    # Extend timeout significantly for work in progress
+                    timeout = max(timeout, 45)  # Minimum 45 seconds
+                    print(f"[VoiceMode] Extended timeout to {timeout}s (work in progress)")
+                    
+                    # Clear the flag now that we're waiting
+                    expecting_followup.clear()
+                
                 continued_convo, filename = recorder.record(timeout=timeout)
+
+                if stop_chat_flag.is_set():
+                    stop_chat_flag.clear()
+                    break
 
                 if continued_convo:
                     stop_event.clear()
@@ -465,10 +424,23 @@ def voice_mode_wakeword():
                     else:
                         break
                 else:
+                    # If we were expecting follow-up but timed out, try one more time
+                    if work_in_progress.is_set():
+                        work_in_progress.clear()
+                        print("[VoiceMode] Work in progress timed out, giving extra grace period...")
+                        timeout = 30  # Additional grace period
+                        continued_convo, filename = recorder.record(timeout=timeout)
+                        if continued_convo:
+                            stop_event.clear()
+                            transcription = recorder.get_whisper_result(timeout=15) or ""
+                            if transcription.strip():
+                                continue
                     stop_event.clear()
                     break
 
         # Conversation ended — save and go back to wake word listening
+        from core.AppStates import reset_conversation_flags
+        reset_conversation_flags()
         unduck_volume()
         save_current_conversation()
         detector.reset()
@@ -527,6 +499,7 @@ def text_mode():
 
         while True:
             # Check for exit commands on raw input
+
             if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
                 response = random.choice(EXIT_RESPONSES)
                 print(response)
@@ -539,6 +512,12 @@ def text_mode():
             # Wait for the response to fully complete (Event-based, not sleep polling)
             _wait_for_response_complete()
 
+            if stop_chat_flag.is_set():
+                print("stop flag read")
+                save_current_conversation()
+                stop_chat_flag.clear()
+                break
+
             # Prompt for next input
             transcription = input("You: ").strip()
             if transcription:
@@ -548,6 +527,8 @@ def text_mode():
             break
 
         # Conversation ended — save it
+        from core.AppStates import reset_conversation_flags
+        reset_conversation_flags()
         save_current_conversation()
         print(
             f"[{ASSISTANT_NAME.upper()}] Conversation saved. Say my name when you need me."
@@ -573,8 +554,9 @@ def start():
         run_tui(start_mode=START_MODE.replace("tui_", ""))
         return
 
-    # Start the main response loop in a background daemon thread
-    threading.Thread(target=main, daemon=True).start()
+    # Start the shared response loop in a background daemon thread
+    handler = CLIResponseLoopHandler()
+    threading.Thread(target=run_response_loop, args=(handler,), daemon=True).start()
 
     print(f"[{ASSISTANT_NAME.upper()}] Starting in '{START_MODE}' wake mode...")
 

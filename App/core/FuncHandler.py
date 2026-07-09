@@ -1,32 +1,89 @@
 import json
 
 import functions as functions
-from core.TaskManager import dispatch_background_task, get_running_tasks_summary
+from core.TaskManager import (
+    CompletionQueue,
+    ConversationStateManager,
+    dispatch_background_task,
+    get_running_tasks_summary,
+    update_conversation_state,
+)
 from core.tool_registry import init_plugins, registry
 from functions.productivity.calendar import calendar
 from functions.system.bash_executor import run_bash
 from functions.web.internet import web
-from knowledge.ConversationManager import handle_conversation_history
+from knowledge.ConversationManager import handle_conversation_history, get_manager, get_current_conversation
 from knowledge.memory import handle_memory_manager
 
 # Initialize plugins on module load
 init_plugins()
 
 
+def _get_current_conversation_info() -> tuple:
+    """
+    Get current conversation ID and name for task association.
+    Returns (conversation_id, conversation_name)
+    """
+    try:
+        # Try to get from ConversationManager first
+        conv = get_current_conversation()
+        if conv and conv.id:
+            return conv.id, conv.name
+        
+        # Fallback to state manager
+        state_mgr = ConversationStateManager()
+        conv_id = state_mgr.current_conversation_id or ""
+        conv_name = state_mgr.current_conversation_name or ""
+        return conv_id, conv_name
+    except Exception:
+        return "", ""
+
+
 def handle_background_task(task_type: str, **kwargs) -> str:
     """
     Handler for background task dispatch.
     Returns an acknowledgment message for the LLM.
+    
+    ENHANCED: Now passes conversation context for proper task tracking
+    and signals that the conversation should stay open for completion.
     """
-    task_id, message = dispatch_background_task(task_type, **kwargs)
+    # Get current conversation context
+    conversation_id, conversation_name = _get_current_conversation_info()
+    
+    # Signal that we're expecting follow-up (background task completion)
+    from core.AppStates import expecting_followup, work_in_progress, background_task_active
+    expecting_followup.set()
+    work_in_progress.set()
+    background_task_active.set()
+    
+    # Pass conversation context to dispatch
+    task_id, message = dispatch_background_task(
+        task_type, 
+        conversation_id=conversation_id,
+        conversation_name=conversation_name,
+        **kwargs
+    )
+    
     if task_id:
         return message
+    
+    # Clear flags if task failed to start
+    expecting_followup.clear()
+    work_in_progress.clear()
+    background_task_active.clear()
     return f"Failed to start background task: {message}"
 
 
 def handle_get_background_status() -> str:
-    """Get status of all running background tasks"""
-    return get_running_tasks_summary()
+    """Get status of all running background tasks and pending completions"""
+    result = get_running_tasks_summary()
+    
+    # Also report any completed-but-undelivered background tasks
+    completion_queue = CompletionQueue()
+    if completion_queue.has_pending():
+        result += "\n\nThere are completed background tasks waiting to be announced. They will be shown when you start a new conversation."
+    
+    return result
 
 
 TOOL_CONFIGS = {
