@@ -15,18 +15,19 @@ import os
 from config import USER_NAME
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from groq import Groq
 
 # Path to memories
 MEMORIES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "memories")
 MEMORY_FILE = os.path.join(MEMORIES_DIR, "semantic_memories.json")
 
-# Groq client for semantic operations
+# Groq client for semantic operations (lazy — listing memories must not require groq)
 _client = None
 
-def _get_client() -> Groq:
+def _get_client():
     global _client
     if _client is None:
+        from groq import Groq
+
         _client = Groq(api_key=os.getenv("GROQ_API_KEY"))
     return _client
 
@@ -234,20 +235,48 @@ Return ONLY the relevant memories, one per line. If none are relevant, say "No r
     return "Here's what I remember:\n" + "\n".join([f"- {m['text']}" for m in memories])
 
 
+def list_memory_texts(limit: int | None = None) -> List[str]:
+    """Return plain memory sentences (newest last). Used for prompt merge."""
+    data = _load_memories()
+    memories = data.get("memories", []) or []
+    texts = [str(m.get("text", "")).strip() for m in memories if m.get("text")]
+    texts = [t for t in texts if t]
+    if limit is not None and limit > 0 and len(texts) > limit:
+        texts = texts[-limit:]
+    return texts
+
+
 def get_all_memories_for_context() -> str:
     """
-    Get all memories formatted for injection into the system prompt.
+    Get local (tool-saved) memories formatted for system-prompt injection.
+
+    Caps by item count and character budget so very large stores stay usable.
+    Override with AVA_MEMORY_CONTEXT_MAX_ITEMS / AVA_MEMORY_CONTEXT_MAX_CHARS.
     """
-    data = _load_memories()
-    memories = data.get("memories", [])
-    
-    if not memories:
+    max_items = int(os.getenv("AVA_MEMORY_CONTEXT_MAX_ITEMS", "120"))
+    max_chars = int(os.getenv("AVA_MEMORY_CONTEXT_MAX_CHARS", "14000"))
+    texts = list_memory_texts(limit=max_items)
+    if not texts:
         return ""
-    
+
     lines = [f"[THINGS I REMEMBER ABOUT {USER_NAME.upper()}]"]
-    for m in memories[-30:]:  # Last 30 memories
-        lines.append(f"- {m['text']}")
-    
+    used = len(lines[0])
+    kept = 0
+    # Prefer newest when over budget: walk from end, then reverse for display.
+    selected: List[str] = []
+    for text in reversed(texts):
+        line = f"- {text}"
+        if used + len(line) + 1 > max_chars and selected:
+            break
+        selected.append(line)
+        used += len(line) + 1
+        kept += 1
+    selected.reverse()
+    lines.extend(selected)
+    if kept < len(texts):
+        lines.append(
+            f"(+{len(texts) - kept} older local memories not shown; use memory_manager retrieve)"
+        )
     return "\n".join(lines)
 
 

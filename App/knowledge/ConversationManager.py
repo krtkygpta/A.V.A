@@ -140,52 +140,135 @@ class ConversationManager:
         with open(index_path, 'w', encoding='utf-8') as f:
             json.dump(self.conversations_index, f, indent=2, ensure_ascii=False)
     
+    def _backfill_from_llm_messages(self) -> int:
+        """
+        If the current conversation is empty, copy dialogue from the live
+        LLM message list (core.messageHandler.messages).
+
+        The first TUI session historically never called start_new_conversation,
+        so messages lived only in the LLM list and were lost on /new.
+        """
+        if not self.current_conversation:
+            return 0
+        if self.current_conversation.messages:
+            return 0
+        try:
+            from core.messageHandler import messages, messages_lock
+
+            with messages_lock:
+                snapshot = list(messages)
+        except Exception:
+            return 0
+
+        added = 0
+        for m in snapshot:
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role")
+            if role not in ("user", "assistant", "tool"):
+                continue
+            content = m.get("content")
+            if content is None:
+                content = ""
+            content_str = str(content)
+            if not content_str.strip():
+                # Keep a breadcrumb for tool-only assistant turns
+                if role == "assistant" and m.get("tool_calls"):
+                    content_str = "[used tools]"
+                elif role != "tool":
+                    continue
+            self.current_conversation.add_message(
+                role, content_str, m.get("tool_call_id")
+            )
+            added += 1
+        if added:
+            print(f"[ConvMgr] Backfilled {added} message(s) from live LLM history")
+        return added
+
+    def ensure_current_conversation(self) -> Conversation:
+        """Return the active conversation, creating one if the first chat never started one."""
+        if self.current_conversation is None:
+            self.current_conversation = Conversation()
+            print(f"[ConvMgr] Auto-started: {self.current_conversation.id}")
+            self._backfill_from_llm_messages()
+            # Mirror start_new_conversation bookkeeping so bg jobs attach correctly.
+            try:
+                from core.TaskManager import update_conversation_state
+
+                update_conversation_state(
+                    self.current_conversation.id,
+                    self.current_conversation.name,
+                    is_active=True,
+                )
+            except Exception:
+                pass
+            if os.getenv("AVA_SERVER_MODE") != "1":
+                try:
+                    from core.server_api import start_remote_conversation
+
+                    start_remote_conversation()
+                except Exception:
+                    pass
+        return self.current_conversation
+
     def start_new_conversation(self) -> Conversation:
-        """Start a new conversation thread. Called on each wakeword."""
-        # Save current conversation if exists
+        """Start a new conversation thread. Called on each wakeword / /new."""
+        # Recover the first-session case: no Conversation object yet, but the
+        # LLM already has user/assistant turns in messageHandler.messages.
+        if self.current_conversation is None:
+            self.current_conversation = Conversation()
+            self._backfill_from_llm_messages()
+        else:
+            # Also recover if an empty shell exists while LLM history is populated
+            self._backfill_from_llm_messages()
+
+        # Save current conversation if it has any dialogue
         if self.current_conversation and len(self.current_conversation.messages) > 0:
             self.save_conversation()
-        
+
         # Create new conversation
         self.current_conversation = Conversation()
         print(f"[ConvMgr] Started: {self.current_conversation.id}")
         return self.current_conversation
-    
+
     def save_conversation(self):
         """Save current conversation to disk.
-        
+
         Saves immediately with a placeholder name, then generates
         a proper name + summary in a background thread to avoid
         blocking the main thread (~1-2s of Groq LLM calls).
         """
-        if not self.current_conversation:
-            return
-        
+        if self.current_conversation is None:
+            self.current_conversation = Conversation()
+        self._backfill_from_llm_messages()
+
         conv = self.current_conversation
-        
+        if not conv or len(conv.messages) == 0:
+            return
+
         # Save conversation file immediately (with placeholder name if needed)
         filepath = os.path.join(CONVERSATIONS_DIR, f"{conv.id}.json")
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(conv.to_dict(), f, indent=2, ensure_ascii=False)
-        
+
         # Update index immediately
         self.conversations_index[conv.id] = {
             "name": conv.name,
             "created_at": conv.created_at,
             "updated_at": conv.updated_at,
             "summary": conv.summary,
-            "message_count": len(conv.messages)
+            "message_count": len(conv.messages),
         }
         self._save_index()
-        print(f"[ConvMgr] Saved: {conv.id}")
-        
+        print(f"[ConvMgr] Saved: {conv.id} ({len(conv.messages)} msgs)")
+
         # Generate name + summary in background, then re-save
-        if conv.name == "New Conversation" and len(conv.messages) > 1:
+        if conv.name == "New Conversation" and len(conv.messages) >= 1:
             def _enrich(c, fp):
                 try:
                     c.name = self._generate_name(c)
                     c.summary = self._generate_summary(c)
-                    with open(fp, 'w', encoding='utf-8') as f:
+                    with open(fp, "w", encoding="utf-8") as f:
                         json.dump(c.to_dict(), f, indent=2, ensure_ascii=False)
                     self.conversations_index[c.id]["name"] = c.name
                     self.conversations_index[c.id]["summary"] = c.summary
@@ -193,6 +276,7 @@ class ConversationManager:
                     print(f"[ConvMgr] Enriched: {c.name}")
                 except Exception as e:
                     print(f"[ConvMgr] Enrich error: {e}")
+
             threading.Thread(target=_enrich, args=(conv, filepath), daemon=True).start()
     
     def _generate_name(self, conv: Conversation) -> str:
@@ -272,7 +356,7 @@ class ConversationManager:
         # Sort by updated_at descending
         sorted_convos = sorted(
             self.conversations_index.items(),
-            key=lambda x: x[1].get("updated_at", ""),
+            key=lambda x: x[1].get("updated_at", "") or x[1].get("created_at", ""),
             reverse=True
         )
         
@@ -282,21 +366,203 @@ class ConversationManager:
                 "id": conv_id,
                 "name": info.get("name", "Unnamed"),
                 "summary": info.get("summary", ""),
-                "date": info.get("created_at", "")[:10]  # Just the date
+                "date": info.get("created_at", "")[:10],  # Just the date
+                "updated_at": info.get("updated_at") or info.get("created_at") or "",
             })
         return result
-    
-    def get_conversation_context_for_llm(self) -> str:
-        """Get formatted context about past conversations for the LLM."""
-        recent = self.get_recent_conversations(5)
-        if not recent:
+
+    def _parse_iso(self, s: str) -> Optional[datetime]:
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(str(s).replace("Z", "+00:00").split("+")[0])
+        except (ValueError, TypeError):
+            return None
+
+    def _clip_msg_for_context(self, content: Any, max_chars: int) -> str:
+        if content is None:
             return ""
-        
-        lines = ["[PREVIOUS CONVERSATIONS - You can reference these if relevant]"]
-        for conv in recent:
-            lines.append(f"- \"{conv['name']}\" ({conv['date']}): {conv['summary']}")
-        
-        return "\n".join(lines)
+        if isinstance(content, list):
+            parts = []
+            for p in content:
+                if isinstance(p, dict) and p.get("type") == "text":
+                    parts.append(str(p.get("text") or ""))
+                elif isinstance(p, str):
+                    parts.append(p)
+            text = " ".join(parts)
+        else:
+            text = str(content)
+        text = text.replace("[stop_chat]", "").replace("[STOP_CHAT]", "").strip()
+        # Drop huge tool/system noise from stored history
+        if text.startswith("[BACKGROUND TASK") or text.startswith("[TASK "):
+            return ""
+        if text.startswith("[PENDING MAIN ACTION"):
+            return ""
+        if len(text) > max_chars:
+            return text[: max(0, max_chars - 3)] + "..."
+        return text
+
+    def _format_conversation_block(
+        self,
+        conv: "Conversation",
+        *,
+        max_msg_chars: int,
+        max_msgs: int,
+        budget_chars: int,
+    ) -> str:
+        """One conversation as a transcript block (user/assistant only)."""
+        name = conv.name or "Unnamed"
+        when = (conv.updated_at or conv.created_at or "")[:16].replace("T", " ")
+        header = f'### "{name}" ({when}) id={conv.id}'
+        if conv.summary:
+            header += f"\nsummary: {conv.summary[:200]}"
+
+        body_lines: List[str] = []
+        # Prefer last N messages (most relevant for continue)
+        msgs = [m for m in (conv.messages or []) if m.get("role") in ("user", "assistant")]
+        if max_msgs > 0 and len(msgs) > max_msgs:
+            msgs = msgs[-max_msgs:]
+
+        for msg in msgs:
+            role = msg.get("role")
+            text = self._clip_msg_for_context(msg.get("content"), max_msg_chars)
+            if not text:
+                continue
+            label = "User" if role == "user" else "AVA"
+            body_lines.append(f"{label}: {text}")
+
+        if not body_lines:
+            # Index-only fallback
+            return header + "\n(no stored messages)"
+
+        block = header + "\n" + "\n".join(body_lines)
+        if len(block) > budget_chars:
+            # Keep header + tail of transcript
+            tail_budget = max(200, budget_chars - len(header) - 20)
+            joined = "\n".join(body_lines)
+            block = header + "\n..." + joined[-tail_budget:]
+        return block
+
+    def get_conversation_context_for_llm(self) -> str:
+        """
+        Context for continued conversations (injected at reset_messages).
+
+        Policy:
+          1) If any conversations were updated in the last 15 minutes → include
+             their full (clipped) transcripts.
+          2) Else → include the last 5 conversations the same way.
+
+        Caps via env:
+          AVA_CONV_CONTEXT_MINUTES (default 15)
+          AVA_CONV_CONTEXT_FALLBACK_N (default 5)
+          AVA_CONV_CONTEXT_MAX_CHARS (default 12000 ≈ a few k tokens; keep tight)
+          AVA_CONV_CONTEXT_MAX_MSG_CHARS (default 400)
+          AVA_CONV_CONTEXT_MAX_MSGS_PER (default 40)
+
+        Injected as a separate system message on /generate (not the main system prompt).
+        """
+        try:
+            window_min = int(os.getenv("AVA_CONV_CONTEXT_MINUTES", "15"))
+        except ValueError:
+            window_min = 15
+        try:
+            fallback_n = int(os.getenv("AVA_CONV_CONTEXT_FALLBACK_N", "5"))
+        except ValueError:
+            fallback_n = 5
+        try:
+            # ~12k characters keeps prior-chat context lean for the main model
+            max_chars = int(os.getenv("AVA_CONV_CONTEXT_MAX_CHARS", "12000"))
+        except ValueError:
+            max_chars = 12000
+        try:
+            max_msg_chars = int(os.getenv("AVA_CONV_CONTEXT_MAX_MSG_CHARS", "400"))
+        except ValueError:
+            max_msg_chars = 400
+        try:
+            max_msgs_per = int(os.getenv("AVA_CONV_CONTEXT_MAX_MSGS_PER", "40"))
+        except ValueError:
+            max_msgs_per = 40
+
+        window_min = max(1, min(window_min, 24 * 60))
+        fallback_n = max(1, min(fallback_n, 20))
+        max_chars = max(2000, min(max_chars, 40000))
+        max_msg_chars = max(80, min(max_msg_chars, 2000))
+        max_msgs_per = max(4, min(max_msgs_per, 100))
+
+        now = datetime.now()
+        current_id = ""
+        try:
+            if self.current_conversation:
+                current_id = self.current_conversation.id or ""
+        except Exception:
+            current_id = ""
+
+        # Sort all known convos by updated_at desc
+        sorted_items = sorted(
+            self.conversations_index.items(),
+            key=lambda x: x[1].get("updated_at") or x[1].get("created_at") or "",
+            reverse=True,
+        )
+
+        recent_window: List[str] = []  # ids updated within window
+        for conv_id, info in sorted_items:
+            if conv_id == current_id:
+                continue
+            ts = self._parse_iso(info.get("updated_at") or info.get("created_at") or "")
+            if ts is None:
+                continue
+            age_sec = (now - ts).total_seconds()
+            if age_sec <= window_min * 60:
+                recent_window.append(conv_id)
+
+        if recent_window:
+            selected_ids = recent_window
+            mode_label = f"last {window_min} minutes (full transcripts, clipped)"
+        else:
+            selected_ids = [
+                cid for cid, _ in sorted_items if cid != current_id
+            ][:fallback_n]
+            mode_label = f"last {fallback_n} conversations (no activity in {window_min}m)"
+
+        if not selected_ids:
+            return "(no prior conversations)"
+
+        # Budget per conversation roughly equal share
+        per_budget = max(800, max_chars // max(1, min(len(selected_ids), 8)))
+
+        blocks: List[str] = []
+        used = 0
+        for conv_id in selected_ids:
+            if used >= max_chars:
+                break
+            conv = self.load_conversation(conv_id)
+            if conv is None:
+                info = self.conversations_index.get(conv_id) or {}
+                blocks.append(
+                    f"### \"{info.get('name', 'Unnamed')}\" id={conv_id}\n"
+                    f"summary: {(info.get('summary') or '')[:200] or '(unavailable)'}"
+                )
+                continue
+            remaining = max_chars - used
+            block = self._format_conversation_block(
+                conv,
+                max_msg_chars=max_msg_chars,
+                max_msgs=max_msgs_per,
+                budget_chars=min(per_budget, remaining),
+            )
+            blocks.append(block)
+            used += len(block) + 2
+
+        header = (
+            f"[PRIOR CONVERSATIONS — {mode_label}]\n"
+            "Use for continuity (what you were building, open tasks, names). "
+            "Do not monologue about these on greeting — only when relevant.\n"
+        )
+        body = "\n\n".join(blocks)
+        out = header + body
+        if len(out) > max_chars + 200:
+            out = out[: max_chars + 200] + "\n...(truncated)"
+        return out
     
     def search_conversations(self, query: str) -> List[Dict[str, Any]]:
         """Search through past conversations."""
@@ -350,12 +616,19 @@ def start_new_conversation() -> Conversation:
     """Convenience function to start a new conversation."""
     conv = get_manager().start_new_conversation()
 
-    # Sync with state manager for background task tracking
+    # Sync with state manager for background task tracking.
+    # Mark active so completions that finish *during* this chat can announce,
+    # but do NOT wake the LLM here — wait for the user's first command.
     try:
         from core.TaskManager import update_conversation_state
         update_conversation_state(conv.id, conv.name, is_active=True)
     except Exception:
         pass
+
+    # Intentionally no flush_pending_announcements(trigger_response=True).
+    # That auto-started the model monologuing about old research on every new
+    # chat. Deferred / unannounced jobs ride along with the *next user message*
+    # (response_loop + optional passive inbox in the system prompt).
 
     # Client mirrors conversations to server storage.
     if os.getenv("AVA_SERVER_MODE") != "1":
@@ -370,7 +643,18 @@ def start_new_conversation() -> Conversation:
 
 def save_current_conversation():
     """Convenience function to save current conversation."""
+    conv = get_manager().current_conversation
     get_manager().save_conversation()
+
+    try:
+        from core.TaskManager import update_conversation_state
+        update_conversation_state(
+            conv.id if conv else "",
+            conv.name if conv else "",
+            is_active=False,
+        )
+    except Exception:
+        pass
 
     # Client mirrors conversations to server storage.
     if os.getenv("AVA_SERVER_MODE") != "1":
@@ -393,45 +677,10 @@ def get_past_conversations_context() -> str:
 
 def get_recent_hour_conversations_context() -> str:
     """
-    Get context about conversations from the past hour only.
-    Returns a formatted string for injection into the LLM system prompt.
-    Limits to conversations updated within the last 60 minutes to avoid
-    overloading context with stale information.
+    Server / worker path: same policy as system-prompt conversation context
+    (15-minute window full transcripts, else last 5). Kept name for callers.
     """
-    mgr = get_manager()
-    now = datetime.now()
-    
-    recent_convos = []
-    for conv_id, info in mgr.conversations_index.items():
-        updated_at_str = info.get("updated_at", info.get("created_at", ""))
-        if not updated_at_str:
-            continue
-        try:
-            updated_at = datetime.fromisoformat(updated_at_str)
-            # Only include conversations updated within the past hour
-            delta = (now - updated_at).total_seconds()
-            if delta <= 3600:  # 1 hour = 3600 seconds
-                recent_convos.append({
-                    "name": info.get("name", "Unnamed"),
-                    "summary": info.get("summary", ""),
-                    "updated_at": updated_at
-                })
-        except (ValueError, TypeError):
-            continue
-    
-    if not recent_convos:
-        return ""
-    
-    # Sort by most recent first
-    recent_convos.sort(key=lambda x: x["updated_at"], reverse=True)
-    
-    lines = ["[RECENT CONVERSATIONS (past hour) - You can reference these if relevant]"]
-    for conv in recent_convos[:5]:  # Cap at 5 to avoid context bloat
-        time_str = conv["updated_at"].strftime("%H:%M")
-        summary = conv["summary"][:150] if conv["summary"] else "No summary"
-        lines.append(f"- \"{conv['name']}\" (at {time_str}): {summary}")
-    
-    return "\n".join(lines)
+    return get_manager().get_conversation_context_for_llm()
 
 def search_conversations_by_date(date_str: str = None, time_of_day: str = None) -> List[Dict[str, Any]]:
     """

@@ -3,10 +3,23 @@ from .media.vision import *
 from .productivity.calendar import calendar
 from .productivity.document_creator import *
 from .system.bash_executor import *
-from .system.notifiers import ring_timer, send_notification
+from .system.notifiers import (
+    continuous_ping,
+    ping,
+    ring_timer,
+    send_notification,
+    stop_ping,
+)
+from .system.phone_call import make_phone_call
 from .system.sandbox import *
 from .system.smart_home import *
 from .system.smart_home_agent import run_smarthome_agent
+from .system.opencode_client import (
+    run_opencode,
+    get_session_store,
+    sessions_prompt_block,
+    list_native_sessions,
+)
 from .system.system_control import *
 from .system.time_tools import *
 from .web.internet import *

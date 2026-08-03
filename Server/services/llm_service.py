@@ -1,17 +1,53 @@
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, List, Optional
 
-from memorySystem.memoryDreamer import dreamerEvent
-from openai import OpenAI
+from services.key_rotator import chat_completions_create, collect_openai_keys
 
 
 class LLMService:
-    """Thin wrapper around chat completion to keep endpoint code clean."""
+    """Chat completion via shared OPENAI_API_KEYS pool (round-robin + 429 retry)."""
 
-    def __init__(self, api_key: str | None, base_url: str | None, model_name: str):
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
+    def __init__(
+        self,
+        api_key: str | None,
+        base_url: str | None,
+        model_name: str,
+        api_keys: Optional[List[str] | str] = None,
+    ):
+        self.base_url = base_url
         self.model_name = model_name
+        # Warm / validate pool (also used by research + dreamer)
+        keys = collect_openai_keys(primary=api_key, multi=api_keys, env=True)
+        self._pool_size = len(keys)
+        if keys:
+            print(
+                f"[LLMService] shared key pool n={self._pool_size} "
+                f"(main / research / dreamer)"
+            )
+        else:
+            print("[LLMService] WARNING: no OPENAI_API_KEY(S) configured")
+
+    def resolve_model(
+        self,
+        model: Optional[str] = None,
+        model_tier: Optional[str] = None,
+    ) -> str:
+        """Pick a concrete model id from explicit model or tier."""
+        if model and str(model).strip():
+            return str(model).strip()
+        tier = (model_tier or "main").lower()
+        main = self.model_name or os.getenv("MODEL_NAME") or ""
+        if tier == "none":
+            return main
+        mapping = {
+            "nano": os.getenv("AVA_MODEL_NANO") or os.getenv("AVA_MODEL_SMALL") or main,
+            "small": os.getenv("AVA_MODEL_SMALL") or main,
+            "main": main,
+            "heavy": os.getenv("AVA_MODEL_HEAVY") or main,
+        }
+        return (mapping.get(tier) or main).strip() or main
 
     @staticmethod
     def _valid_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -47,6 +83,8 @@ class LLMService:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         context_message: str = "",
+        model: Optional[str] = None,
+        model_tier: Optional[str] = None,
     ) -> dict[str, Any]:
         enriched_messages = list(messages)
         if context_message:
@@ -60,19 +98,23 @@ class LLMService:
             )
 
         valid_tools = self._valid_tools(tools)
+        model_id = self.resolve_model(model=model, model_tier=model_tier)
 
-        response = self.client.chat.completions.create(
-            model=self.model_name,
+        response = chat_completions_create(
+            model=model_id,
             messages=enriched_messages,
+            base_url=self.base_url,
+            label="MainLLM",
             tools=valid_tools if valid_tools else None,
             tool_choice="auto" if valid_tools else None,
-            temperature=0.8,  # low temp prevents the LLM from entering repeating Chinese/French loops
-            presence_penalty=0.1,  # Add small penalty to avoid repeating loops
+            temperature=0.8,
+            presence_penalty=0.1,
         )
         msg = response.choices[0].message
-        dreamerEvent.set()
         return {
             "role": msg.role,
             "content": msg.content,
             "tool_calls": self._serialize_tool_calls(msg.tool_calls),
+            "model": model_id,
+            "model_tier": model_tier or "main",
         }

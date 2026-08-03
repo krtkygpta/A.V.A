@@ -170,7 +170,10 @@ class VoiceRecorder:
         # Background Whisper state — transcription runs in a separate thread
         self._whisper_result = None
         self._whisper_done = threading.Event()
-        
+        # Throttle Level: status callbacks so the UI isn't flooded
+        self._last_level_emit = 0.0
+        self._level_emit_interval = 0.05  # ~20 Hz
+
         # Perform initial noise floor calibration
         self._calibrate_at_startup()
     
@@ -279,6 +282,26 @@ class VoiceRecorder:
                 self.threshold = max(0.004, min(0.1, self.threshold))
                 self.last_calibration_time = current_time
 
+    def _frame_energy(self, audio_bytes: bytes) -> float:
+        """Mean absolute amplitude of an int16 frame, scaled to ~0..1."""
+        audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+        if audio_array.size == 0:
+            return 0.0
+        return float(np.mean(np.abs(audio_array.astype(np.float32))) / 32768.0)
+
+    def _emit_level(self, energy: float, *, force: bool = False) -> None:
+        """Push a real mic level to the UI (status-bar meter only)."""
+        if not self.status_callback:
+            return
+        now = time.time()
+        if not force and (now - self._last_level_emit) < self._level_emit_interval:
+            return
+        self._last_level_emit = now
+        try:
+            self.status_callback(f"Level: {energy:.6f}")
+        except Exception:
+            pass
+
     def _is_voice(self, audio_bytes: bytes) -> bool:
         """
         Check if an audio frame contains voice activity.
@@ -286,9 +309,7 @@ class VoiceRecorder:
         Used for both pre-buffer filtering and recording silence detection.
         (Previously split into _is_voice + _frame_has_voice — merged since identical.)
         """
-        audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
-        energy = np.mean(np.abs(audio_array)) / 32768.0
-        return energy > self.threshold
+        return self._frame_energy(audio_bytes) > self.threshold
 
     def save_recording(self, filename: Optional[str] = None) -> str:
         """Save buffered audio frames to a WAV file in data/recordings/."""
@@ -400,11 +421,6 @@ class VoiceRecorder:
                 # ── PRE-RECORDING: waiting for confirmed voice activity ──
                 if not recording:
                     if is_voice_now:
-                        # Show [Listening] immediately on first voice frame for user feedback
-                        if self.consecutive_voice == 0:
-                            print("\r[Listening] ", end="", flush=True)
-                            if self.status_callback: self.status_callback("[Listening] Speech detected...")
-
                         self.consecutive_voice += 1
                         confirm_buffer.append(data)
                         pre_buffer.append(data)
@@ -415,6 +431,9 @@ class VoiceRecorder:
                             recorded_chunks = 0
                             silent_chunks = 0
                             self.frames = list(pre_buffer)
+                            print("\r[Recording] ", end="", flush=True)
+                            if self.status_callback:
+                                self.status_callback("Recording...")
 
                             # Signal TTS to stop (barge-in: user is speaking)
                             if not stop_event.is_set():
@@ -430,9 +449,10 @@ class VoiceRecorder:
                     else:
                         # Silent frame — reset voice confirmation counter
                         if self.consecutive_voice > 0:
-                            # Clear the [Listening] indicator if it was a false trigger
+                            # False trigger — stay quiet in UI
                             print("\r                    \r", end="", flush=True)
-                            if self.status_callback: self.status_callback("Waiting for voice...")
+                            if self.status_callback:
+                                self.status_callback("Waiting for voice...")
                         self.consecutive_voice = 0
                         confirm_buffer = []
                         self._update_noise_floor(data)
@@ -442,6 +462,8 @@ class VoiceRecorder:
                 # ── RECORDING: capturing audio ──
                 self.frames.append(data)
                 recorded_chunks += 1
+                # Real mic level for status-bar meter (not a fake animation)
+                self._emit_level(self._frame_energy(data))
                 
                 # Feed to Vosk for live display (only while voice is active, not during silence tail)
                 if self.recognizer and silent_chunks == 0:
@@ -477,7 +499,7 @@ class VoiceRecorder:
                             threading.Thread(target=_run_whisper, args=(filename,), daemon=True).start()
                             return True, filename
                         else:
-                            # Recording too short — discard and go back to listening
+                            # Recording too short — discard and go back to idle
                             recording = False
                             silent_chunks = 0
                             self.consecutive_voice = 0
@@ -489,8 +511,9 @@ class VoiceRecorder:
                                 maxlen=self.pre_buffer_size
                             )
                             self.frames = []
-                            print("\r[Listening] ", end="", flush=True)
-                            if self.status_callback: self.status_callback("[Listening] Speech detected...")
+                            print("\r                    \r", end="", flush=True)
+                            if self.status_callback:
+                                self.status_callback("Waiting for voice...")
                 else:
                     silent_chunks = 0
                     

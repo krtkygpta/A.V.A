@@ -1,310 +1,260 @@
 """
-Deep Research Agent — Groq (via OpenAI compatibility layer) + Tavily
-----------------------------------------------------------------------
-Phases:
-  1. Initial thinking  — decompose the question        (Groq)
-  2. Web search        — generate queries + search web  (Tavily)
-  3. Grounding         — cross-check and verify sources (Groq)
-  4. Deep re-analysis  — rethink with evidence          (Groq)
-  5. Final synthesis   — compose the answer             (Groq)
+Client entry for AVA research agent.
 
-Install:
-    pip install openai tavily-python
+All research runs on the Server (`POST /tools/research`) as an agentic
+multi-level (1–5) loop with web search, page extraction, and text PDFs.
 
-Keys:
-    export GROQ_API_KEY=...
-    export TAVILY_API_KEY=...
-    (or the script will prompt you)
+Level 3+: full report is written to disk (Desktop/AVA_Research) and only a
+short summary + path are returned to the main agent (avoids context floods).
 """
 
-import os
+from __future__ import annotations
+
 import json
-import textwrap
-from openai import OpenAI
-from tavily import TavilyClient
+import os
+import re
+from datetime import datetime
+from typing import Any, Optional, Union
 
-# ── Clients ────────────────────────────────────────────────────────────────────
-
-# Groq via OpenAI compatibility layer — just swap base_url
-client = OpenAI(
-    api_key=os.getenv("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1",
-)
-
-tavily_client = TavilyClient(
-    api_key=os.getenv("TAVILY_API_KEY")
-)
-
-# Model to use for all reasoning phases
-# Good options: "llama-3.3-70b-versatile", "deepseek-r1-distill-llama-70b", "mixtral-8x7b-32768"
-GROQ_MODEL = "llama-3.3-70b-versatile"
-
-DIVIDER = "─" * 70
+import requests
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
-def print_phase(number, title):
-    print(f"\n{DIVIDER}")
-    print(f"  Phase {number}: {title}")
-    print(DIVIDER)
+def _server_url() -> str:
+    return os.getenv("AVA_SERVER_URL", "http://127.0.0.1:8765").rstrip("/")
 
 
-def print_block(label, text):
-    print(f"\n[{label}]\n")
-    for line in text.strip().split("\n"):
-        print(textwrap.fill(line, width=80) if line.strip() else "")
+def _clamp_level(level: Any) -> int:
+    try:
+        n = int(level)
+    except (TypeError, ValueError):
+        n = 3
+    return max(1, min(5, n))
 
 
-def think(system_prompt: str, user_prompt: str) -> str:
-    """Single-turn reasoning call via Groq (OpenAI-compatible)."""
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": user_prompt},
-        ],
-        max_tokens=2048,
-        temperature=0.6,
-    )
-    return response.choices[0].message.content.strip()
+def _slugify(text: str, max_len: int = 48) -> str:
+    s = re.sub(r"[^a-zA-Z0-9]+", "_", (text or "research").strip())
+    s = s.strip("_")[:max_len] or "research"
+    return s
 
 
-def search(query: str) -> dict:
-    """Search the web via Tavily. Returns {"text": str, "urls": [str]}."""
-    response = tavily_client.search(
-        query=query,
-        search_depth="advanced",
-        max_results=5,
-        include_answer=True,
-        include_raw_content=False,
-    )
+def _make_summary(report: str, max_chars: int = 520) -> str:
+    """Compact executive summary from the full report (no second LLM call)."""
+    body = (report or "").strip()
+    if not body:
+        return "Research completed with an empty report."
 
-    parts = []
-    urls = []
+    # Drop trailing Sources block for the summary body
+    cut = re.split(r"\n+\s*Sources\s*:?\s*\n", body, maxsplit=1, flags=re.I)
+    main = cut[0].strip()
 
-    if response.get("answer"):
-        parts.append(f"Summary: {response['answer']}")
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", main) if p.strip()]
+    if paragraphs:
+        # Prefer first 1–2 non-heading-only paragraphs
+        picked: list[str] = []
+        for p in paragraphs:
+            if re.fullmatch(r"#{1,6}\s+.*", p) and len(picked) == 0:
+                # keep title-ish heading as context
+                picked.append(re.sub(r"^#{1,6}\s+", "", p).strip())
+                continue
+            picked.append(p)
+            if len(" ".join(picked)) >= max_chars * 0.6 and len(picked) >= 1:
+                break
+            if len(picked) >= 2:
+                break
+        summary = " ".join(x.replace("\n", " ") for x in picked)
+    else:
+        summary = main.replace("\n", " ")
 
-    for r in response.get("results", []):
-        title   = r.get("title", "")
-        url     = r.get("url", "")
-        content = r.get("content", "")
-        if url:
-            urls.append(url)
-        if content:
-            parts.append(f"• {title}\n  {content[:400]}")
-
-    return {
-        "text": "\n\n".join(parts) or "No results.",
-        "urls": urls,
-    }
+    summary = re.sub(r"\s+", " ", summary).strip()
+    if len(summary) > max_chars:
+        summary = summary[: max_chars - 3].rsplit(" ", 1)[0] + "..."
+    return summary
 
 
-# ── Main agent ─────────────────────────────────────────────────────────────────
+def _save_full_report(
+    question: str,
+    level: int,
+    report: str,
+    sources: list[str],
+    meta: dict[str, Any],
+) -> Optional[str]:
+    """Write full markdown report under Desktop/AVA_Research. Returns abs path."""
+    try:
+        from utils.paths import research_output_dir
+    except Exception:
+        # Fallback if import path differs when run as script
+        from pathlib import Path
 
-def run_research(question: str):
-    print(f"\n{'═' * 70}")
-    print(f"  Deep Research Agent  |  Groq + Tavily")
-    print(f"{'═' * 70}")
-    print(f"\n  Question: {question}\n")
+        desk = Path.home() / "Desktop"
+        desk.mkdir(exist_ok=True)
+        out_dir = desk / "AVA_Research"
+        out_dir.mkdir(exist_ok=True)
 
-    # ── Phase 1: Initial thinking ──────────────────────────────────────────────
-    print_phase(1, "Initial Thinking")
+        def research_output_dir():  # type: ignore
+            return out_dir
 
-    think1 = think(
-        system_prompt=(
-            "You are a deep research assistant. When given a question, think carefully "
-            "about: what are the key sub-questions to answer, what aspects need "
-            "investigation, what could be controversial or nuanced, and what search "
-            "queries would best ground this. Be thorough in your chain of thought."
-        ),
-        user_prompt=(
-            f"Question: {question}\n\n"
-            "Think deeply about this. What are the key dimensions, sub-questions, "
-            "and potential angles to research?"
-        ),
-    )
-    print_block("Initial Analysis", think1)
+    try:
+        out_dir = research_output_dir()
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        slug = _slugify(question)
+        path = out_dir / f"research_L{level}_{stamp}_{slug}.md"
 
-    # ── Phase 2: Web search ────────────────────────────────────────────────────
-    print_phase(2, "Web Search")
+        header_lines = [
+            f"# Research report (level {level})",
+            "",
+            f"**Question:** {question}",
+            f"**Generated:** {datetime.now().isoformat(timespec='seconds')}",
+            f"**Confidence:** {meta.get('confidence', 'n/a')}",
+            f"**Model:** {meta.get('model', 'n/a')}",
+            f"**Stats:** rounds={meta.get('rounds')}, searches={meta.get('searches')}, "
+            f"pages={meta.get('pages_fetched')}, pdfs={meta.get('pdfs_read')}",
+            "",
+            "---",
+            "",
+        ]
+        body = report if report is not None else ""
+        # Ensure sources section if we have URLs and report lacks them
+        if sources and "http" not in body.lower():
+            body = body.rstrip() + "\n\n## Sources\n" + "\n".join(
+                f"- {u}" for u in sources[:40]
+            )
 
-    query_plan = think(
-        system_prompt=(
-            "You are a search strategist. Given a research question and initial "
-            "analysis, output exactly 3 distinct search queries (one per line, "
-            "no numbering, no quotes, no extra text) that would find authoritative "
-            "and diverse sources. Keep each query concise and specific."
-        ),
-        user_prompt=(
-            f"Original question: {question}\n\n"
-            f"Initial analysis:\n{think1}\n\n"
-            "Output 3 search queries, one per line:"
-        ),
-    )
+        path.write_text("\n".join(header_lines) + body + "\n", encoding="utf-8")
+        return str(path.resolve())
+    except Exception as e:
+        print(f"[Research] failed to save report: {e}")
+        return None
 
-    queries = [q.strip() for q in query_plan.strip().split("\n") if q.strip()][:3]
-    print(f"\n  Generated {len(queries)} search queries:")
-    for i, q in enumerate(queries, 1):
-        print(f"    {i}. {q}")
 
-    search_results = []
-    all_urls = []
+def research(
+    query: str,
+    level: Union[int, str] = 3,
+    *,
+    timeout: Optional[float] = None,
+) -> str:
+    """
+    Run research on the AVA server.
 
-    for i, query in enumerate(queries, 1):
-        print(f"\n  Searching [{i}/{len(queries)}]: {query}")
-        try:
-            result = search(query)
-            search_results.append({"query": query, "text": result["text"]})
-            all_urls.extend(result["urls"])
-            preview = result["text"][:200].replace("\n", " ")
-            print(f"  → {preview}{'...' if len(result['text']) > 200 else ''}")
-        except Exception as e:
-            print(f"  ✗ Search failed: {e}")
-            search_results.append({"query": query, "text": f"Search failed: {e}"})
+    Args:
+        query: Research question / topic.
+        level: 1 (quick) … 5 (exhaustive). Default 3.
+        timeout: HTTP timeout seconds (defaults scale with level).
 
-    if all_urls:
-        print(f"\n  Sources found:")
-        seen = set()
-        for url in all_urls:
-            try:
-                from urllib.parse import urlparse
-                domain = urlparse(url).netloc.replace("www.", "")
-                if domain not in seen:
-                    seen.add(domain)
-                    print(f"    • {domain}")
-            except Exception:
-                pass
+    Returns:
+        JSON string for the main agent / task result.
+        Level 1–2: includes full report.
+        Level 3–5: full report on disk; payload has summary + report_path only.
+    """
+    question = (query or "").strip()
+    if not question:
+        return json.dumps({"status": "error", "content": "Empty research query"})
 
-    # ── Phase 3: Grounding ─────────────────────────────────────────────────────
-    print_phase(3, "Grounding & Cross-Checking")
+    lvl = _clamp_level(level)
+    # Higher levels need more wall-clock time (tool rounds + LLM)
+    default_timeout = {
+        1: 120.0,
+        2: 240.0,
+        3: 480.0,
+        4: 900.0,
+        5: 1500.0,
+    }.get(lvl, 480.0)
+    base = float(os.getenv("AVA_SERVER_TIMEOUT", "4"))
+    wait = float(timeout) if timeout is not None else max(base, default_timeout)
 
-    combined = "\n\n".join(
-        f'[Source {i+1}: "{r["query"]}"]\n{r["text"]}'
-        for i, r in enumerate(search_results)
-    )
-
-    grounding = think(
-        system_prompt=(
-            "You are a fact-checker and research analyst. Cross-check the provided "
-            "search results: identify agreements and contradictions between sources, "
-            "note what is well-supported vs uncertain, highlight the most credible "
-            "findings, and flag any potential biases or gaps."
-        ),
-        user_prompt=(
-            f"Question: {question}\n\n"
-            f"Search results:\n{combined}\n\n"
-            "Analyze what the sources agree on, where they conflict, what is "
-            "well-supported, and what remains uncertain."
-        ),
-    )
-    print_block("Grounding Analysis", grounding)
-
-    # ── Phase 4: Deep re-analysis ──────────────────────────────────────────────
-    print_phase(4, "Deep Re-Analysis")
-
-    think2 = think(
-        system_prompt=(
-            "You are a deep analytical thinker. You have initial thoughts and now "
-            "grounded evidence. Re-examine the question with this new information. "
-            "Update your thinking, resolve contradictions, consider what the evidence "
-            "actually implies, and build toward a nuanced, well-supported conclusion. "
-            "Think at length and be intellectually honest about uncertainty."
-        ),
-        user_prompt=(
-            f"Original question: {question}\n\n"
-            f"Initial thinking:\n{think1}\n\n"
-            f"Grounded evidence analysis:\n{grounding}\n\n"
-            "Now re-analyze deeply. What does the evidence actually tell us? "
-            "What should the final answer focus on?"
-        ),
-    )
-    print_block("Re-Analysis", think2)
-
-    # ── Phase 5: Final synthesis ───────────────────────────────────────────────
-    print_phase(5, "Final Synthesis")
-
-    final_answer = think(
-        system_prompt=(
-            "You are a senior research analyst. Synthesize all the thinking and "
-            "evidence into a clear, comprehensive, well-structured final answer. "
-            "Be direct and informative. Use paragraphs. Note where sources agreed "
-            "or disagreed when relevant. Provide a real, substantive answer — "
-            "do not hedge unnecessarily."
-        ),
-        user_prompt=(
-            f"Question: {question}\n\n"
-            f"Initial analysis:\n{think1}\n\n"
-            f"Evidence grounding:\n{grounding}\n\n"
-            f"Deep re-analysis:\n{think2}\n\n"
-            "Write the final comprehensive answer:"
-        ),
-    )
-
-    print(f"\n{'═' * 70}")
-    print("  FINAL ANSWER")
-    print(f"{'═' * 70}\n")
-    for line in final_answer.strip().split("\n"):
-        print(textwrap.fill(line, width=80) if line.strip() else "")
-    print(f"\n{'═' * 70}\n")
-
-    return {
-        "question": question,
-        "model": GROQ_MODEL,
-        "think1": think1,
-        "search_results": search_results,
-        "sources": all_urls,
-        "grounding": grounding,
-        "think2": think2,
-        "final_answer": final_answer,
-    }
-
-def research(query):
-    import json
-    import requests
-    import os
-    
-    SERVER_URL = os.getenv("AVA_SERVER_URL", "http://127.0.0.1:8765").rstrip("/")
-    DEFAULT_TIMEOUT = float(os.getenv("AVA_SERVER_TIMEOUT", "4"))
-    
+    server = _server_url()
     try:
         response = requests.post(
-            f"{SERVER_URL}/tools/research",
-            json={"question": query},
-            timeout=max(DEFAULT_TIMEOUT, 600.0)
+            f"{server}/tools/research",
+            json={"question": question, "level": lvl},
+            timeout=wait,
         )
         response.raise_for_status()
         result = response.json()
-        
-        if result.get("status") == "success":
-            return json.dumps(result.get("content"))
-        else:
-            return json.dumps(f"Error: {result.get('content', 'Unknown error')}")
     except requests.exceptions.RequestException as e:
-        return json.dumps(f"Error: Server request failed: {str(e)}")
+        return json.dumps(
+            {
+                "status": "error",
+                "content": f"Server research request failed: {e}",
+            }
+        )
 
-# ── Entry point ────────────────────────────────────────────────────────────────
+    if not (isinstance(result, dict) and result.get("status") == "success"):
+        if isinstance(result, dict):
+            err = result.get("content") or result.get("error") or result
+            return json.dumps({"status": "error", "content": err}, ensure_ascii=False)
+        return json.dumps({"status": "error", "content": str(result)})
 
+    content = result.get("content") or ""
+    meta = result.get("meta") or {}
+    sources = list(meta.get("sources") or [])
+    # Cap sources list in the *return* payload always
+    sources_preview = sources[:12]
+
+    stats = {
+        "rounds": meta.get("rounds"),
+        "searches": meta.get("searches"),
+        "pages_fetched": meta.get("pages_fetched"),
+        "pdfs_read": meta.get("pdfs_read"),
+    }
+
+    # ── Level 3+: file on disk + short summary only ─────────────────────────
+    if lvl >= 3:
+        report_path = _save_full_report(
+            question=question,
+            level=lvl,
+            report=str(content),
+            sources=sources,
+            meta=meta,
+        )
+        summary = _make_summary(str(content), max_chars=520)
+        payload = {
+            "status": "success",
+            "level": meta.get("level", lvl),
+            "label": meta.get("label"),
+            "summary": summary,
+            "report_path": report_path,
+            "sources": sources_preview,
+            "source_count": len(sources),
+            "confidence": meta.get("confidence"),
+            "stats": stats,
+            "note": (
+                "Full research report saved to disk. "
+                "Do NOT dump the full report into chat — speak the summary and "
+                "offer the file path. Use open_file if the user wants it opened."
+            ),
+        }
+        if not report_path:
+            # Fall back: still avoid dumping entire report if save failed
+            payload["summary"] = summary
+            payload["report_preview"] = str(content)[:800]
+            payload["note"] = (
+                "Could not save full report to disk; only a short preview is included."
+            )
+        return json.dumps(payload, ensure_ascii=False)
+
+    # ── Level 1–2: full report is small enough to return ────────────────────
+    return json.dumps(
+        {
+            "status": "success",
+            "level": meta.get("level", lvl),
+            "label": meta.get("label"),
+            "report": content,
+            "sources": sources_preview,
+            "confidence": meta.get("confidence"),
+            "stats": stats,
+        },
+        ensure_ascii=False,
+    )
+
+
+# CLI smoke helper (optional)
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) > 1:
-        question = " ".join(sys.argv[1:])
-    else:
-        print("\nDeep Research Agent  |  Groq + Tavily")
-        print("--------------------------------------")
-        question = input("Enter your research question: ").strip()
-
-    if not question:
-        print("No question provided. Exiting.")
-        sys.exit(1)
-
-    result = run_research(question)
-
-    save = input("\nSave full research trace to JSON? (y/n): ").strip().lower()
-    if save == "y":
-        filename = "research_output.json"
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
-        print(f"Saved to {filename}")
+    q = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else ""
+    lvl = 2
+    if not q:
+        q = input("Research question: ").strip()
+        raw = input("Level 1-5 [2]: ").strip() or "2"
+        lvl = _clamp_level(raw)
+    print(research(q, level=lvl))

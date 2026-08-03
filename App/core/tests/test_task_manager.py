@@ -14,11 +14,14 @@ import threading
 import time
 import sys
 import os
+import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 # Add the App directory to the path so we can import core modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
+import core.TaskManager as tm
 from core.TaskManager import (
     BackgroundTask,
     TaskStatus,
@@ -43,6 +46,30 @@ from core.TaskManager import (
     set_mode,
     user_activity_occurred,
 )
+
+# Never write test tasks into App/data/tasks/tasks.json
+_ORIG_TASK_STORE = tm.TASK_STORE_PATH
+_TEST_TASK_STORE = Path(tempfile.gettempdir()) / f"ava_tm_suite_{os.getpid()}.json"
+
+
+def setUpModule():
+    tm.TASK_STORE_PATH = _TEST_TASK_STORE
+    TaskRegistry._instance = None
+    try:
+        _TEST_TASK_STORE.unlink()
+    except OSError:
+        pass
+
+
+def tearDownModule():
+    tm.TASK_STORE_PATH = _ORIG_TASK_STORE
+    TaskRegistry._instance = None
+    try:
+        _TEST_TASK_STORE.unlink()
+    except OSError:
+        pass
+
+
 
 
 class TestBackgroundTask(unittest.TestCase):
@@ -175,6 +202,28 @@ class TestTaskRegistry(unittest.TestCase):
         retrieved = registry.get_task(task.id)
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved.name, "Test Task")
+
+    def test_task_store_persists_and_reloads(self):
+        """Test JSON task store persistence and reload"""
+        registry = TaskRegistry()
+        task = registry.create_task(
+            name="Persistent Task",
+            description="Stored on disk",
+            conversation_id="conv_disk",
+            task_type="delegate",
+        )
+        registry.update_task(task.id, TaskStatus.COMPLETED, result="Stored result")
+
+        self.assertTrue(tm.TASK_STORE_PATH.exists())
+
+        TaskRegistry._instance = None
+        reloaded = TaskRegistry()
+        loaded_task = reloaded.get_task(task.id)
+
+        self.assertIsNotNone(loaded_task)
+        self.assertEqual(loaded_task.name, "Persistent Task")
+        self.assertEqual(loaded_task.result, "Stored result")
+        reloaded.clear_all()
     
     def test_get_tasks_for_conversation(self):
         """Test getting tasks by conversation ID"""
@@ -216,18 +265,20 @@ class TestTaskRegistry(unittest.TestCase):
         registry = TaskRegistry()
         task = registry.create_task("Test", "", conversation_id="conv_1")
         registry.update_task(task.id, TaskStatus.COMPLETED)
-        
+
         # Before marking
         pending = registry.get_pending_notifications()
         self.assertEqual(len(pending), 1)
-        
-        # Mark as notified
+
+        # Mark as notified — keep COMPLETED so manage result still works
         registry.mark_as_notified(task.id)
-        
+
         # After marking
         task = registry.get_task(task.id)
-        self.assertEqual(task.status, TaskStatus.NOTIFIED)
+        self.assertEqual(task.status, TaskStatus.COMPLETED)
         self.assertIsNotNone(task.notified_at)
+        pending_after = registry.get_pending_notifications()
+        self.assertEqual(len(pending_after), 0)
     
     def test_cleanup_old_tasks(self):
         """Test cleanup of old completed tasks"""
@@ -392,7 +443,11 @@ class TestNotificationDecisionEngine(unittest.TestCase):
         self.assertEqual(strategy.delivery_method, DeliveryMethod.NEXT_RESPONSE)
         self.assertFalse(strategy.interrupt_current)
         self.assertEqual(strategy.task_id, task.id)
-        self.assertIn("conv_001", strategy.notification_text)
+        # Compact DONE payload (token-cheap), not full conversation context
+        self.assertIn(task.id, strategy.notification_text)
+        self.assertIn("Finished:", strategy.notification_text)
+        # Held origin/dossier block for later "run/open" continuity
+        self.assertIn("ORIGIN", strategy.notification_text)
     
     def test_case_2_no_conversation_active_wakeword_mode(self):
         """
@@ -434,74 +489,81 @@ class TestNotificationDecisionEngine(unittest.TestCase):
         
         self.assertEqual(strategy.delivery_method, DeliveryMethod.QUEUE_FOR_IDLE)
     
-    def test_case_3_different_conversation_active_high_relevance(self):
+    def test_case_3_different_conversation_active_still_speaks(self):
         """
-        Case 3: Different conversation active with high relevance
-        Task should be delivered via DEFER (low relevance by default)
+        Case 3: Different conversation active — still NEXT_RESPONSE.
+
+        User is present; main must announce. Sticky inbox is for offline only.
         """
         state_manager = ConversationStateManager()
         state_manager.conversation_started("conv_002", "Current Conversation")
         state_manager.is_conversation_active = True
-        state_manager.current_mode = "continuous"  # Set mode to active mode
-        
-        # Task from previous conversation with overlapping keywords
+        state_manager.current_mode = "continuous"
+
         task = self._create_completed_task(
             conversation_id="conv_001",
             conversation_name="Previous Conversation",
             original_query="Research AI safety machine learning"
         )
-        
-        # Mock the current conversation to have relevant content
-        # We'll inject relevant keywords into the assessment
+
         engine = NotificationDecisionEngine()
-        
-        # For this test, we need to mock the conversation relevance
-        # Since we can't easily mock the ConversationManager, we'll test the logic directly
-        # by checking that different conversation IDs lead to relevance assessment
         strategy = engine.decide_notification_strategy(task)
-        
-        # With different conversation IDs, should assess relevance
-        # Default relevance is 0.1 (from exception handler), which is < 0.7
-        # So it should DEFER
-        self.assertEqual(strategy.delivery_method, DeliveryMethod.DEFER)
+
+        self.assertEqual(strategy.delivery_method, DeliveryMethod.NEXT_RESPONSE)
+        self.assertIn(task.id, strategy.notification_text)
+
+    def test_empty_conversation_id_while_chatting_is_next_response(self):
+        """Live bug: demo finished with conversation_id='' → silent DEFER."""
+        state_manager = ConversationStateManager()
+        state_manager.conversation_started("conv_live", "Live Chat")
+        state_manager.is_conversation_active = True
+        state_manager.current_mode = "tui"
+
+        task = self._create_completed_task(
+            conversation_id="",
+            conversation_name="",
+            original_query="Demo task will run for 50 seconds",
+        )
+        task.task_type = "demo"
+        task.kind = "long"
+
+        engine = NotificationDecisionEngine()
+        strategy = engine.decide_notification_strategy(task)
+        self.assertEqual(strategy.delivery_method, DeliveryMethod.NEXT_RESPONSE)
     
-    def test_case_3_urgent_priority(self):
-        """
-        Case 3: Different conversation active but task is URGENT
-        Should use IMMEDIATE delivery regardless of relevance
-        """
+    def test_case_3_urgent_priority_while_chatting(self):
+        """Urgent + active chat → NEXT_RESPONSE (main speaks; no silent drop)."""
         state_manager = ConversationStateManager()
         state_manager.conversation_started("conv_002", "Current Conversation")
         state_manager.is_conversation_active = True
-        state_manager.current_mode = "continuous"  # Set mode to active mode
-        
+        state_manager.current_mode = "continuous"
+
         task = self._create_completed_task(
             conversation_id="conv_001",
             conversation_name="Previous Conversation",
             priority=TaskPriority.URGENT
         )
-        
+
         engine = NotificationDecisionEngine()
         strategy = engine.decide_notification_strategy(task)
-        
-        self.assertEqual(strategy.delivery_method, DeliveryMethod.IMMEDIATE)
-        self.assertTrue(strategy.interrupt_current)
-    
-    def test_urgent_priority_always_immediate(self):
-        """Test that URGENT priority tasks are always immediate when not in their conversation"""
+
+        self.assertEqual(strategy.delivery_method, DeliveryMethod.NEXT_RESPONSE)
+        self.assertEqual(strategy.priority, TaskPriority.URGENT)
+
+    def test_urgent_priority_immediate_when_away(self):
+        """Urgent/timer while no active chat → IMMEDIATE hard alert."""
         state_manager = ConversationStateManager()
-        state_manager.conversation_started("conv_002", "Different Conv")
-        state_manager.is_conversation_active = True
-        state_manager.current_mode = "continuous"  # Active mode
-        
+        state_manager.is_conversation_active = False
+        state_manager.current_mode = "wakeword"
+
         task = self._create_completed_task(
             conversation_id="conv_001",
             priority=TaskPriority.URGENT
         )
-        
+
         engine = NotificationDecisionEngine()
         strategy = engine.decide_notification_strategy(task)
-        
+
         self.assertEqual(strategy.delivery_method, DeliveryMethod.IMMEDIATE)
         self.assertTrue(strategy.interrupt_current)
 
@@ -750,6 +812,40 @@ class TestDispatchBackgroundTask(unittest.TestCase):
         self.assertEqual(task_id, "")
         self.assertIn("Unknown", message)
 
+    def test_dispatch_delegate_task(self):
+        """Test dispatching a general delegated AI task"""
+        task_id, message = dispatch_background_task(
+            "delegate",
+            objective="Summarize a local note",
+            context="No note supplied",
+            expected_output="A short status",
+        )
+
+        self.assertIsNotNone(task_id)
+        self.assertIn("started", message.lower())
+
+        registry = TaskRegistry()
+        task = registry.get_task(task_id)
+        self.assertIsNotNone(task)
+        self.assertEqual(task.task_type, "delegate")
+        self.assertEqual(task.original_query, "Summarize a local note")
+
+    def test_dispatch_mission_task(self):
+        """Test dispatching a supervisor mission task"""
+        task_id, message = dispatch_background_task(
+            "mission",
+            mission="Compare three options",
+            max_workers=2,
+        )
+
+        self.assertIsNotNone(task_id)
+        self.assertIn("started", message.lower())
+
+        registry = TaskRegistry()
+        task = registry.get_task(task_id)
+        self.assertIsNotNone(task)
+        self.assertEqual(task.task_type, "mission")
+
 
 class TestIntegrationScenarios(unittest.TestCase):
     """Integration tests for complete workflow scenarios"""
@@ -853,39 +949,38 @@ class TestIntegrationScenarios(unittest.TestCase):
         3. Conversation A ends
         4. Start conversation B
         5. Task completes
-        6. Verify notification is DEFER or NEXT_RESPONSE based on relevance
+        6. User is still chatting in B → NEXT_RESPONSE (main speaks)
         """
         # Step 1: Start conversation A
         state_manager = ConversationStateManager()
         state_manager.conversation_started("conv_A", "Conversation A")
         state_manager.is_conversation_active = True
-        state_manager.current_mode = "continuous"  # Set active mode
-        
+        state_manager.current_mode = "continuous"
+
         # Step 2: Dispatch background task
         task_id, _ = dispatch_background_task(
             "research",
             topic="Climate Change"
         )
-        
+
         # Step 3: Conversation A ends
         state_manager.is_conversation_active = False
-        
+
         # Step 4: Start conversation B
         state_manager.conversation_started("conv_B", "Conversation B")
         state_manager.is_conversation_active = True
-        state_manager.current_mode = "continuous"  # Keep active mode
-        
+        state_manager.current_mode = "continuous"
+
         # Step 5: Simulate task completion
         registry = TaskRegistry()
         task = registry.get_task(task_id)
         registry.update_task(task_id, TaskStatus.COMPLETED, result="Done")
-        
-        # Step 6: Verify decision
+
+        # Step 6: Verify decision — present user gets a spoken update
         engine = NotificationDecisionEngine()
         strategy = engine.decide_notification_strategy(task)
-        
-        # Should be DEFER since conversations are different and no special relevance
-        self.assertEqual(strategy.delivery_method, DeliveryMethod.DEFER)
+
+        self.assertEqual(strategy.delivery_method, DeliveryMethod.NEXT_RESPONSE)
 
 
 class TestConcurrency(unittest.TestCase):

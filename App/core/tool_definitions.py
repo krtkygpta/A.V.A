@@ -12,17 +12,22 @@ tools = [
         "type": "function",
         "function": {
             "name": "send_notification",
-            "description": "Send a desktop notification after a task completes or when attention is not immediately required",
+            "description": (
+                "Show a desktop toast + short chime. Use when a background task "
+                "finishes (research, delegate, mission, demo) or for non-urgent "
+                "updates. On [BACKGROUND TASK DONE], call this with a clear title "
+                "and one-line summary BEFORE speaking the update. Does not block."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "Title of the notification",
+                        "description": "Title of the notification (e.g. 'Task done' or task name)",
                     },
                     "message": {
                         "type": "string",
-                        "description": "Body message of the notification",
+                        "description": "Short body: what finished and key outcome (one line)",
                     },
                 },
                 "required": ["title", "message"],
@@ -32,14 +37,60 @@ tools = [
     {
         "type": "function",
         "function": {
+            "name": "make_phone_call",
+            "description": "Place an outbound phone call on the user's behalf and speak a short message. Requires configured Twilio-compatible credentials.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone_number": {
+                        "type": "string",
+                        "description": "Destination phone number in E.164 format, for example +15551234567.",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Short message to speak on the call.",
+                    },
+                    "voice": {
+                        "type": "string",
+                        "description": "Provider voice name. Defaults to alice.",
+                    },
+                },
+                "required": ["phone_number", "message"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "ping",
-            "description": "Ping the user",
+            "description": (
+                "Audible beep to grab attention. Non-blocking. "
+                "continuous=true: keep ringing until the user responds (real alarms). "
+                "continuous=false: ring only for duration_seconds (short cue). "
+                "For casual reminders prefer send_notification only — do not continuous-ring. "
+                "User silences by speaking or any key."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "duration_seconds": {
                         "type": "integer",
-                        "description": "How long to ring (in seconds)",
+                        "description": (
+                            "One-shot ring length in seconds (1–120) when continuous is false. "
+                            "2–4 = short; 8–15 = stronger burst. Ignored if continuous=true."
+                        ),
+                    },
+                    "continuous": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, keep ringing until the user responds (or max ~3 min). "
+                            "Use only for serious alarms (school, wake-up, critical). "
+                            "Default false."
+                        ),
+                    },
+                    "max_seconds": {
+                        "type": "integer",
+                        "description": "Cap for continuous mode (default 180).",
                     },
                 },
                 "required": ["duration_seconds"],
@@ -163,7 +214,13 @@ tools = [
                     },
                     "location": {
                         "type": "string",
-                        "description": "Directory path where the file should be saved",
+                        "description": (
+                            "Directory to save into. Use friendly names that resolve to the "
+                            "real user folders: 'desktop', 'documents', 'downloads', 'home', "
+                            "or a full path / %USERPROFILE%\\Desktop. "
+                            "Do NOT use a relative word like desktop if you mean the Windows Desktop — "
+                            "the alias 'desktop' maps to the real Desktop."
+                        ),
                     },
                 },
                 "required": ["text", "filename", "location"],
@@ -188,7 +245,11 @@ tools = [
                     },
                     "location": {
                         "type": "string",
-                        "description": "Directory path where the file should be saved",
+                        "description": (
+                            "Directory to save into. Prefer 'desktop' or 'documents' "
+                            "(resolved to the real user Desktop/Documents on Windows), "
+                            "or an absolute path. Bare 'desktop' is NOT a folder in the app cwd."
+                        ),
                     },
                     "extension": {
                         "type": "string",
@@ -337,21 +398,57 @@ tools = [
             "name": "background_task",
             "description": (
                 "Dispatch a long-running task to run in the background. "
-                "Use this for tasks that take time like research, web scraping, or timers. "
+                "Use this for tasks that take time like research, web scraping, timers, "
+                "smart home work, open-ended delegated AI work, or a timed demo job for testing. "
                 "The task will run while you continue chatting with the user. "
-                "You will be notified when the task completes."
+                "You will be notified when the task completes. "
+                "For consecutive work (e.g. timer THEN research), set follow_up to the next "
+                "task JSON — it auto-starts when this job completes, even after a new conversation. "
+                "For coding/apps use task_type opencode (installed OpenCode CLI, its default model). "
+                "ALWAYS pass objective (the coding instruction). "
+                "To continue a prior run also pass session_id — title alone is NOT enough."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "task_type": {
                         "type": "string",
-                        "description": "Type of background task to run.",
-                        "enum": ["research", "scrape", "timer", "smarthome"],
+                        "description": (
+                            "Type of background task. "
+                            "'opencode' / 'coding' = OpenCode CLI coding agent (default model). "
+                            "'demo' is a deterministic timed job (no LLM) for testing "
+                            "inbox, notifications, and clarifications."
+                        ),
+                        "enum": [
+                            "research",
+                            "scrape",
+                            "timer",
+                            "smarthome",
+                            "delegate",
+                            "mission",
+                            "demo",
+                            "opencode",
+                            "coding",
+                        ],
                     },
                     "topic": {
                         "type": "string",
-                        "description": "For research tasks: the topic to research.",
+                        "description": "For research or demo: topic / label of the work.",
+                    },
+                    "level": {
+                        "type": "integer",
+                        "description": (
+                            "For research only: depth 1–5. "
+                            "1 = quick fact check (fast, few sources); "
+                            "2 = light multi-source; "
+                            "3 = standard (default) with page deep-dives; "
+                            "4 = deep multi-angle + PDFs + Instagram for people; "
+                            "5 = exhaustive under the 100K token budget + Instagram for people. "
+                            "Pick from user intent: casual 'look up X' → 1–2; "
+                            "'research X' → 3; 'deep dive' / full life profile / person OSINT → 4–5."
+                        ),
+                        "minimum": 1,
+                        "maximum": 5,
                     },
                     "url": {
                         "type": "string",
@@ -359,15 +456,166 @@ tools = [
                     },
                     "duration": {
                         "type": "integer",
-                        "description": "For timer tasks: duration in seconds.",
+                        "description": (
+                            "For timer or demo: duration in seconds. "
+                            "Demo default 20 (min 2, max 600). Timer is the countdown."
+                        ),
                     },
                     "message": {
                         "type": "string",
-                        "description": "For timer tasks: message to show when timer completes.",
+                        "description": (
+                            "For timer: short spoken/toast text when it fires "
+                            "(NOT a substitute for starting the next job). "
+                            "For demo: optional label."
+                        ),
+                    },
+                    "follow_up": {
+                        "type": "string",
+                        "description": (
+                            "Optional JSON for what happens when THIS job completes. "
+                            "Works across /new. Two styles:\n"
+                            "1) SMALL next step (WhatsApp, notify, one tool) — use MAIN agent, no worker:\n"
+                            '   {"task_type":"main_action","objective":"WhatsApp Mein Hi Hoon the current time"}\n'
+                            "2) HEAVY next job (research, another timer, long work) — background:\n"
+                            '   {"task_type":"research","topic":"keyboards","level":3}\n'
+                            "Do NOT use delegate for a single WhatsApp/notify. "
+                            "Do NOT put the next step only in the timer message string."
+                        ),
+                    },
+                    "alert_mode": {
+                        "type": "string",
+                        "description": (
+                            "Auto-alert when THIS job finishes. Default silent = no system beep/toast; "
+                            "on DONE you decide whether to call ping or send_notification. "
+                            "'silent' = nothing automatic (preferred for timer→WhatsApp/tools). "
+                            "'notify' = desktop toast only (no beep). "
+                            "'short' = brief auto-ping. "
+                            "'continuous' = keep ringing until response — real alarms only."
+                        ),
+                        "enum": ["silent", "notify", "short", "continuous"],
                     },
                     "command": {
                         "type": "string",
                         "description": "For smarthome tasks: the natural language instruction to execute.",
+                    },
+                    "objective": {
+                        "type": "string",
+                        "description": (
+                            "REQUIRED for opencode/coding (and for delegate/mission): the actual work. "
+                            "OpenCode examples: 'Rewrite test.py to print Hello World only' or "
+                            "'Add a countdown timer to Desktop/test.py'. "
+                            "When continuing a session you MUST still pass objective with the new change — "
+                            "session_id alone or title alone will not run."
+                        ),
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Alias for objective when task_type is opencode.",
+                    },
+                    "directory": {
+                        "type": "string",
+                        "description": (
+                            "For opencode: working directory. Prefer 'desktop/project-name', "
+                            "'documents/...', or an absolute path. Bare names become "
+                            "Desktop/AVA_OpenCode/<name>. Empty = new folder under "
+                            "Desktop/AVA_OpenCode. Do NOT use the AVA repo path unless asked."
+                        ),
+                    },
+                    "session_id": {
+                        "type": "string",
+                        "description": (
+                            "For opencode: existing OpenCode session token (ses_...) to continue. "
+                            "Always pair with a non-empty objective. "
+                            "From HELD DOSSIERS / manage_background_tasks opencode_list."
+                        ),
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": (
+                            "For opencode: short label only (UI/session list). "
+                            "Not a substitute for objective."
+                        ),
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": (
+                            "For opencode: optional longer label. Prefer objective for the real instruction."
+                        ),
+                    },
+                    "permissions": {
+                        "type": "string",
+                        "description": (
+                            "For opencode: tool permissions. "
+                            "'auto' (default) = approve tools (--auto); "
+                            "'deny' = safe mode, reject risky tools; "
+                            "'ask' = main agent decides yes/no before granting auto."
+                        ),
+                        "enum": ["auto", "deny", "ask"],
+                    },
+                    "continue_session": {
+                        "type": "boolean",
+                        "description": "For opencode: continue the last OpenCode session if session_id omitted.",
+                    },
+                    "mission": {
+                        "type": "string",
+                        "description": "For mission tasks: a broad goal that should be split across multiple background workers.",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "For delegate, mission, or opencode: useful context, constraints, or source material.",
+                    },
+                    "expected_output": {
+                        "type": "string",
+                        "description": "For delegate tasks: what the worker should return when done.",
+                    },
+                    "max_workers": {
+                        "type": "integer",
+                        "description": "For mission tasks: maximum parallel worker agents to launch, from 1 to 5.",
+                    },
+                    "ask": {
+                        "type": "boolean",
+                        "description": (
+                            "For demo: if true, pause mid-run and ask main/user a clarification "
+                            "question (tests the needs_input bridge)."
+                        ),
+                    },
+                    "question": {
+                        "type": "string",
+                        "description": "For demo with ask=true: custom clarification question.",
+                    },
+                    "require_user": {
+                        "type": "boolean",
+                        "description": (
+                            "For demo with ask=true: if true (default), main must ask the user "
+                            "rather than self-answering."
+                        ),
+                    },
+                    "kind": {
+                        "type": "string",
+                        "description": (
+                            "Optional override for completion behavior only (jobs always outlive chats). "
+                            "'long' = sticky unread inbox until result/dismiss. "
+                            "'short' = one-shot notify, never re-nag on new conversations. "
+                            "Defaults: research/mission/delegate/demo=long; timer/scrape/smarthome=short. "
+                            "Timers are always treated as short for inbox (they still survive conversations while counting)."
+                        ),
+                        "enum": ["short", "long"],
+                    },
+                    "difficulty": {
+                        "type": "string",
+                        "description": (
+                            "Optional work difficulty. 'hard' may bump the model tier "
+                            "(e.g. small→main). Defaults to normal."
+                        ),
+                        "enum": ["easy", "normal", "hard"],
+                    },
+                    "model_tier": {
+                        "type": "string",
+                        "description": (
+                            "Optional model tier for LLM workers: none|nano|small|main|heavy. "
+                            "Timers/demo use none. Delegate defaults small; research heavy."
+                        ),
+                        "enum": ["none", "nano", "small", "main", "heavy"],
                     },
                 },
                 "required": ["task_type"],
@@ -379,6 +627,68 @@ tools = [
         "function": {
             "name": "get_background_tasks_status",
             "description": "Get the status of all currently running background tasks.",
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_background_tasks",
+            "description": (
+                "List, inspect, retrieve results from, cancel, dismiss, or answer "
+                "background tasks. List separates CURRENT vs OLD/HANDLED. "
+                "'result' returns the job output plus held dossier (paths/continue hints) "
+                "and marks a long job's inbox item acknowledged; "
+                "'context' / 'dossier' returns full origin conversation pack + artifacts + "
+                "how to continue (use when user says run the program / open that / continue) — "
+                "omit task_id to list recent held dossiers; "
+                "'dismiss' fully clears a finished job (timers AND inbox) so you never "
+                "re-mention it — pass the task id, or 'short'/'all' to clear finished noise; "
+                "'answer' resumes a needs_input job (prefer silent to user if you self-answer)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "Task management action.",
+                        "enum": [
+                            "list",
+                            "status",
+                            "result",
+                            "context",
+                            "dossier",
+                            "cancel",
+                            "dismiss",
+                            "answer",
+                            "opencode_list",
+                            "opencode_sessions",
+                        ],
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": (
+                            "Task ID for status/result/context/cancel/dismiss/answer. "
+                            "For context without id: lists recent held dossiers. "
+                            "For opencode_list: optional search text to match session descriptions. "
+                            "For dismiss only: also 'short', 'all', or 'handled' to bulk-clear finished noise."
+                        ),
+                    },
+                    "request_id": {
+                        "type": "string",
+                        "description": "Clarification request id (preferred for action answer). From [TASK NEEDS INPUT].",
+                    },
+                    "answer": {
+                        "type": "string",
+                        "description": "For action answer: the short reply text to deliver to the waiting sub-agent.",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "For action answer: 'main' if you answered from memory/tools, 'user' if the user provided it.",
+                        "enum": ["main", "user"],
+                    },
+                },
+                "required": ["action"],
+            },
         },
     },
     {

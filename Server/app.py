@@ -66,11 +66,23 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "research",
-            "description": "Deep research agent for comprehensive answers",
+            "description": (
+                "Multi-level research agent (1=quick fact check … 5=exhaustive). "
+                "Uses web search, page extraction, and text PDF reading under a 100K token budget."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "question": {"type": "string", "description": "Research question"}
+                    "question": {
+                        "type": "string",
+                        "description": "Research question",
+                    },
+                    "level": {
+                        "type": "integer",
+                        "description": "Research depth 1–5 (default 3)",
+                        "minimum": 1,
+                        "maximum": 5,
+                    },
                 },
                 "required": ["question"],
             },
@@ -111,6 +123,9 @@ class AvaServer:
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
             model_name=settings.model_name,
+            api_keys=list(settings.openai_api_keys)
+            if getattr(settings, "openai_api_keys", None)
+            else None,
         )
         self.tts = TTSService(
             voice=settings.tts_voice,
@@ -123,6 +138,9 @@ class AvaServer:
             groq_api_key=settings.groq_api_key,
             google_ai_api_key=settings.google_ai_api_key,
             tavily_api_key=settings.tavily_api_key,
+            openai_api_key=settings.openai_api_key,
+            openai_base_url=settings.openai_base_url,
+            model_name=settings.model_name,
         )
 
         # Route table is intentionally explicit so adding endpoints is easy.
@@ -168,8 +186,13 @@ class AvaServer:
 
     # Endpoints -----------------------------------------------------------------
     def memories(self, _: dict[str, Any]) -> Response:
-        with open(Path("./Server/data/memories/memories.txt"), "r") as k:
-            return Response.json({"memories": k.read()})
+        """Return dreamer long-term store for system-prompt injection."""
+        mem_dir = ROOT_DIR / "Server" / "data" / "memories"
+        mem_path = mem_dir / "memories.txt"
+        beh_path = mem_dir / "behaviours.txt"
+        memories = mem_path.read_text(encoding="utf-8") if mem_path.exists() else ""
+        behaviours = beh_path.read_text(encoding="utf-8") if beh_path.exists() else ""
+        return Response.json({"memories": memories, "behaviours": behaviours})
 
     def health(self, _: dict[str, Any]) -> Response:
         return Response.json({"status": "ok"})
@@ -177,9 +200,19 @@ class AvaServer:
     def generate(self, payload: dict[str, Any]) -> Response:
         messages = payload.get("messages", [])
         tools = payload.get("tools", [])
-        context = self.conversations.recent_hour_context()
+        # Workers set include_server_context=false to skip hour-context (tokens).
+        include_ctx = payload.get("include_server_context", True)
+        if isinstance(include_ctx, str):
+            include_ctx = include_ctx.strip().lower() not in ("0", "false", "no", "off")
+        context = self.conversations.recent_hour_context() if include_ctx else ""
+        model = payload.get("model")
+        model_tier = payload.get("model_tier")
         result = self.llm.generate(
-            messages=messages, tools=tools, context_message=context
+            messages=messages,
+            tools=tools,
+            context_message=context,
+            model=model,
+            model_tier=model_tier,
         )
         return Response.json(result)
 
@@ -285,11 +318,16 @@ class AvaServer:
         return Response.json(result)
 
     def tools_research(self, payload: dict[str, Any]) -> Response:
-        """Deep research agent."""
+        """Multi-level research agent (levels 1–5)."""
         question = str(payload.get("question", "")).strip()
         if not question:
             return Response.json({"error": "Missing 'question'."}, status=400)
-        result = self.tools.research(question=question)
+        try:
+            level = int(payload.get("level", 3))
+        except (TypeError, ValueError):
+            level = 3
+        level = max(1, min(5, level))
+        result = self.tools.research(question=question, level=level)
         return Response.json(result)
 
 

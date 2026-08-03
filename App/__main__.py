@@ -155,12 +155,22 @@ def speak(text):
     Sets stop_event to interrupt any currently playing audio first.
     """
     stop_event.set()
+    # Let the previous player observe stop before we clear the event.
+    try:
+        tts_piper.wait_until_done(timeout=1.5)
+    except Exception:
+        pass
     _print_assistant_block(f"{ASSISTANT_NAME.upper()}: " + text)
     stop_event.clear()
 
     if "text" not in START_MODE:
+        # Mark speech busy *before* the worker starts so announce queue waits
+        # cannot race and start the next turn mid-utterance.
+        gen = tts_piper.note_speech_started()
         speak_thread = threading.Thread(
-            target=tts_piper.speak, args=(text, stop_event), daemon=True
+            target=tts_piper.speak,
+            args=(text, stop_event, gen),
+            daemon=True,
         )
         speak_thread.start()
 
@@ -546,6 +556,16 @@ def start():
     """
 
     main_runner.clear()
+
+    # Always-on services (HealthMonitor, CallManager, …)
+    try:
+        from core.services import start_ava_services
+
+        started = start_ava_services()
+        if started:
+            print(f"[{ASSISTANT_NAME.upper()}] Services started: {', '.join(started)}")
+    except Exception as e:
+        print(f"[Services] Startup failed: {e}")
 
     if "tui" in START_MODE:
         # TUI mode handles its own main loop — don't start the classic one

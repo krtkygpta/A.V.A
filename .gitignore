@@ -1,35 +1,93 @@
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+*.pyo
 
-# Environments
-.env
-.env.*
-.venv
-env/
+# --- Virtual environments ---
+.venv/
 venv/
 ENV/
-**settings**
+env/
+.env
+.env.*
+!.env.example
 
-# VS Code
-.vscode/
+# --- Secrets & local config (API keys, tokens) ---
+settings.json
+**/settings.json
+*secret*
+*secrets*
+*token*.json
+**/bash_permissions*
+**/bash_permissions.json
 
-# Project Specific
-**/piper/
-**/Speech.wav
-**/temp_input_*.txt
-# Data folder internals
+# --- Runtime / user data (conversations, memories, recordings, tasks, OAuth) ---
 **/data/*
 !**/data/.gitkeep
 
-# Piper
+# --- Models & large binaries ---
+**/piper/
 **/piper.zip
-**/**.onnx
-**/**.onnx.json
+*.onnx
+*.onnx.json
+*.whl
 
-**/.claude**
-**/android**
+# --- Audio temp / speech capture ---
+**/Speech.wav
+**/temp_input_*.txt
+*.wav
+!assets/chime.wav
 
-**/plugins**
-**/node_module**
+# --- Local tooling / agent state ---
+.claude/
+.agents/
+.android/
+android/
+plan.md
+
+# --- User plugins (local installs) ---
+**/plugins/
+**/plugins/**
+
+# --- Node (if any plugin tooling) ---
+node_modules/
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# --- Logs & temp ---
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+.cache/
+
+# --- Accidental path captures ---
+~/

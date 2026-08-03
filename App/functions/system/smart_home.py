@@ -12,7 +12,7 @@ asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 main_dict = {"Lights": "d8a0118d79e9", "Lamp": "d8a011fe9baf"}
 
 
-bulbs_ip_dict = {"Lights": "192.168.1.101", "Lamp": "192.168.1.100"}
+bulbs_ip_dict = {"Lights": "192.168.100.101", "Lamp": "192.168.100.100"}
 
 # Persistent event loop — shared across all async light operations
 _loop = None

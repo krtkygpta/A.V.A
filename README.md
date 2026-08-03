@@ -1,397 +1,437 @@
-# A.V.A: Always Voiced Ally
+# A.V.A — Always Voiced Ally
 
-A hyper-responsive, modular neural assistant that bridges human intuition and machine precision through a sophisticated client-server architecture.
-
-![Status](https://img.shields.io/badge/STATUS-OPERATIONAL-00FF85?style=for-the-badge)
-![Version](https://img.shields.io/badge/VERSION-2.4.0-7000FF?style=for-the-badge)
-
----
-
-## Overview
-
-A.V.A is a personal AI assistant designed to run locally with intelligent offloading to backend services. It features a modern terminal user interface, voice interaction capabilities, semantic memory, and extensible tool integrations.
-
-### Key Features
-
-- **Multi-Mode Voice Interaction** — Continuous listening, wake-word activation, or keyboard input
-- **Semantic Memory** — Learns and remembers user preferences over time
-- **Neural TTS** — Fast local text-to-speech using Piper
-- **Hybrid STT** — Combines local Vosk wake-word detection with Groq Whisper for accurate transcription
-- **Tool Orchestration** — Executes system commands, web searches, code, and more
-- **Smart Home Integration** — Controls WiZ smart lights natively
-- **Document Generation** — Creates PDFs and manages workspace files
-
----
-
-## Architecture
+Personal AI assistant that runs on your machine: chat in a terminal UI, speak with voice, run tools (web, research, files, smart home, coding jobs), and remember things across sessions.
 
 ```
-CLIENT (App)                          SERVER (Backend)
-┌──────────────────────┐             ┌──────────────────────┐
-│  TUI (Textual)        │             │  LLM Service         │
-│  Voice Modes          │◄──HTTP────►│  TTS Engine          │
-│  Memory Manager       │             │  Tool Service         │
-│  Function Handler     │             │  Conversation Store   │
-│   └─ Local Tools      │             │   └─ Server Tools     │
-└──────────────────────┘             └──────────────────────┘
-```
-
-### Directory Structure
-
-```
-A.V.A/
-├── App/                     # Client application
-│   ├── __main__.py          # Entry point
-│   ├── core/                 # Core functionality
-│   │   ├── generate.py       # Response generation
-│   │   ├── messageHandler.py # Message management
-│   │   ├── FuncHandler.py    # Tool execution
-│   │   └── server_api.py     # HTTP client for server
-│   ├── functions/            # Tool implementations
-│   │   ├── plugins/          # Custom tools (auto-discovered)
-│   │   ├── system/           # System control tools
-│   │   ├── web/              # Web/search tools
-│   │   ├── media/            # Media control tools
-│   │   └── productivity/     # Productivity tools
-│   ├── knowledge/            # Memory system
-│   │   └── memory.py         # Semantic memory manager
-│   └── ui/
-│       └── tui.py            # Terminal UI (Textual)
-├── Server/                   # Backend server
-│   ├── __main__.py           # Server entry point
-│   ├── app.py                # HTTP API server
-│   ├── config.py             # Server configuration
-│   └── services/             # Backend services
-│       ├── llm_service.py     # LLM integration
-│       ├── tts_service.py     # Text-to-speech
-│       ├── tool_service.py    # Tool orchestration
-│       └── conversation_store.py
-├── docs/                     # Documentation
-└── requirements.txt         # Python dependencies
+You (TUI / mic)  ──HTTP──►  Server (LLM + TTS + research)
+       │                         │
+   local tools              API keys / models
 ```
 
 ---
 
-## Getting Started
+## Quick start (minimum path)
 
-### Prerequisites
-
-- Python 3.10+
-- [Piper TTS](https://github.com/rhasspy/piper) (for text-to-speech)
-- API keys (see Configuration below)
-
-### Installation
+You need **two terminals**. One for the server, one for the client.
 
 ```bash
-# Clone or navigate to the project
+# 1) Setup (once)
 cd A.V.A
+python -m venv .venv
 
-# Install Python dependencies
+# Windows
+.venv\Scripts\activate
+# macOS / Linux
+# source .venv/bin/activate
+
 pip install -r requirements.txt
 
-# Install Playwright (for web browsing)
-playwright install
-```
+# 2) Create settings (see "Configuration" below), then:
 
-### Configuration
-
-Configure your settings in two locations:
-
-**Root `settings.json`:**
-
-```json
-{
-  "GROQ_API_KEY": "your_groq_api_key",
-  "USER_NAME": "YourName",
-  "ASSISTANT_NAME": "AVA",
-  "AVA_SERVER_URL": "http://127.0.0.1:8765"
-}
-```
-
-**Server `Server/settings.json`:**
-
-```json
-{
-  "openai_api_key": "your_api_key",
-  "openai_base_url": "https://api.groq.com/openai/v1",
-  "model_name": "kimi-k2-instruct",
-  "tts_voice": "en_US-lessac-medium",
-  "tts_host": "localhost",
-  "tts_port": 10200,
-  "groq_api_key": "your_groq_key",
-  "google_ai_api_key": "your_google_key",
-  "tavily_api_key": "your_tavily_key"
-}
-```
-
-### Running the Application
-
-**1. Start the Server (Backend):**
-
-```bash
+# Terminal A — backend
 python -m Server
-```
 
-You should see:
-
-```
-[AVA-SERVER] Listening on http://127.0.0.1:8765
-```
-
-**2. Start the Client (in a separate terminal):**
-
-```bash
+# Terminal B — client (default: TUI text mode)
+python -m App
+# or:
 python App/__main__.py
 ```
 
----
-
-## Operational Modes
-
-| Mode | Command | Description |
-|------|---------|-------------|
-| **TUI** | Default | Full terminal interface with live logs |
-| **Continuous** | `--mode continuous` | Background listening with auto transcription |
-| **Wake Word** | `--mode wakeword` | Power-efficient monitoring for "Hey AVA" |
-| **Text** | `--mode text` | Direct keyboard input (no audio) |
-
-### System Controls (in TUI)
-
-- `Ctrl+C` — Emergency shutdown
-- `Ctrl+I` — Open settings
-- `Ctrl+Q` — Quit application
+Type something like `What time is it?` in the TUI. If the server is up and API keys are set, AVA should answer.
 
 ---
 
-## Available Tools
+## What you need
 
-### System Tools
+### Software
 
-| Tool | Function |
-|------|----------|
-| `get_time_date` | Get current time and date |
-| `shutdown_pc` | Shut down the computer |
-| `ping` | Set a timer/reminder |
-| `send_notification` | Send system notification |
-| `bash` | Execute bash commands |
-| `smart_home` | Control WiZ smart lights |
+| Requirement | Notes |
+|-------------|--------|
+| **Python 3.10+** | Check with `python --version` |
+| **pip** + **venv** | Recommended so deps stay isolated |
+| **Microphone + speakers** | Only if you want voice; **text mode works without a mic** |
+| **Git** (optional) | To clone the repo |
 
-### Web Tools
+### API keys (accounts)
 
-| Tool | Function |
-|------|----------|
-| `web` | Search the web and fetch content |
-| `research` | Deep research on complex topics |
+| Key | Where | Used for |
+|-----|--------|----------|
+| **OPENAI_API_KEY** (or pool) | `Server/settings.json` | Main chat LLM (any OpenAI-compatible API) |
+| **GROQ_API_KEY** | Client + Server settings | Fast STT (Whisper) and some client features |
+| **TAVILY_API_KEY** | Client + Server (optional) | Deep research / web research tools |
+| **GOOGLE_AI_API_KEY** | Server (optional) | Google AI grounded search |
+| **WEATHER_API_KEY** | Client (optional) | Weather tool |
 
-### Productivity Tools
+Get keys from the providers you use (e.g. [Groq](https://console.groq.com/), [Tavily](https://tavily.com/), Google AI Studio, or your OpenAI-compatible host such as Ollama Cloud).
 
-| Tool | Function |
-|------|----------|
-| `calendar` | Manage calendar events |
-| `create_pdf` | Generate PDF documents |
-| `create_file` | Create text files |
-| `open_file` | Open and read files |
-| `delete_file` | Delete files |
+### Models & local assets (voice)
 
-### AI Tools
+| Asset | Purpose | How to get it |
+|-------|---------|----------------|
+| **Piper voice** (`.onnx`) | Text-to-speech | Already in `assets/en_US-hfc_female-medium.onnx` if present; server can also try to download a voice on first run |
+| **Vosk model** | Live partial captions + wake word | Unpack a small English model into `App/data/vosk-model/` (see below) |
+| **piper-tts** package | Runs Piper HTTP server from Python | `pip install piper-tts` |
 
-| Tool | Function |
-|------|----------|
-| `code_executor` | Run Python code safely in sandbox |
-| `image_description_tool` | Analyze images |
-| `memory_manager` | Save/retrieve semantic memories |
-| `conversation_history` | Search past conversations |
+**Text-only use:** you can skip Vosk and still chat in TUI **text** mode. TTS still needs Piper + the voice model if you want spoken replies.
+
+### Optional extras
+
+| Extra | Why |
+|-------|-----|
+| [OpenCode](https://opencode.ai) CLI | Background coding agent (`task_type=opencode`) |
+| Google Calendar OAuth files | Calendar tool (`App/data/calendar_client_secrets.json`) |
+| Twilio env vars | Outbound phone calls |
+| Smart home credentials | LG ThinQ / WiZ (in client settings) |
 
 ---
 
-## Plugin System
+## Installation (step by step)
 
-A.V.A supports a plugin-based tool system for extending functionality. Plugins are auto-discovered from `App/functions/plugins/` on startup.
+### 1. Get the code
 
-### Adding Custom Tools
-
-Create a new `.py` file in `App/functions/plugins/`:
-
-```C:\Data\Codes\A.V.A\App\functions\plugins\my_tools.py#L1-20
-from core.tool_registry import tool
-
-@tool(
-    name="my_tool",
-    description="Does something useful",
-    params={
-        "input": {"type": "string", "description": "What to process"}
-    },
-    required=["input"]
-)
-def my_tool(input: str) -> str:
-    return f"Processed: {input}"
+```bash
+cd A.V.A
 ```
 
-That's it — tools auto-load on startup. No configuration needed.
+### 2. Create a virtual environment
 
-See [`docs/PLUGINS.md`](docs/PLUGINS.md) for full documentation.
-
----
-
-## API Reference
-
-The server exposes the following endpoints:
-
-### Generation
-
-```
-POST /generate
+```bash
+python -m venv .venv
 ```
 
-Generate a response from the LLM.
+**Windows (PowerShell / cmd):**
 
-**Request Body:**
+```bash
+.venv\Scripts\activate
+```
+
+**macOS / Linux:**
+
+```bash
+source .venv/bin/activate
+```
+
+### 3. Install Python packages
+
+```bash
+pip install -r requirements.txt
+```
+
+This installs the core stack plus **`python-dotenv`** (server config) and **`piper-tts`** (speech via `python -m piper.http_server`).
+
+### 4. (Voice) Install a Vosk model
+
+Only needed for **continuous** / **wakeword** modes (and live partial transcripts).
+
+1. Download a small English model, e.g.  
+   [vosk-model-small-en-us-0.15](https://alphacephei.com/vosk/models)
+2. Unzip it so the model files live at:
+
+```text
+App/data/vosk-model/
+  am/
+  conf/
+  graph/
+  ...
+```
+
+(not `App/data/vosk-model/vosk-model-small-.../`)
+
+### 5. (Voice) Confirm Piper voice
+
+Default server setting points at:
+
+```text
+./assets/en_US-hfc_female-medium
+```
+
+That means files like:
+
+```text
+assets/en_US-hfc_female-medium.onnx
+assets/en_US-hfc_female-medium.onnx.json
+```
+
+If missing, either place a Piper voice there or change `tts_voice` in `Server/settings.json`. On first start the server may attempt `python -m piper.download_voices <name>`.
+
+### 6. Create config files
+
+Settings files are **gitignored** (they hold secrets). Create them yourself.
+
+#### A) Client — `App/settings.json`
+
+Also create the same content as root **`settings.json`** if you can: some startup paths load the project root file, while most App code loads `App/settings.json`. Keeping both identical avoids “works in TUI settings but not at launch” confusion.
 
 ```json
 {
-  "messages": [{"role": "user", "content": "Hello"}],
-  "tools": [{"type": "function", "function": {...}}]
+  "USER_NAME": "YourName",
+  "ASSISTANT_NAME": "AVA",
+  "AVA_SERVER_URL": "http://127.0.0.1:8765",
+  "AVA_START_MODE": "tui_text",
+  "GROQ_API_KEY": "gsk_your_groq_key",
+  "TAVILY_API_KEY": "tvly_your_tavily_key",
+  "WEATHER_API_KEY": "",
+  "THEME": "monokai"
 }
 ```
 
-**Response:**
+| Key | Required? | Meaning |
+|-----|-----------|---------|
+| `GROQ_API_KEY` | Strongly recommended | Speech / Whisper and some tools |
+| `AVA_SERVER_URL` | Yes for normal use | Must match the running server |
+| `AVA_START_MODE` | No | Startup mode (see below) |
+| `USER_NAME` / `ASSISTANT_NAME` | No | Names used in prompts |
+| `TAVILY_API_KEY` | No | Research quality |
+| `THEME` | No | TUI theme name |
+
+#### B) Server — `Server/settings.json`
 
 ```json
 {
-  "role": "assistant",
-  "content": "Hello! How can I help you?",
-  "tool_calls": []
+  "OPENAI_API_KEY": "your_llm_api_key",
+  "OPENAI_API_KEYS": [
+    "your_llm_api_key"
+  ],
+  "OPENAI_BASE_URL": "https://api.groq.com/openai/v1",
+  "MODEL_NAME": "llama-3.3-70b-versatile",
+  "AVA_SERVER_HOST": "127.0.0.1",
+  "AVA_SERVER_PORT": 8765,
+  "AVA_LOCAL_PIPER_HOST": "127.0.0.1",
+  "AVA_LOCAL_PIPER_PORT": 5000,
+  "AVA_LOCAL_PIPER_TIMEOUT": 60,
+  "GROQ_API_KEY": "gsk_your_groq_key",
+  "GOOGLE_AI_API_KEY": "",
+  "TAVILY_API_KEY": "tvly_your_tavily_key",
+  "tts_voice": "./assets/en_US-hfc_female-medium"
 }
 ```
 
-### Text-to-Speech
+| Key | Required? | Meaning |
+|-----|-----------|---------|
+| `OPENAI_API_KEY` or `OPENAI_API_KEYS` | **Yes** | Main model; pool supports rotation / 429 retry |
+| `OPENAI_BASE_URL` | Yes | OpenAI-compatible base URL (Groq, Ollama, etc.) |
+| `MODEL_NAME` | Yes | Model id your provider accepts |
+| `GROQ_API_KEY` | Recommended | Server-side tools that call Groq |
+| `tts_voice` | For speech | Path (no `.onnx` suffix required) under project root |
+| `AVA_SERVER_PORT` | No | Default `8765` |
 
-```
-POST /tts
-```
+Use any OpenAI-compatible host. Examples:
 
-Synthesize text to speech.
-
-**Request Body:**
-
-```json
-{
-  "text": "Hello, how are you today?"
-}
-```
-
-**Response:** Audio file (audio/wav)
-
-### Conversation Management
-
-| Endpoint | Description |
-|----------|-------------|
-| `POST /conversation/start` | Start new conversation |
-| `POST /conversation/message` | Add a message |
-| `POST /conversation/save` | Save current conversation |
-| `POST /conversation/list` | List recent conversations |
-
-### Tools
-
-| Endpoint | Description |
-|----------|-------------|
-| `POST /tools/google_ai` | Google AI search |
-| `POST /tools/image_analysis` | Analyze images |
-| `POST /tools/code_execute` | Execute Python code |
-| `POST /tools/research` | Deep research |
+- Groq: `OPENAI_BASE_URL` = `https://api.groq.com/openai/v1`
+- Ollama cloud / local OpenAI bridge: set base URL + model accordingly
 
 ---
 
-## Memory System
+## Running A.V.A
 
-A.V.A maintains a semantic memory that persists across sessions. Memories are stored as natural language sentences and retrieved contextually.
+Always start the **server first**.
 
-The LLM automatically manages memories when relevant. Examples:
+### Terminal 1 — Server
 
-- "My favorite color is blue" — stored as "Your favorite color is blue"
-- "I usually wake up at 7 AM" — stored for future reference
+```bash
+# venv activated, project root
+python -m Server
+```
 
-### Manual Memory Operations
+You want something like: listening on port **8765**, and Piper TTS starting if voice is configured.
 
-Available through the `memory_manager` tool:
+### Terminal 2 — Client
 
-- **save**: Store new information
-- **retrieve**: Find relevant memories
-- **delete**: Remove a memory
-- **categories**: View memory statistics
+```bash
+python -m App
+```
+
+Default mode is **`tui_text`**: full terminal UI, type messages with the keyboard.
+
+### Startup modes (`AVA_START_MODE`)
+
+Set in `App/settings.json` / root `settings.json`:
+
+| Value | Behavior |
+|-------|----------|
+| `tui_text` | TUI + keyboard (best first try) |
+| `tui_continuous` | TUI + always-on mic |
+| `tui_wakeword` | TUI + “Hey AVA”-style wake word (needs Vosk) |
+| `text` | Classic CLI text (no TUI) |
+| `continuous` | Classic continuous voice |
+| `vosk` | Classic wake-word voice |
+
+Inside the TUI you can also switch with:
+
+```text
+/mode text
+/mode continuous
+/mode wakeword
+```
+
+or **Ctrl+M** to cycle modes.
 
 ---
 
-## Customization
+## First things to try
 
-### Themes
+With server + client running (text mode is fine):
 
-The TUI supports custom themes. Theme configurations are defined in `App/ui/tui.py`.
+1. `Hello — who are you?`
+2. `What time is it?`
+3. `Remember that my favorite color is blue`
+4. `What's the weather like?` (needs weather key)
+5. `Search the web for recent news about Python 3.13`
+6. `Research level 2: overview of solid-state batteries` (needs Tavily / research stack)
 
-### Voice Settings
+### Useful TUI keys
 
-Configure TTS voice in `Server/settings.json`:
+| Shortcut | Action |
+|----------|--------|
+| **?** | Help |
+| **Ctrl+Q** | Quit |
+| **Ctrl+N** / `/new` | New conversation |
+| **Ctrl+I** / `/settings` | Settings |
+| **Ctrl+T** / `/theme` | Themes |
+| **Ctrl+M** | Cycle input mode |
+| **Ctrl+B** | Tasks sidebar |
+| **Ctrl+D** / `/tasks` | Task dashboard |
+| **Ctrl+H** | History sidebar |
 
-```json
-{
-  "tts_voice": "en_US-lessac-medium"
-}
-```
+Slash examples: `/help`, `/clear`, `/quiet`, `/task <id>`.
 
-Available voices depend on your Piper installation.
+---
+
+## How the pieces fit (newbie map)
+
+| Piece | Command / path | Role |
+|-------|----------------|------|
+| **Server** | `python -m Server` | LLM calls, TTS, research tools, conversation store, memory dreamer |
+| **Client** | `python -m App` | TUI, mic, local tools, talks to server over HTTP |
+| **Jobs** | background tasks | Timers, research, OpenCode, missions — show up in `/tasks` |
+| **Data** | `App/data/`, `Server/data/` | Conversations, memories, recordings, task state (**local only**, not for git) |
+| **Settings** | `*.settings.json` | Secrets + prefs (**local only**) |
+
+---
+
+## Features (high level)
+
+- **Chat** in a Textual TUI with themes and tool activity
+- **Voice** — continuous listen or wake word (Vosk + Groq Whisper)
+- **Tools** — time, notifications, bash (with permissions), files/PDFs, web, deep research, calendar, smart home, code sandbox, memory
+- **Background jobs** — long work (research, OpenCode, etc.) with inbox / dossiers / completion announces
+- **Memory** — semantic memories + server “dreamer” that digests idle conversations
+- **Plugins** — drop Python tools into `App/functions/plugins/` (see `docs/PLUGINS.md`)
+
+---
+
+## Optional: OpenCode coding agent
+
+1. Install the OpenCode CLI (`opencode` on your PATH).
+2. Ask AVA to build or edit a project; it can spawn `task_type=opencode` jobs.
+3. Continue sessions with stored `ses_...` ids from the task UI / dossiers.
+
+Without OpenCode installed, other features still work.
 
 ---
 
 ## Troubleshooting
 
-### Server won't start
+### “Connection refused” / client can’t reach server
 
-Ensure port 8765 is available:
+- Start `python -m Server` first.
+- Check `AVA_SERVER_URL` is `http://127.0.0.1:8765` (or your host/port).
+- Port busy?
 
 ```bash
 # Windows
 netstat -ano | findstr :8765
 
-# Linux/Mac
+# macOS / Linux
 lsof -i :8765
 ```
 
-### Voice recognition issues
+Change `AVA_SERVER_PORT` in `Server/settings.json` and match the client URL.
 
-- Verify microphone is properly configured
-- For wake-word mode, ensure Vosk model is downloaded
-- Check audio device settings in system
+### LLM / “no API key” errors
 
-### Memory not persisting
+- Set `OPENAI_API_KEY` or `OPENAI_API_KEYS` in **`Server/settings.json`**.
+- Confirm `OPENAI_BASE_URL` and `MODEL_NAME` match your provider.
+- Rate limits: put several keys in `OPENAI_API_KEYS` (server rotates and retries on 429).
 
-Ensure write permissions to `App/data/memories/` directory.
+### No speech output
+
+- Install `piper-tts`.
+- Confirm the `.onnx` voice exists under `assets/` (or your `tts_voice` path).
+- Watch the server log for `[ServerTTS]` / Piper startup errors.
+- Text mode still works without audio.
+
+### Mic / wake word issues
+
+- OS mic permission + default input device.
+- Vosk model must be at `App/data/vosk-model/`.
+- Fall back to `/mode text` or `AVA_START_MODE: "tui_text"`.
+
+### Import errors after install
+
+```bash
+# venv active, project root
+pip install -r requirements.txt
+```
+
+Some tools pull extra optional stacks (camera, automation). Install only what you use if a heavy import fails.
+
+### Settings not applying
+
+- Edit **`App/settings.json`** and root **`settings.json`** together for client keys.
+- Server only reads **`Server/settings.json`**.
+- Restart server and client after changes.
+
+### Privacy note
+
+Do **not** commit `settings.json`, `App/data/`, or `Server/data/`. They can contain API keys, chat logs, and recordings. `.gitignore` is set up to keep them out of git.
 
 ---
 
-## Documentation
+## Project layout (short)
 
-More detailed documentation is available in the `docs/` folder:
-
-- `docs/PLUGINS.md` — Plugin system guide (how to add custom tools)
-- `docs/getting-started.md` — Step-by-step setup guide
-- `docs/architecture.md` — System architecture and components
-- `docs/configuration.md` — All configuration options
-- `docs/api-reference.md` — HTTP API documentation
-- `docs/memory-system.md` — Memory system details
-- `docs/tools-reference.md` — Complete tool reference
-- `docs/SUMMARY.md` — Documentation index
+```text
+A.V.A/
+├── App/                 # Client (TUI, tools, STT)
+│   ├── __main__.py      # python -m App
+│   ├── settings.json    # your client secrets (create this)
+│   ├── core/            # agent loop, jobs, tools wiring
+│   ├── functions/       # tool implementations + plugins/
+│   ├── knowledge/       # conversations + memory
+│   ├── ui/tui.py        # terminal UI
+│   └── data/            # local runtime data (ignored by git)
+├── Server/              # Backend
+│   ├── __main__.py      # python -m Server
+│   ├── settings.json    # your server secrets (create this)
+│   ├── services/        # LLM, TTS, tools, key rotator
+│   └── tools/           # research, sandbox, …
+├── assets/              # chime + Piper voice models
+├── docs/                # deeper documentation
+└── requirements.txt
+```
 
 ---
 
-## License
+## More documentation
 
-This project is for personal use. See individual component licenses for third-party dependencies.
+| Doc | Topic |
+|-----|--------|
+| [`docs/getting-started.md`](docs/getting-started.md) | Longer setup notes |
+| [`docs/configuration.md`](docs/configuration.md) | Config reference |
+| [`docs/architecture.md`](docs/architecture.md) | How components connect |
+| [`docs/tools-reference.md`](docs/tools-reference.md) | Tools |
+| [`docs/memory-system.md`](docs/memory-system.md) | Memory |
+| [`docs/PLUGINS.md`](docs/PLUGINS.md) | Custom tools |
+| [`docs/api-reference.md`](docs/api-reference.md) | HTTP API |
+| [`docs/SUMMARY.md`](docs/SUMMARY.md) | Doc index |
 
 ---
 
-## Acknowledgments
+## License & credits
 
-- [Piper TTS](https://github.com/rhasspy/piper) — Neural text-to-speech
-- [Vosk](https://alphacephei.com/vosk/) — Offline speech recognition
-- [Textual](https://textual.textualize.io/) — Terminal UI framework
-- [Groq](https://groq.com/) — Fast LLM inference
+Personal / educational use of this project. Third-party packages keep their own licenses.
+
+- [Piper](https://github.com/rhasspy/piper) — TTS  
+- [Vosk](https://alphacephei.com/vosk/) — offline STT  
+- [Textual](https://textual.textualize.io/) — TUI  
+- [Groq](https://groq.com/) — fast inference / Whisper  

@@ -1,289 +1,377 @@
-import os
-import subprocess
+"""File create / save / open helpers with real user-path resolution."""
+
+from __future__ import annotations
+
 import json
-import markdown
-from pathlib import Path
+import os
 import re
+import subprocess
+from pathlib import Path
+
+import markdown
+
+from utils.paths import resolve_file_path, resolve_location
+
 
 def create_file(data, filename, location, extension):
     """Create a file with the given data, filename, location, and extension."""
-    if not filename.endswith(extension):
-        filename += "." + extension
-    full_path = os.path.join(location, filename)
+    ext = (extension or "txt").lstrip(".")
+    name = filename or "untitled"
+    if not name.lower().endswith("." + ext.lower()):
+        name = f"{name}.{ext}"
+    full_path = resolve_file_path(name, location)
     try:
-        # Create directory if it doesn't exist
-        os.makedirs(location, exist_ok=True)
-        with open(full_path, 'w', encoding='utf-8') as file:
-            file.write(data)
-        return json.dumps({'status': 'success', 'content': f"File saved to {full_path}"})
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(data if data is not None else "", encoding="utf-8")
+        return json.dumps(
+            {
+                "status": "success",
+                "content": f"File saved to {full_path}",
+                "path": str(full_path),
+            }
+        )
     except Exception as e:
-        return json.dumps({'status': 'error', 'content': f"Cannot save file: {str(e)}"})
+        return json.dumps({"status": "error", "content": f"Cannot save file: {str(e)}"})
+
 
 def save_text(text, filename, location):
     """Save text content to a file with a custom name (appends .txt if needed)."""
-    if not filename.endswith('.txt'):
-        filename += '.txt'
-    full_path = os.path.join(location, filename)
+    name = filename or "notes"
+    if not str(name).lower().endswith(".txt"):
+        name = f"{name}.txt"
+    full_path = resolve_file_path(name, location)
     try:
-        # Create directory if it doesn't exist
-        os.makedirs(location, exist_ok=True)
-        with open(full_path, 'w', encoding='utf-8') as file:
-            file.write(text)
-        return json.dumps({'status': 'success', 'content': f"Text saved to {full_path}"})
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(text if text is not None else "", encoding="utf-8")
+        return json.dumps(
+            {
+                "status": "success",
+                "content": f"Text saved to {full_path}",
+                "path": str(full_path),
+            }
+        )
     except Exception as e:
-        return json.dumps({'status': 'error', 'content': f"Cannot save text: {str(e)}"})
+        return json.dumps({"status": "error", "content": f"Cannot save text: {str(e)}"})
+
 
 def open_file(filename, location):
     """Open a file using the default system application."""
-    full_path = os.path.join(location, filename)
+    name = (filename or "").strip().strip('"').strip("'")
+    loc = (location or "").strip()
+    if not loc:
+        # Full path in filename, or relative to cwd — do not force Desktop
+        p = Path(name).expanduser()
+        if not p.is_absolute() and (name.startswith("~") or "%" in name):
+            full_path = resolve_file_path(name, None)
+        elif p.is_absolute():
+            full_path = p
+        else:
+            full_path = (Path.cwd() / p).resolve()
+    else:
+        full_path = resolve_file_path(name, loc)
+    if not full_path.exists() and loc:
+        alt = resolve_location(loc, create=False) / Path(name).name
+        if alt.exists():
+            full_path = alt
     try:
-        subprocess.Popen(['start', '', full_path], shell=True)
-        return json.dumps({'status': 'success', 'content': f"Opened {full_path}"})
+        if os.name == "nt":
+            os.startfile(str(full_path))  # type: ignore[attr-defined]
+        elif sys_platform_is_darwin():
+            subprocess.Popen(["open", str(full_path)])
+        else:
+            subprocess.Popen(["xdg-open", str(full_path)])
+        return json.dumps(
+            {
+                "status": "success",
+                "content": f"Opened {full_path}",
+                "path": str(full_path),
+            }
+        )
     except Exception as e:
-        return json.dumps({'status': 'error', 'content': f"Cannot open file: {str(e)}"})
+        return json.dumps({"status": "error", "content": f"Cannot open file: {str(e)}"})
+
+
+def sys_platform_is_darwin() -> bool:
+    import sys
+
+    return sys.platform == "darwin"
+
 
 def delete_file(filename, location):
     """Delete a file at the given location."""
-    full_path = os.path.join(location, filename)
+    full_path = resolve_file_path(filename, location)
     try:
-        os.remove(full_path)
-        return json.dumps({'status': 'success', 'content': f"File {full_path} deleted successfully"})
+        full_path.unlink()
+        return json.dumps(
+            {
+                "status": "success",
+                "content": f"File {full_path} deleted successfully",
+                "path": str(full_path),
+            }
+        )
     except Exception as e:
-        return json.dumps({'status': 'error', 'content': f"Cannot delete file: {str(e)}"})
+        return json.dumps(
+            {"status": "error", "content": f"Cannot delete file: {str(e)}"}
+        )
+
 
 def list_files(location):
     """List all files in a directory."""
     try:
-        files = os.listdir(location)
-        return json.dumps({'status': 'success', 'content': files})
+        directory = resolve_location(location, create=False)
+        files = os.listdir(directory)
+        return json.dumps(
+            {
+                "status": "success",
+                "content": files,
+                "path": str(directory),
+            }
+        )
     except Exception as e:
-        return json.dumps({'status': 'error', 'content': f"Cannot list files: {str(e)}"})
+        return json.dumps({"status": "error", "content": f"Cannot list files: {str(e)}"})
+
 
 def create_pdf(outputLocation: str, markdownData: str) -> str:
     """
     Convert Markdown string to PDF using fpdf2 (pure Python, no system dependencies).
     Supports tables, headings, code blocks, lists.
-    
+
     Args:
-        outputLocation: Path where PDF should be saved
+        outputLocation: Path where PDF should be saved (accepts desktop/… aliases)
         markdownData: Markdown content as string
-    
+
     Returns:
         JSON string with confirmed status and file location or error message
     """
     try:
         from fpdf import FPDF
     except ImportError:
-        return json.dumps({
-            "confirmed": False,
-            "error": "Missing dependency: fpdf2. Install with: pip install fpdf2 markdown"
-        })
-    
+        return json.dumps(
+            {
+                "confirmed": False,
+                "error": "Missing dependency: fpdf2. Install with: pip install fpdf2 markdown",
+            }
+        )
+
     # Parse markdown to HTML
-    html = markdown.markdown(markdownData, extensions=['tables', 'fenced_code', 'nl2br'])
-    
+    html = markdown.markdown(
+        markdownData, extensions=["tables", "fenced_code", "nl2br"]
+    )
+
     # Simple HTML tag stripping
     def strip_tags(text):
-        clean = re.sub(r'<br\s*/?>', '\n', text)
-        clean = re.sub(r'<p>', '', clean)
-        clean = re.sub(r'</p>', '\n\n', clean)
-        clean = re.sub(r'<[^>]+>', '', clean)
+        clean = re.sub(r"<br\s*/?>", "\n", text)
+        clean = re.sub(r"<p>", "", clean)
+        clean = re.sub(r"</p>", "\n\n", clean)
+        clean = re.sub(r"<[^>]+>", "", clean)
         return clean.strip()
-    
+
     # Extract tables
     tables = []
-    table_pattern = r'<table[^>]*>(.*?)</table>'
+    table_pattern = r"<table[^>]*>(.*?)</table>"
     for table_match in re.finditer(table_pattern, html, re.DOTALL):
         table_html = table_match.group(1)
         rows = []
-        row_pattern = r'<tr[^>]*>(.*?)</tr>'
+        row_pattern = r"<tr[^>]*>(.*?)</tr>"
         for row_match in re.finditer(row_pattern, table_html, re.DOTALL):
             row_html = row_match.group(1)
-            cells = re.findall(r'<t[dh][^>]*>(.*?)</t[dh]>', row_html, re.DOTALL)
+            cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, re.DOTALL)
             rows.append([strip_tags(cell) for cell in cells])
         if rows:
             tables.append(rows)
-    
+
     # Remove tables for text processing
-    text_html = re.sub(table_pattern, '\n[TABLE_PLACEHOLDER]\n', html, flags=re.DOTALL)
-    
+    text_html = re.sub(table_pattern, "\n[TABLE_PLACEHOLDER]\n", html, flags=re.DOTALL)
+
     # Parse structure
-    lines = text_html.split('\n')
+    lines = text_html.split("\n")
     elements = []
     table_idx = 0
-    
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
-        if '[TABLE_PLACEHOLDER]' in line:
+
+        if "[TABLE_PLACEHOLDER]" in line:
             if table_idx < len(tables):
-                elements.append(('table', tables[table_idx]))
+                elements.append(("table", tables[table_idx]))
                 table_idx += 1
-        elif line.startswith('<h1'):
+        elif line.startswith("<h1"):
             text = strip_tags(line)
-            elements.append(('h1', text))
-        elif line.startswith('<h2'):
+            elements.append(("h1", text))
+        elif line.startswith("<h2"):
             text = strip_tags(line)
-            elements.append(('h2', text))
-        elif line.startswith('<h3'):
+            elements.append(("h2", text))
+        elif line.startswith("<h3"):
             text = strip_tags(line)
-            elements.append(('h3', text))
-        elif line.startswith('<pre><code'):
-            code = re.search(r'<code[^>]*>(.*?)</code>', line, re.DOTALL)
+            elements.append(("h3", text))
+        elif line.startswith("<pre><code"):
+            code = re.search(r"<code[^>]*>(.*?)</code>", line, re.DOTALL)
             if code:
-                elements.append(('code', strip_tags(code.group(1))))
-        elif line.startswith('<ul') or line.startswith('<ol'):
-            items = re.findall(r'<li[^>]*>(.*?)</li>', line, re.DOTALL)
-            elements.append(('list', [strip_tags(item) for item in items]))
-        elif line.startswith('<blockquote'):
+                elements.append(("code", strip_tags(code.group(1))))
+        elif line.startswith("<ul") or line.startswith("<ol"):
+            items = re.findall(r"<li[^>]*>(.*?)</li>", line, re.DOTALL)
+            elements.append(("list", [strip_tags(item) for item in items]))
+        elif line.startswith("<blockquote"):
             text = strip_tags(line)
-            elements.append(('quote', text))
+            elements.append(("quote", text))
         else:
             text = strip_tags(line)
             if text:
-                elements.append(('text', text))
-    
-    # Create PDF with built-in fonts only
+                elements.append(("text", text))
+
+    # Resolve output path (desktop/… aliases + env vars)
     try:
-        output_path = Path(outputLocation)
+        raw_out = (outputLocation or "report.pdf").strip()
+        if not raw_out.lower().endswith(".pdf"):
+            raw_out = raw_out + ".pdf"
+        # If only a name, put on Desktop
+        p = Path(raw_out)
+        if not p.is_absolute() and "/" not in raw_out.replace("\\", "/") and not raw_out.lower().startswith(
+            ("desktop", "documents", "downloads", "home", "~", "%")
+        ):
+            output_path = resolve_file_path(raw_out, "desktop")
+        else:
+            # May be desktop/foo.pdf or full path
+            if p.is_absolute() or raw_out.startswith("~") or "%" in raw_out:
+                output_path = resolve_file_path(raw_out, None)
+            else:
+                # path with directory components
+                parts = Path(raw_out.replace("\\", "/"))
+                if len(parts.parts) > 1:
+                    directory = resolve_location(str(Path(*parts.parts[:-1])), create=True)
+                    output_path = directory / parts.parts[-1]
+                else:
+                    output_path = resolve_file_path(raw_out, "desktop")
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         pdf = FPDF()
         pdf.add_page()
         pdf.set_auto_page_break(auto=True, margin=15)
     except Exception as e:
-        return json.dumps({
-            "confirmed": False,
-            "error": f"PDF initialization failed: {str(e)}"
-        })
-    
+        return json.dumps(
+            {"confirmed": False, "error": f"PDF initialization failed: {str(e)}"}
+        )
+
     # Render elements using only standard built-in fonts
     for elem_type, content in elements:
-        if elem_type == 'h1':
-            pdf.set_font('Helvetica', 'B', 20)
+        if elem_type == "h1":
+            pdf.set_font("Helvetica", "B", 20)
             pdf.ln(10)
-            # Handle unicode by replacing non-latin chars
-            safe_text = content.encode('latin-1', 'replace').decode('latin-1')[:100]
+            safe_text = content.encode("latin-1", "replace").decode("latin-1")[:100]
             pdf.cell(0, 10, txt=safe_text, ln=True)
             pdf.ln(5)
-            
-        elif elem_type == 'h2':
-            pdf.set_font('Helvetica', 'B', 16)
+
+        elif elem_type == "h2":
+            pdf.set_font("Helvetica", "B", 16)
             pdf.ln(8)
-            safe_text = content.encode('latin-1', 'replace').decode('latin-1')[:100]
+            safe_text = content.encode("latin-1", "replace").decode("latin-1")[:100]
             pdf.cell(0, 8, txt=safe_text, ln=True)
             pdf.ln(3)
-            
-        elif elem_type == 'h3':
-            pdf.set_font('Helvetica', 'B', 13)
+
+        elif elem_type == "h3":
+            pdf.set_font("Helvetica", "B", 13)
             pdf.ln(6)
-            safe_text = content.encode('latin-1', 'replace').decode('latin-1')[:100]
-            pdf.cell(0, 6, txt=safe_text, ln=True)
-            
-        elif elem_type == 'code':
-            pdf.set_font('Courier', '', 9)
+            safe_text = content.encode("latin-1", "replace").decode("latin-1")[:100]
+            pdf.cell(0, 6, text=safe_text, ln=True)
+
+        elif elem_type == "code":
+            pdf.set_font("Courier", "", 9)
             pdf.set_fill_color(240, 240, 240)
-            safe_code = content.encode('latin-1', 'replace').decode('latin-1')[:2000]
-            pdf.multi_cell(0, 5, txt=safe_code, fill=True)
+            safe_code = content.encode("latin-1", "replace").decode("latin-1")[:2000]
+            pdf.multi_cell(0, 5, text=safe_code, fill=True)
             pdf.ln(3)
             pdf.set_fill_color(255, 255, 255)
-            
-        elif elem_type == 'list':
-            pdf.set_font('Helvetica', '', 11)
+
+        elif elem_type == "list":
+            pdf.set_font("Helvetica", "", 11)
             for item in content:
                 pdf.cell(10)
-                safe_item = item.encode('latin-1', 'replace').decode('latin-1')[:200]
-                pdf.cell(0, 6, txt=f"- {safe_item}", ln=True)
+                safe_item = item.encode("latin-1", "replace").decode("latin-1")[:200]
+                pdf.cell(0, 6, text=f"- {safe_item}", ln=True)
             pdf.ln(2)
-            
-        elif elem_type == 'quote':
-            pdf.set_font('Helvetica', 'I', 11)
+
+        elif elem_type == "quote":
+            pdf.set_font("Helvetica", "I", 11)
             pdf.set_text_color(100, 100, 100)
             pdf.cell(10)
-            safe_quote = content.encode('latin-1', 'replace').decode('latin-1')[:500]
-            pdf.multi_cell(0, 6, txt=safe_quote)
+            safe_quote = content.encode("latin-1", "replace").decode("latin-1")[:500]
+            pdf.multi_cell(0, 6, text=safe_quote)
             pdf.set_text_color(0, 0, 0)
             pdf.ln(3)
-            
-        elif elem_type == 'table':
+
+        elif elem_type == "table":
             if not content:
                 continue
-            pdf.set_font('Helvetica', '', 9)
-            
-            # Calculate column widths
+            pdf.set_font("Helvetica", "", 9)
+
             if content:
                 num_cols = len(content[0])
                 page_width = pdf.w - 2 * pdf.l_margin
                 col_width = page_width / num_cols
                 col_widths = [col_width] * num_cols
-            
-            # Header row
+
             pdf.set_fill_color(52, 73, 94)
             pdf.set_text_color(255, 255, 255)
-            pdf.set_font('Helvetica', 'B', 9)
+            pdf.set_font("Helvetica", "B", 9)
             for i, cell in enumerate(content[0]):
-                safe_cell = str(cell).encode('latin-1', 'replace').decode('latin-1')[:20]
-                pdf.cell(col_widths[i], 8, txt=safe_cell, border=1, fill=True)
+                safe_cell = str(cell).encode("latin-1", "replace").decode("latin-1")[:20]
+                pdf.cell(col_widths[i], 8, text=safe_cell, border=1, fill=True)
             pdf.ln()
-            
-            # Data rows
+
             pdf.set_fill_color(248, 249, 250)
             pdf.set_text_color(0, 0, 0)
-            pdf.set_font('Helvetica', '', 9)
+            pdf.set_font("Helvetica", "", 9)
             for row_idx, row in enumerate(content[1:]):
                 for i, cell in enumerate(row):
-                    fill = (row_idx % 2 == 0)
-                    safe_cell = str(cell).encode('latin-1', 'replace').decode('latin-1')[:20]
-                    pdf.cell(col_widths[i], 7, txt=safe_cell, border=1, fill=fill)
+                    fill = row_idx % 2 == 0
+                    safe_cell = str(cell).encode("latin-1", "replace").decode("latin-1")[
+                        :20
+                    ]
+                    pdf.cell(col_widths[i], 7, text=safe_cell, border=1, fill=fill)
                 pdf.ln()
             pdf.ln(5)
-            
+
         else:  # text
-            pdf.set_font('Helvetica', '', 11)
-            safe_text = content.encode('latin-1', 'replace').decode('latin-1')[:2000]
-            pdf.multi_cell(0, 6, txt=safe_text)
+            pdf.set_font("Helvetica", "", 11)
+            safe_text = content.encode("latin-1", "replace").decode("latin-1")[:2000]
+            pdf.multi_cell(0, 6, text=safe_text)
             pdf.ln(2)
-    
+
     try:
         pdf.output(str(output_path))
     except Exception as e:
-        return json.dumps({
-            "confirmed": False,
-            "error": f"PDF save failed: {str(e)}"
-        })
-    
+        return json.dumps({"confirmed": False, "error": f"PDF save failed: {str(e)}"})
+
     if not output_path.exists():
-        return json.dumps({
-            "confirmed": False,
-            "error": "PDF file was not created"
-        })
-    
-    return json.dumps({
-        "confirmed": True,
-        "location": str(output_path.resolve())
-    })
+        return json.dumps({"confirmed": False, "error": "PDF file was not created"})
+
+    return json.dumps(
+        {"confirmed": True, "location": str(output_path.resolve())}
+    )
+
 
 # Tool definition
 TOOL_DEFINITION = {
- "type": "function",
- "function": {
-     "name": "create_pdf",
-     "description": "Convert Markdown content to PDF with support for tables, headings, code blocks, and lists. Pure Python implementation with no system dependencies.",
-     "parameters": {
-         "type": "object",
-         "properties": {
-             "markdownData": {
-                 "type": "string",
-                 "description": "Markdown content as string. Supports: headings (# ## ###), tables (| col |), code blocks (```), bullet lists (- item), numbered lists (1. item), bold (**text**), italic (*text*)"
-             },
-             "outputLocation": {
-                 "type": "string",
-                 "description": "Full file path for output PDF (e.g., 'report.pdf' or '/path/to/file.pdf')"
-             }
-         },
-         "required": ["outputLocation", "markdownData"]
-     }
- }
+    "type": "function",
+    "function": {
+        "name": "create_pdf",
+        "description": "Convert Markdown content to PDF with support for tables, headings, code blocks, and lists. Pure Python implementation with no system dependencies.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "markdownData": {
+                    "type": "string",
+                    "description": "Markdown content as string. Supports: headings (# ## ###), tables (| col |), code blocks (```), bullet lists (- item), numbered lists (1. item), bold (**text**), italic (*text*)",
+                },
+                "outputLocation": {
+                    "type": "string",
+                    "description": "Full file path for output PDF, or a friendly path like 'desktop/report.pdf'",
+                },
+            },
+            "required": ["outputLocation", "markdownData"],
+        },
+    },
 }

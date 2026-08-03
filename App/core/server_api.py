@@ -18,10 +18,33 @@ def _post_json(path: str, payload: Optional[dict[str, Any]] = None, timeout: Opt
     return response.json()
 
 
-def generate_remote_response(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> dict[str, Any]:
+def generate_remote_response(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    *,
+    model_tier: Optional[str] = None,
+    model: Optional[str] = None,
+    include_server_context: bool = True,
+) -> dict[str, Any]:
+    """
+    Call server /generate.
+
+    model_tier: none|nano|small|main|heavy — server maps to a concrete model.
+    model: optional explicit model id (overrides tier mapping).
+    include_server_context: when False, skip recent_hour_context (workers).
+    """
+    payload: dict[str, Any] = {
+        "messages": messages,
+        "tools": tools,
+        "include_server_context": bool(include_server_context),
+    }
+    if model_tier:
+        payload["model_tier"] = model_tier
+    if model:
+        payload["model"] = model
     return _post_json(
         "/generate",
-        payload={"messages": messages, "tools": tools},
+        payload=payload,
         timeout=max(DEFAULT_TIMEOUT, 45.0),
     )
 

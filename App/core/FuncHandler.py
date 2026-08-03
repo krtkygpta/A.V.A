@@ -6,6 +6,7 @@ from core.TaskManager import (
     ConversationStateManager,
     dispatch_background_task,
     get_running_tasks_summary,
+    manage_background_tasks,
     update_conversation_state,
 )
 from core.tool_registry import init_plugins, registry
@@ -23,15 +24,23 @@ def _get_current_conversation_info() -> tuple:
     """
     Get current conversation ID and name for task association.
     Returns (conversation_id, conversation_name)
+
+    Also re-syncs ConversationStateManager when ConversationManager has a live
+    conversation (avoids empty conversation_id on background jobs).
     """
     try:
-        # Try to get from ConversationManager first
+        state_mgr = ConversationStateManager()
+        # Prefer ConversationManager (source of truth for chat history).
         conv = get_current_conversation()
         if conv and conv.id:
-            return conv.id, conv.name
-        
+            if state_mgr.current_conversation_id != conv.id:
+                try:
+                    update_conversation_state(conv.id, conv.name or "", is_active=True)
+                except Exception:
+                    pass
+            return conv.id, conv.name or ""
+
         # Fallback to state manager
-        state_mgr = ConversationStateManager()
         conv_id = state_mgr.current_conversation_id or ""
         conv_name = state_mgr.current_conversation_name or ""
         return conv_id, conv_name
@@ -65,8 +74,14 @@ def handle_background_task(task_type: str, **kwargs) -> str:
     )
     
     if task_id:
+        try:
+            from core.TaskManager import sync_background_task_flag
+
+            sync_background_task_flag()
+        except Exception:
+            pass
         return message
-    
+
     # Clear flags if task failed to start
     expecting_followup.clear()
     work_in_progress.clear()
@@ -81,8 +96,13 @@ def handle_get_background_status() -> str:
     # Also report any completed-but-undelivered background tasks
     completion_queue = CompletionQueue()
     if completion_queue.has_pending():
-        result += "\n\nThere are completed background tasks waiting to be announced. They will be shown when you start a new conversation."
-    
+        result += (
+            "\n\nThere are completed background tasks waiting to be announced. "
+            "They should inject as [BACKGROUND TASK DONE] on the next turn or "
+            "conversation start — speak the newest one; use manage_background_tasks "
+            "result if the user wants full detail."
+        )
+
     return result
 
 
@@ -93,8 +113,9 @@ TOOL_CONFIGS = {
     # System
     "get_time_date": functions.timedate,
     "shutdown_pc": functions.system_action,
-    "ping": functions.ring_timer,
+    "ping": functions.ping,  # non-blocking audible alert (ring in background)
     "send_notification": functions.send_notification,
+    "make_phone_call": functions.make_phone_call,
     # Web (unified)
     "web": web,
     # File operations
@@ -114,6 +135,7 @@ TOOL_CONFIGS = {
     "memory_manager": handle_memory_manager,
     "background_task": handle_background_task,
     "get_background_tasks_status": handle_get_background_status,
+    "manage_background_tasks": manage_background_tasks,
     "conversation_history": handle_conversation_history,
 }
 
