@@ -1,7 +1,10 @@
 """Tool Service - Thin wrapper for server-side tool execution."""
 
+import base64
 import os
+import re
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -11,6 +14,9 @@ if str(SERVER_DIR) not in sys.path:
     sys.path.insert(0, str(SERVER_DIR))
 
 from tools import GoogleAISearch, ImageAnalysis, CodeSandbox, ResearchAgent
+
+# Server/data/screenshots — canonical store for client-uploaded captures
+SCREENSHOTS_DIR = SERVER_DIR / "data" / "screenshots"
 
 
 class ToolService:
@@ -36,6 +42,7 @@ class ToolService:
             openai_base_url=openai_base_url or os.getenv("OPENAI_BASE_URL"),
             model_name=model_name or os.getenv("MODEL_NAME"),
         )
+        SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
     def google_ai_search(self, query: str) -> dict[str, Any]:
         return self.google_ai.execute(query=query)
@@ -48,3 +55,70 @@ class ToolService:
 
     def research(self, question: str, level: int = 3) -> dict[str, Any]:
         return self.research_agent.execute(question=question, level=level)
+
+    def store_screenshot(
+        self,
+        image_base64: str,
+        filename: Optional[str] = None,
+        mime: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Save a client-captured screenshot under Server/data/screenshots.
+
+        Returns absolute path on the server machine so later server-side tools
+        (and remote clients without a shared FS) can reference it.
+        """
+        raw = (image_base64 or "").strip()
+        if not raw:
+            return {"status": "error", "content": "Missing image_base64"}
+
+        # Accept full data URLs or bare base64
+        if raw.startswith("data:") and "," in raw:
+            header, raw = raw.split(",", 1)
+            if not mime and ";base64" in header:
+                # data:image/png;base64
+                mime = header.split(";", 1)[0].removeprefix("data:") or None
+
+        try:
+            data = base64.b64decode(raw, validate=False)
+        except Exception as exc:
+            return {"status": "error", "content": f"Invalid base64 image: {exc}"}
+
+        if not data:
+            return {"status": "error", "content": "Empty image payload"}
+
+        ext = ".png"
+        mime_l = (mime or "").lower()
+        if "jpeg" in mime_l or "jpg" in mime_l:
+            ext = ".jpg"
+        elif "webp" in mime_l:
+            ext = ".webp"
+        elif "bmp" in mime_l:
+            ext = ".bmp"
+
+        if filename:
+            name = Path(str(filename).strip().strip('"').strip("'")).name
+            name = re.sub(r"[^\w.\-]+", "_", name)
+            if not name.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+                name = f"{name}{ext}"
+        else:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            name = f"screenshot_{stamp}{ext}"
+
+        SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+        path = (SCREENSHOTS_DIR / name).resolve()
+        try:
+            path.write_bytes(data)
+        except OSError as exc:
+            return {"status": "error", "content": f"Failed to write screenshot: {exc}"}
+
+        if not path.is_file() or path.stat().st_size <= 0:
+            return {"status": "error", "content": "Screenshot was not written correctly"}
+
+        abs_path = str(path)
+        return {
+            "status": "success",
+            "path": abs_path,
+            "filename": path.name,
+            "content": f"Screenshot stored at {abs_path}",
+        }

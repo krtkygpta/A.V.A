@@ -129,6 +129,43 @@ KEEP_OPEN_PATTERN = re.compile(r'\[(?:keep_open|continue|stay_open|wait)\]', re.
 # again on the next user turn.
 WAKE_IDLE_THRESHOLD_SECONDS = 120
 
+# Rate-limit recovery wakes for stuck REQUIRED ACTION (research→send, etc.)
+_last_main_action_wake_at = 0.0
+_MAIN_ACTION_WAKE_COOLDOWN_S = 25.0
+
+
+def _maybe_wake_stuck_main_actions() -> None:
+    """
+    If a finished job still has REQUIRED ACTION (e.g. research→WhatsApp) and
+    the main agent never ran tools, wake once so the send still happens —
+    even when no chat is open. Cooldown prevents spin.
+    """
+    global _last_main_action_wake_at
+    if main_runner.is_set() or main_running.is_set():
+        return
+    try:
+        from core.TaskManager import list_open_main_actions, inject_open_main_actions
+    except Exception:
+        return
+    try:
+        opens = list_open_main_actions()
+    except Exception:
+        return
+    if not opens:
+        return
+    now = time.time()
+    if now - _last_main_action_wake_at < _MAIN_ACTION_WAKE_COOLDOWN_S:
+        return
+    _last_main_action_wake_at = now
+    print(
+        f"[ResponseLoop] Waking main for open REQUIRED ACTION: "
+        f"{opens[0].get('action', '')[:80]!r}"
+    )
+    try:
+        inject_open_main_actions(trigger_response=True)
+    except Exception as e:
+        print(f"[ResponseLoop] stuck main_action wake failed: {e}")
+
 
 def _is_work_in_progress(text: str) -> bool:
     """
@@ -166,6 +203,64 @@ def _format_done(task: BackgroundTask) -> str:
         return format_done_inject(task)
     except Exception:
         return f"[BACKGROUND TASK DONE]\n{task.to_compact_done()}"
+
+
+def _inject_latest_finished_context() -> int:
+    """
+    Put recent finished-job outcomes into the live message list (not the system
+    prompt) so a new conversation still has them as latest context.
+
+    Passive only — does not wake the model. REQUIRED ACTION / DONE injects
+    handle auto-send chains; this is for "what did you finish while I was away".
+    Skips if already injected recently or nothing useful.
+    """
+    try:
+        from core.messageHandler import add_message, messages, messages_lock
+        from core.jobs.dossier import recent_completed_prompt
+    except Exception:
+        return 0
+
+    # Avoid stacking every turn
+    with messages_lock:
+        recent = list(messages)[-12:]
+    if any(
+        m.get("role") == "system"
+        and "[LATEST FINISHED WORK]" in str(m.get("content") or "")
+        for m in recent
+    ):
+        return 0
+
+    # Prefer open main_actions (already injected elsewhere) — here only
+    # resultful dossiers the user may ask about.
+    try:
+        block = recent_completed_prompt(max_items=3)
+    except TypeError:
+        try:
+            block = recent_completed_prompt()
+        except Exception:
+            return 0
+    except Exception:
+        return 0
+
+    if not block or block.strip() in ("", "(none)"):
+        return 0
+    # recent_completed_prompt may already include a header
+    text = str(block).strip()
+    if not text or text.lower() == "(none)":
+        return 0
+
+    add_message(
+        role="system",
+        content=(
+            "[LATEST FINISHED WORK — context only]\n"
+            "Recent background outcomes (use if relevant; do not monologue "
+            "unless the user asks or a REQUIRED ACTION is open):\n"
+            f"{text}"
+        ),
+        tool_id="",
+        trigger_response=False,
+    )
+    return 1
 
 
 def _alert_once(task: BackgroundTask) -> None:
@@ -337,9 +432,12 @@ def _route_completed_tasks(
             _enqueue_for_speak(task, already_alerted=already)
 
         elif strategy.delivery_method == DeliveryMethod.NEXT_RESPONSE:
-            # User is in an active conversation → always announce (speak).
-            # Only hold while mid-speech/listen so we don't cut TTS.
-            if state_manager.is_speaking or state_manager.is_listening:
+            # User is present → announce (speak). Only hold while TTS is
+            # playing so we don't cut audio mid-sentence. Do NOT defer while
+            # the mic is open waiting for the user — that is exactly when
+            # voice modes need DONE to wake the model (listen timeouts used
+            # to end the chat and leave only a UI line with no generate).
+            if state_manager.is_speaking:
                 completion_queue.store_deferred(task)
             else:
                 _enqueue_for_speak(task, already_alerted=False)
@@ -496,6 +594,11 @@ def run_response_loop(handler: ResponseLoopHandler):
                         pass
                     completion_queue.store_deferred(task)
 
+            # research→send (etc.): if REQUIRED ACTION is still open and never
+            # got a generate turn, wake main once (tools + outcome + optional notif).
+            if not main_running.is_set() and not main_runner.is_set():
+                _maybe_wake_stuck_main_actions()
+
             continue
 
         # ── Process a new message ───────────────────────────────────────
@@ -514,8 +617,9 @@ def run_response_loop(handler: ResponseLoopHandler):
             state_manager.is_conversation_active = True
 
             # Jobs that finished while away / mid-listen / process restart:
-            # attach DONE to *this* user turn (user already woke us). Never
-            # auto-start a turn without user input (see ConversationManager).
+            # attach DONE + open main_actions to *this* turn so the model can
+            # finish chained work (research→send) and the result is latest
+            # context. trigger_response=False — we are already in a generate turn.
             try:
                 from core.jobs.notify import flush_pending_announcements
 
@@ -523,7 +627,7 @@ def run_response_loop(handler: ResponseLoopHandler):
             except Exception as e:
                 print(f"[ResponseLoop] flush_pending_announcements failed: {e}")
 
-            # Unfinished timer→WhatsApp/etc. must survive empty DONE replies and "ok"
+            # Unfinished timer→WhatsApp / research→send: force tools this turn
             try:
                 from core.TaskManager import inject_open_main_actions
 
@@ -531,17 +635,48 @@ def run_response_loop(handler: ResponseLoopHandler):
             except Exception as e:
                 print(f"[ResponseLoop] inject_open_main_actions failed: {e}")
 
+            # Passive "latest finished work" so a new conversation still sees
+            # recent outcomes (no extra monologue — model only acts if asked
+            # or if REQUIRED ACTION is present above).
+            try:
+                _inject_latest_finished_context()
+            except Exception as e:
+                print(f"[ResponseLoop] latest finished context failed: {e}")
+
             try:
                 # Explicit multi-round agent loop (including after [BACKGROUND TASK DONE]).
                 # Tool results are appended with trigger_response=False so we stay in this
                 # turn and call generate again — not a fragile re-entry via main_runner.
                 max_tool_rounds = int(os.getenv("AVA_MAX_TOOL_ROUNDS", "10"))
-                max_tool_rounds = max(1, min(max_tool_rounds, 20))
+                # Hard ceiling on the *extended* tool-round budget. The initial
+                # burst is max_tool_rounds; when tools are still making progress
+                # at that point we nudge the model to continue for a few grace
+                # rounds. The total (initial + grace) never exceeds the ceiling
+                # so a runaway tool chain can't spin forever.
+                max_tool_rounds_ceiling = int(
+                    os.getenv("AVA_MAX_TOOL_ROUNDS_CEIL", "60")
+                )
+                max_tool_rounds_ceiling = max(2, min(max_tool_rounds_ceiling, 200))
+                # Cap the initial burst to ceiling - 1 so the nudge always has at
+                # least one grace round to work with (ceiling=2 minimum).
+                max_tool_rounds = max(1, min(
+                    max_tool_rounds, max_tool_rounds_ceiling - 1
+                ))
+                grace_rounds = int(os.getenv("AVA_MAX_TOOL_GRACE_ROUNDS", "3"))
+                # Grace rounds are bounded by what's left under the ceiling.
+                grace_rounds = max(1, min(
+                    grace_rounds, max_tool_rounds_ceiling - max_tool_rounds
+                ))
+                # Total in-loop generations allowed this turn.
+                total_budget = max_tool_rounds + grace_rounds
+                total_budget = max(2, min(total_budget, max_tool_rounds_ceiling))
+
                 turn_tools_called = False
                 turn_spoke = False
                 main_action_nudges = 0
+                tool_round_limit_nudged = False
 
-                for _round in range(max_tool_rounds):
+                for _round in range(total_budget):
                     response = generate_response()
                     if response.get("error"):
                         content = response.get("content") or (
@@ -584,6 +719,33 @@ def run_response_loop(handler: ResponseLoopHandler):
 
                     if tool_calls:
                         turn_tools_called = True
+                        # At the initial round limit with tools still flowing, nudge
+                        # the model to continue (or stop cleanly with a summary) rather
+                        # than silently ending the turn. Grace rounds remain after this.
+                        if (
+                            _round + 1 >= max_tool_rounds
+                            and not tool_round_limit_nudged
+                        ):
+                            tool_round_limit_nudged = True
+                            print(
+                                f"[ResponseLoop] Round limit reached ({max_tool_rounds}/"
+                                f"{total_budget}); nudging model to continue (tools active)"
+                            )
+                            add_message(
+                                role="system",
+                                content=(
+                                    "[SYSTEM — TOOL ROUND LIMIT REACHED]\n"
+                                    "You have made many tool calls and are still making "
+                                    "progress. If the tools are helping you move toward the "
+                                    "goal, CONTINUE calling tools in subsequent rounds until "
+                                    "you have a complete result. If the tools are NOT helping, "
+                                    "stop calling tools and give me a final summary of what you "
+                                    "found so far."
+                                ),
+                                tool_id="",
+                                trigger_response=False,
+                            )
+                            # Fall through to normal result handling + continue
                         # Optional spoken preamble while tools run (same assistant turn)
                         if (
                             content
@@ -645,13 +807,35 @@ def run_response_loop(handler: ResponseLoopHandler):
                                 expecting_followup.set()
                                 print(
                                     f"[ResponseLoop] Tool call starting: {func_name} "
-                                    f"(round {_round + 1}/{max_tool_rounds})"
+                                    f"(round {_round + 1}/{total_budget})"
                                 )
 
                                 func_resp, t_id = handle_tool_call(tool_call)
-                                handler.on_tool_call_result(
-                                    str(func_resp) if func_resp else "done"
-                                )
+                                # Multimodal tool results (screenshot image parts)
+                                # need a short UI preview, not str(list).
+                                if isinstance(func_resp, list):
+                                    preview_bits = []
+                                    has_img = False
+                                    for part in func_resp:
+                                        if not isinstance(part, dict):
+                                            continue
+                                        if part.get("type") == "text":
+                                            preview_bits.append(
+                                                str(part.get("text") or "")
+                                            )
+                                        elif part.get("type") == "image_url":
+                                            has_img = True
+                                    preview = (
+                                        " ".join(b for b in preview_bits if b).strip()
+                                        or "tool result"
+                                    )
+                                    if has_img:
+                                        preview = f"{preview} [image]"
+                                else:
+                                    preview = (
+                                        str(func_resp) if func_resp else "done"
+                                    )
+                                handler.on_tool_call_result(preview)
                                 state_manager.assistant_spoke()
 
                                 add_message(
@@ -741,9 +925,27 @@ def run_response_loop(handler: ResponseLoopHandler):
                         print(f"[ResponseLoop] Early ack failed: {e}")
                     break
                 else:
-                    print(
-                        f"[ResponseLoop] Hit max tool rounds ({max_tool_rounds}); stopping turn"
-                    )
+                    # Loop exhausted without a break — we burned the full
+                    # tool-round budget (initial + grace) without the model
+                    # producing a final text answer. Don't vanish silently:
+                    # tell the user where we stand so they can say "go on".
+                    if tool_round_limit_nudged:
+                        print(
+                            f"[ResponseLoop] Hit extended tool-round budget "
+                            f"({total_budget}); model did not terminate after nudge"
+                        )
+                        handler.speak(
+                            "I kept working but hit my tool-call budget and "
+                            "haven't reached a final answer. Here's what I have "
+                            "so far — say 'go on' to continue."
+                        )
+                        state_manager.assistant_spoke()
+                        turn_spoke = True
+                    else:
+                        print(
+                            f"[ResponseLoop] Hit max tool rounds ({max_tool_rounds}); "
+                            "stopping turn"
+                        )
                     work_in_progress.clear()
                     expecting_followup.clear()
 

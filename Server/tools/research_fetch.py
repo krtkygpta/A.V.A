@@ -211,24 +211,120 @@ class ResearchFetchTools:
         else:
             tavily_err = "tavily unavailable"
 
-        # Fallback: googlesearch-python (URLs only) then light snippet via title
+        # Fallback 1: DuckDuckGo HTML (googlesearch-python often returns empty lists)
+        ddg_err = "not attempted"
+        try:
+            from urllib.parse import parse_qs, unquote
+
+            headers = {
+                "User-Agent": USER_AGENT,
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+            resp = self.session.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": query},
+                headers=headers,
+                timeout=DEFAULT_TIMEOUT,
+            )
+            resp.raise_for_status()
+            if BeautifulSoup is None:
+                raise RuntimeError("BeautifulSoup unavailable")
+            soup = BeautifulSoup(resp.text, "html.parser")
+            results = []
+            seen: set[str] = set()
+            limit = max(1, min(int(max_results), 8))
+
+            def _unwrap(href: str) -> str:
+                if not href:
+                    return ""
+                raw = href.strip()
+                if raw.startswith("//"):
+                    raw = "https:" + raw
+                try:
+                    parsed = urlparse(raw)
+                    qs = parse_qs(parsed.query)
+                    if qs.get("uddg"):
+                        return unquote(qs["uddg"][0])
+                    if qs.get("u"):
+                        return unquote(qs["u"][0])
+                except Exception:
+                    pass
+                return raw
+
+            for block in soup.select("div.result"):
+                a = block.select_one("a.result__a")
+                if not a:
+                    continue
+                url = _unwrap(a.get("href") or "")
+                if not url.startswith(("http://", "https://")):
+                    continue
+                host = (urlparse(url).netloc or "").lower()
+                if not host or "duckduckgo.com" in host:
+                    continue
+                if url in seen:
+                    continue
+                seen.add(url)
+                snip_el = block.select_one("a.result__snippet") or block.select_one(
+                    ".result__snippet"
+                )
+                snippet = snip_el.get_text(" ", strip=True) if snip_el else ""
+                title = a.get_text(" ", strip=True) or host
+                results.append(
+                    {
+                        "title": title,
+                        "url": url,
+                        "snippet": truncate_text(snippet, 500),
+                    }
+                )
+                if len(results) >= limit:
+                    break
+
+            if results:
+                return {
+                    "status": "success",
+                    "query": query,
+                    "answer": "",
+                    "results": results,
+                    "provider": "duckduckgo",
+                    "note": f"tavily fallback used ({tavily_err})",
+                }
+            ddg_err = "empty results"
+        except Exception as e:
+            ddg_err = str(e)
+
+        # Fallback 2: googlesearch-python (URLs only; often blocked)
         try:
             from googlesearch import search as gsearch
 
             urls = list(gsearch(query, num_results=max(1, min(int(max_results), 8))))
-            results = [{"title": urlparse(u).netloc, "url": u, "snippet": ""} for u in urls]
+            results = [
+                {"title": urlparse(u).netloc, "url": u, "snippet": ""} for u in urls if u
+            ]
+            if results:
+                return {
+                    "status": "success",
+                    "query": query,
+                    "answer": "",
+                    "results": results,
+                    "provider": "googlesearch",
+                    "note": f"tavily/ddg fallback used (tavily={tavily_err}; ddg={ddg_err})",
+                }
             return {
-                "status": "success",
+                "status": "error",
+                "error": (
+                    f"search failed: tavily={tavily_err}; ddg={ddg_err}; "
+                    "googlesearch returned no results"
+                ),
                 "query": query,
-                "answer": "",
-                "results": results,
-                "provider": "googlesearch",
-                "note": f"tavily fallback used ({tavily_err})",
+                "results": [],
             }
         except Exception as e:
             return {
                 "status": "error",
-                "error": f"search failed: tavily={tavily_err}; fallback={e}",
+                "error": (
+                    f"search failed: tavily={tavily_err}; ddg={ddg_err}; "
+                    f"googlesearch={e}"
+                ),
                 "query": query,
                 "results": [],
             }

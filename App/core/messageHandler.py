@@ -202,20 +202,51 @@ def redact_done_injects(task_ids: list | set | None = None) -> int:
     return n
 
 
+def _content_for_storage(content):
+    """
+    Compact content for disk / remote store.
+
+    Multimodal tool results (list of parts with base64 image_url) must not be
+    written into conversation JSON — keep a short text summary + path only.
+    """
+    if not isinstance(content, list):
+        return content
+    texts = []
+    has_image = False
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        ptype = part.get("type")
+        if ptype == "text":
+            texts.append(str(part.get("text") or ""))
+        elif ptype == "image_url":
+            has_image = True
+    summary = " ".join(t for t in texts if t).strip() or "[multimodal tool result]"
+    if has_image and "[image]" not in summary.lower():
+        summary = f"{summary} [image attached for model]"
+    return summary
+
+
 def add_message(content, tool_id="", role="user", trigger_response=None):
     """Add a message to both the current messages list and the conversation history."""
     if trigger_response is None:
         trigger_response = role in {"user", "tool"}
 
     if role == "tool":
+        # Live LLM history keeps full multimodal content (image data URLs).
         with messages_lock:
             messages.append(
                 {"role": "tool", "content": content, "tool_call_id": tool_id}
             )
+        # Disk / remote: store text-only summary (no base64 bloat).
+        stored = _content_for_storage(content)
         mgr = _get_conversation_manager()
         conv = mgr.ensure_current_conversation()
-        conv.add_message("tool", content, tool_id)
-        add_remote_message(role="tool", content=content, tool_id=tool_id)
+        conv.add_message("tool", stored, tool_id)
+        try:
+            add_remote_message(role="tool", content=stored, tool_id=tool_id)
+        except Exception:
+            pass
         if trigger_response and not main_runner.is_set():
             main_runner.set()
     elif role == "user":

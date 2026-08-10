@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 from config import ROOT_DIR, get_settings
 from services import ConversationStore, LLMService, ToolService, TTSService
+from services.token_usage import get_usage_summary
 
 TOOL_SCHEMAS = [
     {
@@ -88,6 +89,34 @@ TOOL_SCHEMAS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "store_screenshot",
+            "description": (
+                "Store a client-uploaded screenshot under Server/data/screenshots "
+                "and return the absolute server path."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_base64": {
+                        "type": "string",
+                        "description": "Base64-encoded image (or data URL)",
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Optional file name (basename only)",
+                    },
+                    "mime": {
+                        "type": "string",
+                        "description": "Optional MIME type, e.g. image/png",
+                    },
+                },
+                "required": ["image_base64"],
+            },
+        },
+    },
 ]
 
 
@@ -147,6 +176,8 @@ class AvaServer:
         self.routes: dict[tuple[str, str], Callable[[dict[str, Any]], Response]] = {
             ("GET", "/health"): self.health,
             ("GET", "/memories"): self.memories,
+            ("GET", "/usage"): self.usage,
+            ("GET", "/token_usage"): self.usage,
             ("POST", "/health"): self.health,
             ("POST", "/generate"): self.generate,
             ("POST", "/tts"): self.tts_endpoint,
@@ -154,11 +185,14 @@ class AvaServer:
             ("POST", "/conversation/message"): self.conversation_message,
             ("POST", "/conversation/save"): self.conversation_save,
             ("POST", "/conversation/list"): self.conversation_list,
+            ("POST", "/usage"): self.usage,
+            ("POST", "/token_usage"): self.usage,
             # Tool endpoints
             ("POST", "/tools/google_ai"): self.tools_google_ai,
             ("POST", "/tools/image_analysis"): self.tools_image_analysis,
             ("POST", "/tools/code_execute"): self.tools_code_execute,
             ("POST", "/tools/research"): self.tools_research,
+            ("POST", "/tools/store_screenshot"): self.tools_store_screenshot,
             # Additional endpoints
             ("POST", "/stt"): self.stt_endpoint,
             ("POST", "/tools/schema"): self.tools_schema,
@@ -196,6 +230,21 @@ class AvaServer:
 
     def health(self, _: dict[str, Any]) -> Response:
         return Response.json({"status": "ok"})
+
+    def usage(self, payload: dict[str, Any]) -> Response:
+        """Daily token usage totals, broken down per model (and label)."""
+        day = None
+        if isinstance(payload, dict):
+            day = payload.get("date") or payload.get("day")
+        # GET query support via path is limited; body/query both optional.
+        if day is not None:
+            day = str(day).strip() or None
+        try:
+            days_limit = int(payload.get("days_limit", 14)) if payload else 14
+        except (TypeError, ValueError):
+            days_limit = 14
+        summary = get_usage_summary(day=day, include_days=True, days_limit=days_limit)
+        return Response.json(summary)
 
     def generate(self, payload: dict[str, Any]) -> Response:
         messages = payload.get("messages", [])
@@ -286,6 +335,8 @@ class AvaServer:
             return self.tools_code_execute(arguments)
         elif name == "research":
             return self.tools_research(arguments)
+        elif name == "store_screenshot":
+            return self.tools_store_screenshot(arguments)
         else:
             return Response.json({"error": f"Unknown tool: {name}"}, status=400)
 
@@ -330,6 +381,21 @@ class AvaServer:
         result = self.tools.research(question=question, level=level)
         return Response.json(result)
 
+    def tools_store_screenshot(self, payload: dict[str, Any]) -> Response:
+        """Store a client-captured screenshot under Server/data/screenshots."""
+        image_base64 = str(payload.get("image_base64", "")).strip()
+        if not image_base64:
+            return Response.json({"error": "Missing 'image_base64'."}, status=400)
+        filename = payload.get("filename")
+        mime = payload.get("mime")
+        result = self.tools.store_screenshot(
+            image_base64=image_base64,
+            filename=str(filename) if filename else None,
+            mime=str(mime) if mime else None,
+        )
+        status = 200 if result.get("status") == "success" else 400
+        return Response.json(result, status=status)
+
 
 def _read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
     content_length = int(handler.headers.get("Content-Length", "0"))
@@ -368,8 +434,19 @@ def run_server() -> None:
             print(f"[AVA-SERVER] {self.address_string()} - {format % args}")
 
         def _handle(self, method: str) -> None:
-            path = urlparse(self.path).path
+            parsed = urlparse(self.path)
+            path = parsed.path
             payload = _read_json_body(self) if method == "POST" else {}
+            # Merge query string into payload for GET usage endpoints (date=YYYY-MM-DD).
+            if method == "GET" and parsed.query:
+                from urllib.parse import parse_qs
+
+                qs = parse_qs(parsed.query)
+                for key, values in qs.items():
+                    if not values:
+                        continue
+                    if key not in payload or payload.get(key) in (None, ""):
+                        payload[key] = values[0]
             response = app.dispatch(method=method, path=path, payload=payload)
             _write_response(self, response)
 

@@ -96,3 +96,26 @@ def list_remote_conversations(limit: int = 10) -> list[dict[str, Any]]:
         return payload.get("conversations", [])
     except Exception:
         return []
+
+
+def store_screenshot_remote(
+    image_base64: str,
+    filename: Optional[str] = None,
+    mime: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Upload a captured screenshot to the AVA server.
+
+    Server stores under Server/data/screenshots and returns its absolute path
+    (on the server machine), so client/server need not share a filesystem.
+    """
+    payload: dict[str, Any] = {"image_base64": image_base64}
+    if filename:
+        payload["filename"] = filename
+    if mime:
+        payload["mime"] = mime
+    return _post_json(
+        "/tools/store_screenshot",
+        payload=payload,
+        timeout=max(DEFAULT_TIMEOUT, 30.0),
+    )

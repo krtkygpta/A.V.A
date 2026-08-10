@@ -401,6 +401,47 @@ class VoiceRecorder:
                         # Safety cap: don't record forever
                         print()
                         return True, self.save_recording()
+
+                # While waiting for the user, pause if the main agent woke for a
+                # DONE announce (generate + TTS). Reset the listen timeout so a
+                # mid-listen announcement is not treated as "user silent → end".
+                if not recording:
+                    try:
+                        from core.AppStates import main_runner
+                        from core.response_loop import main_running
+                        from utils import tts_piper
+
+                        main_busy = main_runner.is_set() or main_running.is_set()
+                        tts_busy = False
+                        try:
+                            tts_busy = tts_piper.is_playing()
+                        except Exception:
+                            tts_busy = False
+                        if main_busy or tts_busy:
+                            while (
+                                main_runner.is_set()
+                                or main_running.is_set()
+                                or (
+                                    tts_piper.is_playing()
+                                    if hasattr(tts_piper, "is_playing")
+                                    else False
+                                )
+                            ):
+                                if voice_stop_event.is_set():
+                                    voice_stop_event.clear()
+                                    return False, None
+                                time.sleep(0.05)
+                            # Fresh listen window after announce speech
+                            start_time = time.time()
+                            # Drop mic bleed from TTS before resuming VAD
+                            while not self.audio_queue.empty():
+                                try:
+                                    self.audio_queue.get_nowait()
+                                except queue.Empty:
+                                    break
+                            continue
+                    except Exception:
+                        pass
                 
                 # Get next audio chunk from callback queue
                 try: data = self.audio_queue.get(timeout=0.1)

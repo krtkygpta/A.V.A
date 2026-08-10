@@ -111,142 +111,196 @@ EVERFOREST = Theme(
     dark=True,
 )
 
-FLEXOKI_LIGHT = Theme(
-    name="flexoki-light",
-    primary="#205ea6",
-    secondary="#24837b",
-    background="#fffcf0",
-    surface="#f2f0e5",
-    panel="#e6e4d9",
-    boost="#4385be",
-    foreground="#100f0f",
-    success="#66800b",
-    warning="#ad8301",
-    error="#af3029",
-    accent="#bc5215",
-    dark=False,
-)
+# ── Monochromatic themes — single accent, restrained palette ───────────────
 
-ORANGES = Theme(
-    name="oranges",
-    primary="#ff9f1c",
-    secondary="#ff6b35",
-    background="#0c0a08",
-    surface="#161210",
-    panel="#221c16",
-    boost="#ffb347",
-    foreground="#fff1e0",
-    success="#8fce5b",
-    warning="#ffd166",
-    error="#ff5a5f",
-    accent="#ff7a45",
+SLATE = Theme(
+    name="slate",
+    primary="#7e99b8",
+    secondary="#5e7a96",
+    background="#0f1117",
+    surface="#161822",
+    panel="#1e2030",
+    boost="#94b0cc",
+    foreground="#c8cdd6",
+    success="#6a9e7a",
+    warning="#b8a06a",
+    error="#b86a6a",
+    accent="#94b0cc",
     dark=True,
 )
 
-# Soft blue night — unique to AVA
-MIDNIGHT = Theme(
-    name="midnight",
-    primary="#7aa2f7",
-    secondary="#bb9af7",
-    background="#070a12",
-    surface="#0e1422",
-    panel="#171f33",
-    boost="#89b4fa",
-    foreground="#c8d3f5",
-    success="#9ece6a",
-    warning="#e0af68",
-    error="#f7768e",
-    accent="#7dcfff",
+PINE = Theme(
+    name="pine",
+    primary="#6b9e7a",
+    secondary="#4d7a5c",
+    background="#0f1310",
+    surface="#151a16",
+    panel="#1c2420",
+    boost="#8fbb9a",
+    foreground="#c4d0c6",
+    success="#6b9e7a",
+    warning="#b0a060",
+    error="#b07060",
+    accent="#8fbb9a",
     dark=True,
 )
 
-# Warm paper + ink (light companion to ava)
-AVA_LIGHT = Theme(
-    name="ava-light",
-    primary="#6d28d9",
-    secondary="#1d4ed8",
-    background="#fbfcfe",
-    surface="#f1f5fb",
-    panel="#e4eaf3",
-    boost="#8b5cf6",
-    foreground="#0f172a",
-    success="#15803d",
-    warning="#a16207",
-    error="#b91c1c",
-    accent="#0e7490",
+EMBER = Theme(
+    name="ember",
+    primary="#c49a5c",
+    secondary="#9a7a4a",
+    background="#131110",
+    surface="#1a1714",
+    panel="#23201b",
+    boost="#d4ad6e",
+    foreground="#d0c8bc",
+    success="#7a9e6a",
+    warning="#c49a5c",
+    error="#b06a5a",
+    accent="#d4ad6e",
+    dark=True,
+)
+
+FROST = Theme(
+    name="frost",
+    primary="#5e9fd4",
+    secondary="#4a7faa",
+    background="#0b0e14",
+    surface="#111520",
+    panel="#192030",
+    boost="#7ebcf0",
+    foreground="#c4d0e0",
+    success="#6a9e7a",
+    warning="#b0a060",
+    error="#b06a6a",
+    accent="#7ebcf0",
+    dark=True,
+)
+
+INK = Theme(
+    name="ink",
+    primary="#4ecdc4",
+    secondary="#3a9e97",
+    background="#0e0e0e",
+    surface="#161616",
+    panel="#1e1e1e",
+    boost="#6ee0d9",
+    foreground="#c8c8c8",
+    success="#6a9e7a",
+    warning="#b0a060",
+    error="#b06a6a",
+    accent="#6ee0d9",
+    dark=True,
+)
+
+PAPER = Theme(
+    name="paper",
+    primary="#5a7d9a",
+    secondary="#7a9ab5",
+    background="#faf8f5",
+    surface="#f0eee8",
+    panel="#e6e3dc",
+    boost="#4a6d8a",
+    foreground="#2a2a2a",
+    success="#5a8a5a",
+    warning="#a08040",
+    error="#a05050",
+    accent="#4a6d8a",
     dark=False,
 )
 
-# Synthwave / cyberpunk neon
-SYNTHWAVE = Theme(
-    name="synthwave",
-    primary="#ff7edb",
-    secondary="#36f9f6",
-    background="#12091f",
-    surface="#1c1033",
-    panel="#2a1848",
-    boost="#f97e72",
-    foreground="#f5ebff",
-    success="#72f1b8",
-    warning="#fede5d",
-    error="#fe4450",
-    accent="#36f9f6",
+STONE = Theme(
+    name="stone",
+    primary="#c07856",
+    secondary="#a06040",
+    background="#121110",
+    surface="#1a1918",
+    panel="#232220",
+    boost="#d89070",
+    foreground="#ccc4b8",
+    success="#7a9e6a",
+    warning="#b0a060",
+    error="#b06a5a",
+    accent="#d89070",
     dark=True,
 )
 
 # Only register themes whose names are NOT already in Textual's builtins.
 _ALL_CUSTOM_THEMES: list[Theme] = [
     AVA_THEME,
-    AVA_LIGHT,
     EVERFOREST,
-    FLEXOKI_LIGHT,
-    MIDNIGHT,
-    ORANGES,
-    SYNTHWAVE,
+    SLATE,
+    PINE,
+    EMBER,
+    FROST,
+    INK,
+    PAPER,
+    STONE,
 ]
 _ALL_CUSTOM_THEMES = [t for t in _ALL_CUSTOM_THEMES if t.name not in BUILTIN_THEMES]
 
-# Full catalog: all Textual builtins + customs, sorted A–Z by name
+# Curated built-in list: drop near-duplicates (extra catppuccins, extra rose-pines, etc.)
+_KEEP_BUILTINS = {
+    "atom-one-dark",
+    "atom-one-light",
+    "catppuccin-mocha",
+    "dracula",
+    "flexoki",
+    "gruvbox",
+    "monokai",
+    "nord",
+    "rose-pine",
+    "solarized-dark",
+    "solarized-light",
+    "textual-dark",
+    "tokyo-night",
+}
+AVAILABLE_BUILTINS: list[str] = sorted(
+    name for name in BUILTIN_THEMES if name in _KEEP_BUILTINS
+)
+
+# Full catalog: curated builtins + customs, sorted A–Z by name
 AVAILABLE_THEMES: list[str] = sorted(
-    set(BUILTIN_THEMES.keys()) | {t.name for t in _ALL_CUSTOM_THEMES}
+    set(AVAILABLE_BUILTINS) | {t.name for t in _ALL_CUSTOM_THEMES}
 )
 
 # Old settings keys → current canonical theme names
 THEME_ALIASES: dict[str, str] = {
     "flexoki-dark": "flexoki",
     "gruvbox-dark": "gruvbox",
+    # Retired custom themes → nearest replacement
+    "ava-light": "paper",
+    "flexoki-light": "paper",
+    "midnight": "frost",
+    "oranges": "ember",
+    "synthwave": "ink",
 }
 
 # Descriptions for every built-in + custom (picker shows these)
 THEME_DESCRIPTIONS: dict[str, str] = {
     # Custom
-    "ava": "AVA default — violet + cyan on deep navy",
-    "ava-light": "AVA light — violet ink on cool paper",
-    "everforest": "Everforest — moss greens, soft contrast",
-    "flexoki-light": "Flexoki light — warm paper, ink blue",
-    "midnight": "Midnight — Tokyo-night blues",
-    "oranges": "Oranges — amber fire on charcoal",
-    "synthwave": "Synthwave — hot pink / neon cyan",
-    # Textual built-ins
+    "ava": "violet + cyan on deep navy",
+    "everforest": "moss greens, soft contrast",
+    "slate": "cool grays, steel blue accent",
+    "pine": "dark greens, sage accent",
+    "ember": "warm charcoal, amber accent",
+    "frost": "near-black, ice blue accent",
+    "ink": "true monochrome, teal accent",
+    "paper": "warm white, muted blue accent",
+    "stone": "dark warm gray, terracotta accent",
+    # Curated built-ins
     "atom-one-dark": "Atom One Dark",
     "atom-one-light": "Atom One Light",
-    "catppuccin-frappe": "Catppuccin Frappé — soft dark",
-    "catppuccin-latte": "Catppuccin Latte — light pastel",
-    "catppuccin-macchiato": "Catppuccin Macchiato — medium dark",
     "catppuccin-mocha": "Catppuccin Mocha — cozy dark",
-    "dracula": "Dracula",
-    "flexoki": "Flexoki — inky dark (built-in)",
-    "gruvbox": "Gruvbox — retro earthy",
-    "monokai": "Monokai — classic syntax colors",
-    "nord": "Nord — arctic blues",
-    "rose-pine": "Rosé Pine — main dark",
-    "rose-pine-dawn": "Rosé Pine Dawn — light",
-    "rose-pine-moon": "Rosé Pine Moon — moonlit dark",
+    "dracula": "purple dark",
+    "flexoki": "inky dark",
+    "gruvbox": "retro earthy",
+    "monokai": "classic syntax colors",
+    "nord": "arctic blues",
+    "rose-pine": "soft dark",
     "solarized-dark": "Solarized Dark",
     "solarized-light": "Solarized Light",
-    "textual-ansi": "Textual ANSI — terminal palette",
-    "textual-dark": "Textual Dark — default dark",
-    "textual-light": "Textual Light — default light",
+    "textual-dark": "default dark",
     "tokyo-night": "Tokyo Night",
 }
 
@@ -296,14 +350,14 @@ _____ ___  _______
      \/           \/ """
 MODES = ["text", "continuous", "wakeword"]
 MODE_LABELS = {
-    "text": "TEXT",
-    "continuous": "CONTINUOUS",
-    "wakeword": "WAKE WORD",
+    "text": "Text",
+    "continuous": "Continuous",
+    "wakeword": "Wakeword",
 }
 MODE_ICONS = {
-    "text": "⌨",
-    "continuous": "◉",
-    "wakeword": "◎",
+    "text": "💬",
+    "continuous": "∞",
+    "wakeword": "🎧",
 }
 MODE_DESCRIPTIONS = {
     "text": "keyboard",
@@ -422,7 +476,7 @@ class ChatMessage(Static):
         border-left: solid $accent;
         padding: 0 1;
         color: $foreground;
-        margin: 0 0 1 0;
+        margin: 0 0 0 0;
     }
     /* Ephemeral UI noise (theme, online, tips) — very faded, hide with /quiet */
     ChatMessage.system-msg {
@@ -647,143 +701,167 @@ class ToolCallPanel(Static):
             self.mount(result_widget)
 
 
-class ModeSwitcher(Static):
-    """Mode pills + description. Height must leave room for borders + button text."""
+class ModeDropdown(Static):
+    """Compact mode selector button placed right of the input bar.
+
+    Shows the current mode icon + label. Clicking opens a modal to pick
+    from all three modes.
+    """
 
     DEFAULT_CSS = """
-    ModeSwitcher {
+    ModeDropdown {
         height: 3;
-        width: 100%;
+        width: auto;
+        min-width: 10;
+        background: $panel;
+        border: tall $secondary 50%;
+        padding: 0 1;
+        margin: 0 0 0 0;
         layout: horizontal;
-        background: $surface;
-        border-bottom: solid $primary 15%;
-        padding: 0 2;
         align-vertical: middle;
     }
-    ModeSwitcher .mode-tag {
-        width: 6;
+    ModeDropdown:hover {
+        background: $boost;
+        border: tall $primary 50%;
+    }
+    ModeDropdown:focus {
+        border: tall $primary;
+    }
+    ModeDropdown #mode-current {
+        max-width: 12;
+    }
+    ModeDropdown #mode-current {
         height: 1;
-        content-align: left middle;
+        width: auto;
         color: $secondary;
         text-style: bold;
-    }
-    ModeSwitcher #mode-segment {
-        width: auto;
-        height: 1;
-        layout: horizontal;
-        align-vertical: middle;
-    }
-    ModeSwitcher #mode-segment Button {
-        width: auto;
-        min-width: 14;
-        height: 1;
-        min-height: 1;
-        max-height: 1;
-        margin: 0 1 0 0;
-        padding: 0 1;
-        border: none;
-        background: $panel;
-        color: $secondary;
-        text-style: none;
         content-align: center middle;
     }
-    ModeSwitcher #mode-segment Button:hover {
+    ModeDropdown:hover #mode-current {
         color: $foreground;
-        background: $boost;
-        border: none;
-    }
-    ModeSwitcher #mode-segment Button:focus {
-        border: none;
-        text-style: none;
-        color: $foreground;
-    }
-    ModeSwitcher #mode-segment Button.-primary {
-        background: $primary;
-        color: $background;
-        text-style: bold;
-        border: none;
-    }
-    ModeSwitcher #mode-segment Button.-primary:hover {
-        background: $boost;
-        color: $background;
-        border: none;
-    }
-    ModeSwitcher #mode-segment Button.-primary:focus {
-        background: $primary;
-        color: $background;
-        border: none;
-    }
-    ModeSwitcher .mode-desc {
-        width: 1fr;
-        height: 1;
-        content-align: right middle;
-        color: $secondary;
-        text-style: none;
-        padding: 0 0 0 1;
     }
     """
 
     current_mode: reactive[str] = reactive("text")
 
     def compose(self) -> ComposeResult:
-        yield Static("mode", classes="mode-tag")
-        with Horizontal(id="mode-segment"):
-            for mode in MODES:
-                is_active = mode == self.current_mode
-                label = f"{MODE_ICONS[mode]} {MODE_LABELS[mode]}"
-                yield Button(
-                    label,
-                    id=f"mode-{mode}",
-                    variant="primary" if is_active else "default",
-                    flat=True,
-                )
-        yield Static(
-            self._desc_for(self.current_mode),
-            id="mode-desc",
-            classes="mode-desc",
-        )
+        yield Static(self._label(), id="mode-current")
 
-    def _desc_for(self, mode: str) -> str:
-        return MODE_DESCRIPTIONS.get(mode, mode)
+    def _label(self) -> str:
+        icon = MODE_ICONS.get(self.current_mode, "⌨")
+        label = MODE_LABELS.get(self.current_mode, "TEXT")
+        return f"{icon} {label}"
 
     def watch_current_mode(self, mode: str) -> None:
         try:
-            self.query_one("#mode-desc", Static).update(self._desc_for(mode))
+            self.query_one("#mode-current", Static).update(self._label())
         except NoMatches:
             pass
+
+    def on_click(self) -> None:
+        self.post_message(self.OpenRequested())
+
+    def set_mode(self, mode: str) -> None:
+        if mode in MODES:
+            self.current_mode = mode
+
+    class OpenRequested(Message):
+        """Posted when the user clicks the mode dropdown button."""
+
+
+class ModeSelectorPopup(ModalScreen[str | None]):
+    """Compact mode selector popup — shows all three modes as clickable rows."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=True),
+        Binding("q", "cancel", "Cancel", show=False),
+    ]
+
+    CSS = """
+    ModeSelectorPopup {
+        align: center middle;
+        background: $background 40%;
+    }
+    #mode-popup {
+        width: 36;
+        height: auto;
+        background: $panel;
+        border: solid $primary;
+        padding: 0 1;
+        layout: vertical;
+    }
+    #mode-popup .popup-title {
+        height: 1;
+        color: $primary;
+        text-style: bold;
+        margin: 0 0 0 0;
+    }
+    #mode-popup .popup-hint {
+        height: 1;
+        color: $secondary;
+        text-style: none;
+        margin: 0 0 0 0;
+    }
+    #mode-popup Button {
+        width: 100%;
+        height: 1;
+        min-height: 1;
+        padding: 0 1;
+        margin: 0;
+        background: $surface;
+        border: none;
+        color: $foreground;
+        text-style: none;
+        text-align: left;
+        content-align: left middle;
+    }
+    #mode-popup Button:hover {
+        background: $boost;
+        border: none;
+        color: $foreground;
+    }
+    #mode-popup Button.-primary {
+        background: $primary 25%;
+        border: none;
+        color: $foreground;
+        text-style: bold;
+    }
+    #mode-popup Button.-primary:hover {
+        background: $primary 40%;
+        border: none;
+        color: $foreground;
+    }
+    """
+
+    def __init__(self, current_mode: str = "text", **kwargs):
+        super().__init__(**kwargs)
+        self._current = current_mode
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mode-popup"):
+            yield Static("⚡  select mode", classes="popup-title")
+            yield Static("click to select  ·  esc cancel", classes="popup-hint")
+            for mode in MODES:
+                icon = MODE_ICONS[mode]
+                label = MODE_LABELS[mode]
+                desc = MODE_DESCRIPTIONS[mode]
+                yield Button(
+                    f" {icon}  {label}  ·  {desc}",
+                    id=f"opt-{mode}",
+                    variant="primary" if mode == self._current else "default",
+                    flat=True,
+                )
 
     @on(Button.Pressed)
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id or ""
-        if button_id.startswith("mode-"):
-            new_mode = button_id[5:]
-            if new_mode in MODES:
-                self.set_mode(new_mode)
+        bid = event.button.id or ""
+        if bid.startswith("opt-"):
+            mode = bid[4:]
+            if mode in MODES:
+                self.dismiss(mode)
 
-    def set_mode(self, mode: str) -> None:
-        if mode not in MODES:
-            return
-        prev = self.current_mode
-        self.current_mode = mode
-        for m in MODES:
-            try:
-                btn = self.query_one(f"#mode-{m}", Button)
-                btn.variant = "primary" if m == mode else "default"
-            except NoMatches:
-                pass
-        try:
-            self.query_one("#mode-desc", Static).update(self._desc_for(mode))
-        except NoMatches:
-            pass
-        if mode != prev:
-            self.post_message(self.ModeChanged(mode))
-
-    class ModeChanged(Message):
-        """Posted when user switches mode."""
-
-        def __init__(self, mode: str) -> None:
-            super().__init__()
-            self.mode = mode
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class StatusBar(Static):
@@ -791,11 +869,16 @@ class StatusBar(Static):
 
     DEFAULT_CSS = """
     StatusBar {
-        dock: bottom;
         height: 1;
+        min-height: 1;
+        max-height: 1;
+        width: 100%;
         padding: 0 1;
         background: $panel;
         color: $secondary;
+    }
+    StatusBar.hidden {
+        display: none;
     }
     """
 
@@ -1035,7 +1118,7 @@ class ThemePickerModal(ModalScreen[str | None]):
         background: $background 40%;
     }
     #theme-dialog {
-        width: 62;
+        width: 70;
         height: auto;
         max-height: 90%;
         background: $panel;
@@ -1064,9 +1147,9 @@ class ThemePickerModal(ModalScreen[str | None]):
         color: $foreground;
     }
     #theme-dialog #theme-list {
-        height: 18;
-        min-height: 12;
-        max-height: 24;
+        height: 16;
+        min-height: 10;
+        max-height: 20;
         border: solid $secondary;
         background: $surface;
         padding: 0 0;
@@ -1132,6 +1215,8 @@ class ThemePickerModal(ModalScreen[str | None]):
             # AVAILABLE_THEMES is already sorted by name
             for i, name in enumerate(AVAILABLE_THEMES):
                 desc = _theme_description(name)
+                if len(desc) > 36:
+                    desc = desc[:33] + "..."
                 mark = "●" if name == self._original else "○"
                 options.append(
                     Option(f"{mark}  {name}   {desc}", id=name)
@@ -2113,22 +2198,45 @@ class HistorySidebar(Static):
 
     DEFAULT_CSS = """
     HistorySidebar {
-        width: 22;
-        min-width: 16;
+        width: 18;
+        min-width: 14;
         height: 1fr;
         background: $background;
         border-right: solid $panel;
         layout: vertical;
         padding: 1 0 0 0;
     }
+    HistorySidebar .sidebar-header {
+        height: 1;
+        width: 100%;
+        padding: 0;
+        margin: 0 0 1 0;
+        layout: horizontal;
+        align-vertical: middle;
+    }
     HistorySidebar .sidebar-title {
         height: 1;
+        width: 1fr;
         padding: 0 1;
-        margin: 0 0 1 0;
         color: $secondary;
         text-style: bold;
         background: transparent;
         content-align: left middle;
+    }
+    HistorySidebar .sidebar-close {
+        height: 1;
+        width: 3;
+        min-width: 3;
+        padding: 0;
+        margin: 0;
+        background: transparent;
+        border: none;
+        color: $secondary;
+        content-align: center middle;
+    }
+    HistorySidebar .sidebar-close:hover {
+        color: $error;
+        background: $panel;
     }
     HistorySidebar #history-list {
         height: 1fr;
@@ -2159,7 +2267,9 @@ class HistorySidebar(Static):
         self._names: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
-        yield Static("Chats", classes="sidebar-title")
+        with Horizontal(classes="sidebar-header"):
+            yield Static("Chats", classes="sidebar-title")
+            yield Button("×", id="btn-close-history", classes="sidebar-close", flat=True)
         yield VerticalScroll(id="history-list")
 
     def on_mount(self) -> None:
@@ -2246,24 +2356,45 @@ class TasksSidebar(Static):
 
     DEFAULT_CSS = """
     TasksSidebar {
-        width: 30;
-        min-width: 24;
+        width: 26;
+        min-width: 20;
         height: 1fr;
         background: $background;
         border-left: solid $panel;
         layout: vertical;
         padding: 0;
     }
+    TasksSidebar .sidebar-header {
+        height: 1;
+        width: 100%;
+        padding: 0;
+        margin: 0;
+        layout: horizontal;
+        align-vertical: middle;
+    }
     TasksSidebar .sidebar-title {
         height: 1;
-        min-height: 1;
-        max-height: 1;
+        width: 1fr;
         padding: 0 1;
-        margin: 0;
         color: $secondary;
         text-style: bold;
         background: $background;
         content-align: left middle;
+    }
+    TasksSidebar .sidebar-close {
+        height: 1;
+        width: 3;
+        min-width: 3;
+        padding: 0;
+        margin: 0;
+        background: transparent;
+        border: none;
+        color: $secondary;
+        content-align: center middle;
+    }
+    TasksSidebar .sidebar-close:hover {
+        color: $error;
+        background: $panel;
     }
     TasksSidebar #tasks-live-list {
         height: 1fr;
@@ -2317,7 +2448,9 @@ class TasksSidebar(Static):
         self._last_render_key: tuple = ()
 
     def compose(self) -> ComposeResult:
-        yield Static("TASKS", classes="sidebar-title")
+        with Horizontal(classes="sidebar-header"):
+            yield Static("TASKS", classes="sidebar-title")
+            yield Button("×", id="btn-close-tasks", classes="sidebar-close", flat=True)
         yield VerticalScroll(id="tasks-live-list")
 
     def on_mount(self) -> None:
@@ -2976,7 +3109,7 @@ Footer .footer--description {
 #chat-scroll {
     width: 100%;
     height: 1fr;
-    padding: 1 0;
+    padding: 0 0;
     background: $background;
     scrollbar-size: 1 1;
     scrollbar-background: $background;
@@ -2985,12 +3118,12 @@ Footer .footer--description {
 #chat-log {
     width: 100%;
     height: auto;
-    padding: 0 2;
+    padding: 0 1;
 }
 /* Splash banner stays; system log lines can be muted via /quiet */
 #chat-log .splash {
     color: $foreground 45%;
-    margin: 0 0 1 0;
+    margin: 0;
     padding: 0 1;
 }
 #chat-log.-quiet ChatMessage.system-msg {
@@ -3007,14 +3140,14 @@ Footer .footer--description {
 #input-bar {
     height: 4;
     min-height: 4;
-    padding: 0 2;
+    padding: 0 3;
     background: $background;
-    border-top: solid $surface;
+    border-top: solid $surface 50%;
     layout: horizontal;
     align-vertical: middle;
 }
 #user-input {
-    width: 100%;
+    width: 1fr;
     height: 3;
     min-height: 3;
     background: $panel;
@@ -3034,7 +3167,7 @@ Footer .footer--description {
 #slash-palette {
     display: none;
     height: auto;
-    max-height: 12;
+    max-height: 8;
     width: 100%;
     background: $surface;
     border-top: solid $panel;
@@ -3485,6 +3618,14 @@ class AVAApp(App):
 
     # ── Sidebars ──────────────────────────────────────────────────────────────
 
+    @on(Button.Pressed, "#btn-close-history")
+    def on_close_history(self) -> None:
+        self.action_toggle_history_sidebar()
+
+    @on(Button.Pressed, "#btn-close-tasks")
+    def on_close_tasks(self) -> None:
+        self.action_toggle_tasks_sidebar()
+
     def action_toggle_history_sidebar(self) -> None:
         self.history_sidebar_visible = not self.history_sidebar_visible
         self._apply_sidebar_visibility()
@@ -3564,7 +3705,6 @@ class AVAApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield ModeSwitcher(id="mode-switcher")
         with Vertical(id="app-grid"):
             with Horizontal(id="main-body"):
                 yield HistorySidebar(id="history-sidebar")
@@ -3578,10 +3718,9 @@ class AVAApp(App):
                             placeholder=f"message {ASSISTANT_NAME.lower()}...  ·  / for commands",
                             id="user-input",
                         )
+                        yield ModeDropdown(id="mode-dropdown")
+                    yield StatusBar(id="status-bar")
                 yield TasksSidebar(id="tasks-sidebar")
-        yield StatusBar(id="status-bar")
-        # No built-in "Open command palette" control — AVA uses / commands
-        yield Footer(show_command_palette=False)
 
     # ── Main response loop ────────────────────────────────────────────────────
 
@@ -3607,8 +3746,8 @@ class AVAApp(App):
         )
 
         try:
-            switcher = self.query_one(ModeSwitcher)
-            switcher.set_mode(self.current_mode)
+            dropdown = self.query_one(ModeDropdown)
+            dropdown.set_mode(self.current_mode)
         except NoMatches:
             pass
         mode_label = MODE_LABELS.get(self.current_mode, self.current_mode).lower()
@@ -3619,6 +3758,12 @@ class AVAApp(App):
         self._add_system_message("ctrl+h history  ·  ctrl+b tasks  ·  /quiet hides this log")
         self._apply_system_log_visibility()
         self._apply_sidebar_visibility()
+
+        # Start with status bar hidden
+        try:
+            self.query_one("#status-bar", StatusBar).add_class("hidden")
+        except NoMatches:
+            pass
 
         # Always-on services (idempotent if CLI already started them)
         try:
@@ -3657,23 +3802,39 @@ class AVAApp(App):
 
     # ── Mode switching ────────────────────────────────────────────────────────
 
-    def on_mode_switcher_mode_changed(self, message: ModeSwitcher.ModeChanged) -> None:
-        self._switch_mode(message.mode)
+    @on(ModeDropdown.OpenRequested)
+    def on_mode_dropdown_open_requested(self, message: ModeDropdown.OpenRequested) -> None:
+        self._open_mode_selector()
+
+    def _open_mode_selector(self) -> None:
+        current = self.current_mode
+
+        def _on_select(mode: str | None) -> None:
+            if mode and mode in MODES:
+                self._switch_mode(mode)
+            try:
+                self.query_one("#user-input", Input).focus()
+            except NoMatches:
+                pass
+
+        self.push_screen(ModeSelectorPopup(current_mode=current), _on_select)
 
     def action_cycle_mode(self) -> None:
         idx = MODES.index(self.current_mode) if self.current_mode in MODES else 0
         new_mode = MODES[(idx + 1) % len(MODES)]
-        try:
-            switcher = self.query_one(ModeSwitcher)
-            switcher.set_mode(new_mode)
-        except NoMatches:
-            self._switch_mode(new_mode)
+        self._switch_mode(new_mode)
 
     def _switch_mode(self, new_mode: str) -> None:
         old_mode = self.current_mode
         if new_mode == old_mode:
             return
         self.current_mode = new_mode
+        # Update the mode dropdown button
+        try:
+            dropdown = self.query_one(ModeDropdown)
+            dropdown.set_mode(new_mode)
+        except NoMatches:
+            pass
         self._add_system_message(
             f"mode → {MODE_LABELS.get(new_mode, new_mode).lower()}"
         )
@@ -3867,11 +4028,7 @@ class AVAApp(App):
             if text.lower().startswith("/mode "):
                 mode_arg = text[6:].strip().lower()
                 if mode_arg in MODES:
-                    try:
-                        switcher = self.query_one(ModeSwitcher)
-                        switcher.set_mode(mode_arg)
-                    except NoMatches:
-                        self._switch_mode(mode_arg)
+                    self._switch_mode(mode_arg)
                 else:
                     self._add_system_message(
                         f"invalid mode: {mode_arg}  ·  text/continuous/wakeword"
@@ -4149,12 +4306,12 @@ class AVAApp(App):
                             # Extend timeout significantly for work in progress
                             timeout = max(tts_piper.get_last_duration() + 7, 45)  # Minimum 45 seconds
                             print(f"[TUI VoiceMode] Extended timeout to {timeout}s (work in progress)")
-                            
+
                             # Clear the flag now that we're waiting
                             expecting_followup.clear()
                         else:
                             timeout = tts_piper.get_last_duration() + 7
-                            
+
                         continued, _ = recorder.record(
                             timeout=timeout, silence_duration=2.5
                         )
@@ -4288,12 +4445,12 @@ class AVAApp(App):
                         # Extend timeout significantly for work in progress
                         timeout = max(tts_piper.get_last_duration() + 7, 45)  # Minimum 45 seconds
                         print(f"[TUI WakewordMode] Extended timeout to {timeout}s (work in progress)")
-                        
+
                         # Clear the flag now that we're waiting
                         expecting_followup.clear()
                     else:
                         timeout = tts_piper.get_last_duration() + 7
-                        
+
                     continued, _ = recorder.record(timeout=timeout)
                     if continued:
                         stop_event.clear()
@@ -4578,6 +4735,12 @@ class AVAApp(App):
         try:
             bar = self.query_one("#status-bar", StatusBar)
             bar.status_text = text
+            low = (text or "").lower()
+            # Hide bar when idle; show for active states
+            if low.startswith("ready") or not text or low.startswith("sidebars"):
+                bar.add_class("hidden")
+            else:
+                bar.remove_class("hidden")
         except NoMatches:
             pass
 

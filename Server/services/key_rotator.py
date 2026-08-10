@@ -256,6 +256,13 @@ def chat_completions_create(
                     f"[{label}] ok with rotated key {rotator.mask(key)} "
                     f"after {i} fail(s)"
                 )
+            # Best-effort daily per-model token accounting (main / research / dreamer).
+            try:
+                from services.token_usage import record_usage
+
+                record_usage(model=model, response=resp, label=label)
+            except Exception as usage_err:
+                print(f"[{label}] token usage record skipped: {usage_err}")
             return resp
         except Exception as e:
             last_err = e

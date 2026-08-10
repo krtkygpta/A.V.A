@@ -206,106 +206,121 @@ def voice_mode_continuous():
     """
     from utils import stt_hybrid as stt
     from utils import tts_piper
+    from core.AppStates import (
+        expecting_followup,
+        reset_conversation_flags,
+        voice_session_active,
+        work_in_progress,
+    )
 
     tts_piper.init_tts()
     print(f"[{ASSISTANT_NAME.upper()}] Ready.")
+    voice_session_active.set()
+    try:
+        from core.TaskManager import set_mode
+
+        set_mode("continuous")
+    except Exception:
+        pass
 
     recorder = stt.VoiceRecorder()
-    while True:
-        # Phase 1: Listen for any speech
-        success, filename = recorder.record()
-        if success:
-            # Get Whisper transcription (background thread started at end of record())
-            prompt = recorder.get_whisper_result(timeout=15)
-            transcription = prompt if prompt is not None else ""
+    try:
+        while True:
+            # Phase 1: Listen for any speech
+            success, filename = recorder.record()
+            if success:
+                # Get Whisper transcription (background thread started at end of record())
+                prompt = recorder.get_whisper_result(timeout=15)
+                transcription = prompt if prompt is not None else ""
 
-            # Check for wake words
-            if any(
-                word in transcription.lower()
-                for word in ["ava", "assistant", "eva", "ayva", "evaa"]
-            ):
-                # Clear any previous false detection output and show wake word detected
-                cleanup_false_detection()
-                print(f"[{ASSISTANT_NAME.upper()}] Wake word detected!")
+                # Check for wake words
+                if any(
+                    word in transcription.lower()
+                    for word in ["ava", "assistant", "eva", "ayva", "evaa"]
+                ):
+                    # Clear any previous false detection output and show wake word detected
+                    cleanup_false_detection()
+                    print(f"[{ASSISTANT_NAME.upper()}] Wake word detected!")
 
-                # Wake word detected — start a new conversation thread
-                start_new_conversation()
-                reset_messages()
-                duck_volume()
+                    # Wake word detected — start a new conversation thread
+                    start_new_conversation()
+                    reset_messages()
+                    duck_volume()
 
-                while True:
-                    # Wait for any ongoing response to finish before proceeding
-                    while main_runner.is_set() or main_running.is_set():
-                        time.sleep(0.01)
+                    while True:
+                        # Wait for any ongoing response (incl. DONE announce) to finish
+                        while main_runner.is_set() or main_running.is_set():
+                            time.sleep(0.01)
 
-                    transcription = f"{USER_NAME}: " + transcription
-                    _print_user_block(transcription)
+                        transcription = f"{USER_NAME}: " + transcription
+                        _print_user_block(transcription)
 
-                    # Check for exit commands
-                    if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
-                        print(
-                            f"{COLOR_YELLOW}{ASSISTANT_NAME.upper()}: {random.choice(EXIT_RESPONSES)}{COLOR_RESET}"
-                        )
-                        break
-                    else:
-                        # Send user message to the LLM
-                        add_message(role="user", content=transcription, tool_id="")
-
-                        # Wait for main() to finish generating the response + TTS
-                        _wait_for_response_complete()
-
-                        # Measure TTS audio duration to set continued conversation timeout
-                        # (give user speech_duration + 7 seconds to respond)
-                        timeout = tts_piper.get_last_duration() + 7
-                        
-                        # Check if we're expecting follow-up from the model (work in progress)
-                        from core.AppStates import expecting_followup, work_in_progress
-                        if expecting_followup.is_set() or work_in_progress.is_set():
-                            # Extend timeout significantly for work in progress
-                            timeout = max(timeout, 45)  # Minimum 45 seconds
-                            print(f"[VoiceMode] Extended timeout to {timeout}s (work in progress)")
-                            
-                            # Clear the flag now that we're waiting
-                            expecting_followup.clear()
-                        
-                        # Listen for continued conversation
-                        # Reduced silence_duration from 4.0s → 2.5s for faster turnaround
-                        continued_convo, filename = recorder.record(
-                            timeout=timeout, silence_duration=2.5
-                        )
-                        if stop_chat_flag.is_set():
-                            stop_chat_flag.clear()
+                        # Check for exit commands
+                        if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
+                            print(
+                                f"{COLOR_YELLOW}{ASSISTANT_NAME.upper()}: {random.choice(EXIT_RESPONSES)}{COLOR_RESET}"
+                            )
                             break
-                        if continued_convo:
-                            stop_event.clear()
-                            transcription = str(recorder.get_whisper_result(timeout=15))
-                            continue
                         else:
-                            # If we were expecting follow-up but timed out, try one more time
+                            # Send user message to the LLM
+                            add_message(role="user", content=transcription, tool_id="")
+
+                            # Wait for main() to finish generating the response + TTS
+                            _wait_for_response_complete()
+
+                            # DONE/chained actions wake generate independently —
+                            # no need to keep this chat open until research ends.
+                            timeout = tts_piper.get_last_duration() + 7
+                            if expecting_followup.is_set() or work_in_progress.is_set():
+                                timeout = max(timeout, 45)
+                                print(
+                                    f"[VoiceMode] Extended timeout to {timeout}s "
+                                    "(work in progress)"
+                                )
+                                expecting_followup.clear()
+
+                            continued_convo, filename = recorder.record(
+                                timeout=timeout, silence_duration=2.5
+                            )
+                            if stop_chat_flag.is_set():
+                                stop_chat_flag.clear()
+                                break
+                            if continued_convo:
+                                stop_event.clear()
+                                transcription = str(
+                                    recorder.get_whisper_result(timeout=15)
+                                )
+                                continue
+
                             if work_in_progress.is_set():
                                 work_in_progress.clear()
-                                print("[VoiceMode] Work in progress timed out, giving extra grace period...")
-                                timeout = 30  # Additional grace period
+                                print(
+                                    "[VoiceMode] Work in progress timed out, "
+                                    "giving extra grace period..."
+                                )
                                 continued_convo, filename = recorder.record(
-                                    timeout=timeout, silence_duration=2.5
+                                    timeout=30, silence_duration=2.5
                                 )
                                 if continued_convo:
                                     stop_event.clear()
-                                    transcription = str(recorder.get_whisper_result(timeout=15))
+                                    transcription = str(
+                                        recorder.get_whisper_result(timeout=15)
+                                    )
                                     continue
                             stop_event.clear()
                             break
-                # Conversation ended — save before going back to listening
-                from core.AppStates import reset_conversation_flags
-                reset_conversation_flags()
-                unduck_volume()
-                save_current_conversation()
-                print(
-                    f"\n[{ASSISTANT_NAME.upper()}] Conversation ended. Listening for wake word..."
-                )
-            else:
-                # Clear the false detection line without clearing the whole screen
-                cleanup_false_detection()
+                    # Conversation ended — save before going back to listening
+                    reset_conversation_flags()
+                    unduck_volume()
+                    save_current_conversation()
+                    print(
+                        f"\n[{ASSISTANT_NAME.upper()}] Conversation ended. Listening for wake word..."
+                    )
+                else:
+                    # Clear the false detection line without clearing the whole screen
+                    cleanup_false_detection()
+    finally:
+        voice_session_active.clear()
 
 
 def voice_mode_wakeword():
@@ -321,8 +336,17 @@ def voice_mode_wakeword():
     from utils import tts_piper
     from utils.wakeword import WakeWordDetector
 
+    from core.AppStates import voice_session_active
+
     tts_piper.init_tts()
     print(f"[{ASSISTANT_NAME.upper()}] Ready.")
+    voice_session_active.set()
+    try:
+        from core.TaskManager import set_mode
+
+        set_mode("wakeword")
+    except Exception:
+        pass
 
     print(f"[{ASSISTANT_NAME.upper()}] Initializing wake word detector...")
     try:
@@ -332,6 +356,7 @@ def voice_mode_wakeword():
         print(
             f"[{ASSISTANT_NAME.upper()}] Falling back to continuous listening mode..."
         )
+        voice_session_active.clear()
         voice_mode_continuous()
         return
 
@@ -341,122 +366,131 @@ def voice_mode_wakeword():
         f"[{ASSISTANT_NAME.upper()}] Ready. Say '{ASSISTANT_NAME}', 'Ava', or 'Assistant' to wake me up."
     )
 
-    while True:
-        # Phase 1: Wait for wake word (low CPU — Vosk only)
-        print(f"[{ASSISTANT_NAME.upper()}] Listening... ", end="")
-        sys.stdout.flush()
-        detector.listen_for_wakeword()
-        # Clear the "Listening..." text
-        sys.stdout.write("\033[K\r")  # Clear line and move cursor to start
-        sys.stdout.flush()
-        # play startup chime
-        chime.play()
-        # Wake word detected — start a NEW conversation thread
-        start_new_conversation()
-        reset_messages()
-        duck_volume()
-
-        print(f"[{ASSISTANT_NAME.upper()}] Yes, sir?")
-
-        # Phase 2: Listen for the actual command
-        success, filename = recorder.record(timeout=5)
-
-        if not success:
-            print(
-                f"[{ASSISTANT_NAME.upper()}] I didn't catch that. Going back to sleep."
-            )
-            unduck_volume()
-            save_current_conversation()
-            detector.reset()
-            continue
-
-        # Use background Whisper (already started by recorder.record())
-        # instead of calling stt.transcribe_whisper() again (avoids duplicate work)
-        transcription = recorder.get_whisper_result(timeout=15) or ""
-
-        if not transcription.strip():
-            print(
-                f"[{ASSISTANT_NAME.upper()}] I didn't hear anything. Going back to sleep."
-            )
-            unduck_volume()
-            save_current_conversation()
-            detector.reset()
-            continue
-
-        # Phase 3: Conversation loop
+    try:
         while True:
-            if not main_runner.is_set():
-                full_transcription = f"{USER_NAME}: " + transcription
-                _print_user_block(full_transcription)
+            # Phase 1: Wait for wake word (low CPU — Vosk only)
+            print(f"[{ASSISTANT_NAME.upper()}] Listening... ", end="")
+            sys.stdout.flush()
+            detector.listen_for_wakeword()
+            # Clear the "Listening..." text
+            sys.stdout.write("\033[K\r")  # Clear line and move cursor to start
+            sys.stdout.flush()
+            # play startup chime
+            chime.play()
+            # Wake word detected — start a NEW conversation thread
+            start_new_conversation()
+            reset_messages()
+            duck_volume()
 
-                # Check for exit commands
-                if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
-                    response = random.choice(EXIT_RESPONSES)
-                    speak(response)
-                    break
+            print(f"[{ASSISTANT_NAME.upper()}] Yes, sir?")
 
-                # Send to LLM
-                add_message(role="user", content=full_transcription, tool_id="")
+            # Phase 2: Listen for the actual command
+            success, filename = recorder.record(timeout=5)
 
-                # Freeze threshold adaptation while TTS plays — speaker bleed through
-                # the mic would otherwise inflate the noise floor and make the user's
-                # next speech appear quieter than the threshold
-                recorder.freeze_noise_floor = True
-                # Wait for response to complete
-                _wait_for_response_complete()
-                recorder.freeze_noise_floor = False
+            if not success:
+                print(
+                    f"[{ASSISTANT_NAME.upper()}] I didn't catch that. Going back to sleep."
+                )
+                unduck_volume()
+                save_current_conversation()
+                detector.reset()
+                continue
 
-                # Listen for continued conversation
-                timeout = tts_piper.get_last_duration() + 7
-                
-                # Check if we're expecting follow-up from the model (work in progress)
-                from core.AppStates import expecting_followup, work_in_progress
-                if expecting_followup.is_set() or work_in_progress.is_set():
-                    # Extend timeout significantly for work in progress
-                    timeout = max(timeout, 45)  # Minimum 45 seconds
-                    print(f"[VoiceMode] Extended timeout to {timeout}s (work in progress)")
-                    
-                    # Clear the flag now that we're waiting
-                    expecting_followup.clear()
-                
-                continued_convo, filename = recorder.record(timeout=timeout)
+            # Use background Whisper (already started by recorder.record())
+            # instead of calling stt.transcribe_whisper() again (avoids duplicate work)
+            transcription = recorder.get_whisper_result(timeout=15) or ""
 
-                if stop_chat_flag.is_set():
-                    stop_chat_flag.clear()
-                    break
+            if not transcription.strip():
+                print(
+                    f"[{ASSISTANT_NAME.upper()}] I didn't hear anything. Going back to sleep."
+                )
+                unduck_volume()
+                save_current_conversation()
+                detector.reset()
+                continue
 
-                if continued_convo:
-                    stop_event.clear()
-                    # Use background Whisper (already started by recorder.record())
-                    transcription = recorder.get_whisper_result(timeout=15) or ""
-                    if transcription.strip():
-                        continue
-                    else:
+            # Phase 3: Conversation loop
+            while True:
+                # Wait out DONE-triggered generate that may have started mid-listen
+                while main_runner.is_set() or main_running.is_set():
+                    time.sleep(0.01)
+
+                if not main_runner.is_set():
+                    full_transcription = f"{USER_NAME}: " + transcription
+                    _print_user_block(full_transcription)
+
+                    # Check for exit commands
+                    if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
+                        response = random.choice(EXIT_RESPONSES)
+                        speak(response)
                         break
-                else:
-                    # If we were expecting follow-up but timed out, try one more time
-                    if work_in_progress.is_set():
+
+                    # Send to LLM
+                    add_message(role="user", content=full_transcription, tool_id="")
+
+                    # Freeze threshold adaptation while TTS plays — speaker bleed through
+                    # the mic would otherwise inflate the noise floor and make the user's
+                    # next speech appear quieter than the threshold
+                    recorder.freeze_noise_floor = True
+                    # Wait for response to complete
+                    _wait_for_response_complete()
+                    recorder.freeze_noise_floor = False
+
+                    # Listen for continued conversation. DONE/chained actions
+                    # wake generate independently (no keep-open until research ends).
+                    from core.AppStates import expecting_followup, work_in_progress
+
+                    timeout = tts_piper.get_last_duration() + 7
+                    if expecting_followup.is_set() or work_in_progress.is_set():
+                        timeout = max(timeout, 45)
+                        print(
+                            f"[VoiceMode] Extended timeout to {timeout}s "
+                            "(work in progress)"
+                        )
+                        expecting_followup.clear()
+
+                    continued_convo, filename = recorder.record(timeout=timeout)
+
+                    if stop_chat_flag.is_set():
+                        stop_chat_flag.clear()
+                        break
+
+                    if continued_convo:
+                        stop_event.clear()
+                        # Use background Whisper (already started by recorder.record())
+                        transcription = recorder.get_whisper_result(timeout=15) or ""
+                        if transcription.strip():
+                            continue
+                    if not continued_convo and work_in_progress.is_set():
                         work_in_progress.clear()
-                        print("[VoiceMode] Work in progress timed out, giving extra grace period...")
-                        timeout = 30  # Additional grace period
-                        continued_convo, filename = recorder.record(timeout=timeout)
+                        print(
+                            "[VoiceMode] Work in progress timed out, "
+                            "giving extra grace period..."
+                        )
+                        continued_convo, filename = recorder.record(timeout=30)
                         if continued_convo:
                             stop_event.clear()
-                            transcription = recorder.get_whisper_result(timeout=15) or ""
+                            transcription = (
+                                recorder.get_whisper_result(timeout=15) or ""
+                            )
                             if transcription.strip():
                                 continue
                     stop_event.clear()
                     break
 
-        # Conversation ended — save and go back to wake word listening
-        from core.AppStates import reset_conversation_flags
-        reset_conversation_flags()
-        unduck_volume()
-        save_current_conversation()
-        detector.reset()
-        print(
-            f"[{ASSISTANT_NAME.upper()}] Going back to sleep. Say my name when you need me."
-        )
+            # Conversation ended — save and go back to wake word listening
+            from core.AppStates import reset_conversation_flags
+
+            reset_conversation_flags()
+            unduck_volume()
+            save_current_conversation()
+            detector.reset()
+            print(
+                f"[{ASSISTANT_NAME.upper()}] Going back to sleep. "
+                "Say my name when you need me."
+            )
+    finally:
+        voice_session_active.clear()
 
 
 def text_mode():

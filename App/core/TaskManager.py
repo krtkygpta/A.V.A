@@ -48,7 +48,7 @@ KIND_BY_TASK_TYPE = {
     "demo": "long",  # timed test job — sticky inbox by default
     "timer": "short",
     "scrape": "short",
-    "smarthome": "short",
+    # "smarthome": "short",
 }
 DEFAULT_KIND = "short"
 
@@ -1142,23 +1142,54 @@ class NotificationDecisionEngine:
     def decide_notification_strategy(self, task: BackgroundTask) -> NotificationStrategy:
         """Pick how to surface a finished job.
 
-        JARVIS rule: if the user is in an active chat, the main agent must
-        speak a short update (NEXT_RESPONSE). Sticky inbox is the *offline*
-        fallback, not a replacement for mid-chat announcement.
+        Product rules:
+        1. REQUIRED ACTION (research→send, timer→WhatsApp, …) ALWAYS wakes the
+           main agent once — tools must run even if the chat timed out.
+        2. Active chat OR live voice session → wake main for a one-shot outcome
+           (speak / optional notif). No keep-open conversation loop required.
+        3. Away in pure text with no chained action → defer to next user turn
+           so the result is latest context then (inbox + DONE flush).
 
         Empty ``task.conversation_id`` is treated as belonging to the current
         chat (orphan attach) — never as a reason to stay silent.
         """
         is_active = self.state_manager.is_conversation_active
+        meta = getattr(task, "metadata", None) or {}
+        has_main_action = bool(
+            str(meta.get("follow_up_main_action") or "").strip()
+        )
+
+        # Voice modes count as "present" even after a listen timeout ends the chat.
+        voice_present = False
+        try:
+            from core.AppStates import voice_session_active
+
+            voice_present = voice_session_active.is_set()
+        except Exception:
+            voice_present = False
+        mode_name = (self.state_manager.current_mode or "").lower()
+        if mode_name in ("continuous", "wakeword", "vosk"):
+            voice_present = True
+
         # Urgent interrupt only for real alarms — not every timer (default silent).
         mode = normalize_alert_mode(getattr(task, "alert_mode", None))
         is_urgent = task.priority in (TaskPriority.HIGH, TaskPriority.URGENT) or (
             mode == "continuous"
         )
 
+        # Chained work the MAIN agent must execute (send WhatsApp, etc.).
+        # Never defer — otherwise research ends and the message never goes out.
+        if has_main_action:
+            return NotificationStrategy(
+                delivery_method=DeliveryMethod.IMMEDIATE,
+                notification_text=task.to_compact_done(),
+                interrupt_current=True,
+                priority=TaskPriority.URGENT,
+                task_id=task.id,
+            )
 
-        # User is present → always wake main (same/different/empty origin).
-        if is_active:
+        # User is present (text chat open OR voice mode running) → one-shot wake.
+        if is_active or voice_present:
             return NotificationStrategy(
                 delivery_method=DeliveryMethod.NEXT_RESPONSE,
                 notification_text=task.to_compact_done(),
@@ -1167,7 +1198,7 @@ class NotificationDecisionEngine:
                 task_id=task.id,
             )
 
-        # Away (idle / wake-word / no conversation): hard interrupt for timers.
+        # Away (idle / no voice session): hard interrupt for timers.
         if is_urgent:
             return NotificationStrategy(
                 delivery_method=DeliveryMethod.IMMEDIATE,
@@ -1177,6 +1208,7 @@ class NotificationDecisionEngine:
                 task_id=task.id,
             )
 
+        # Pure result (no tools needed): hold for next conversation as context.
         return NotificationStrategy(
             delivery_method=DeliveryMethod.QUEUE_FOR_IDLE,
             notification_text=task.to_idle_notification(),
@@ -1806,40 +1838,40 @@ class TimerAgent(SubAgent):
         return self.message
 
 
-class SmartHomeAgent(SubAgent):
-    """Short job: exclusive smarthome lane so device batches never interleave."""
+# class SmartHomeAgent(SubAgent):
+#     """Short job: exclusive smarthome lane so device batches never interleave."""
 
-    def __init__(self, command: str, conversation_id: str = "",
-                 conversation_name: str = "", kind: Optional[str] = None):
-        super().__init__(
-            task_name=f"SmartHome: {command[:20]}...",
-            task_description=f"Executing smart home command: {command}",
-            conversation_id=conversation_id,
-            conversation_name=conversation_name,
-            original_query=command,
-            task_type="smarthome",
-            # Short by default: one-shot notify, never sticky inbox.
-            kind=kind if kind in ("short", "long") else "short",
-        )
-        self.command = command
+#     def __init__(self, command: str, conversation_id: str = "",
+#                  conversation_name: str = "", kind: Optional[str] = None):
+#         super().__init__(
+#             task_name=f"SmartHome: {command[:20]}...",
+#             task_description=f"Executing smart home command: {command}",
+#             conversation_id=conversation_id,
+#             conversation_name=conversation_name,
+#             original_query=command,
+#             task_type="smarthome",
+#             # Short by default: one-shot notify, never sticky inbox.
+#             kind=kind if kind in ("short", "long") else "short",
+#         )
+#         self.command = command
 
-    def execute(self, **kwargs) -> str:
-        from core.jobs.resources import get_lane
-        from functions.system.smart_home_agent import run_smarthome_agent
+#     def execute(self, **kwargs) -> str:
+#         from core.jobs.resources import get_lane
+#         from functions.system.smart_home_agent import run_smarthome_agent
 
-        lane = get_lane("smarthome")
-        timeout = float(kwargs.get("lane_timeout", 120))
-        if not lane.acquire(self.task.id, timeout=timeout):
-            return (
-                "Could not acquire exclusive smarthome lane "
-                f"(held by {lane.holder()}). Try again shortly."
-            )
-        try:
-            if self.is_cancelled():
-                return "Smart home task cancelled before execution."
-            return run_smarthome_agent(self.command)
-        finally:
-            lane.release(self.task.id)
+#         lane = get_lane("smarthome")
+#         timeout = float(kwargs.get("lane_timeout", 120))
+#         if not lane.acquire(self.task.id, timeout=timeout):
+#             return (
+#                 "Could not acquire exclusive smarthome lane "
+#                 f"(held by {lane.holder()}). Try again shortly."
+#             )
+#         try:
+#             if self.is_cancelled():
+#                 return "Smart home task cancelled before execution."
+#             return run_smarthome_agent(self.command)
+#         finally:
+#             lane.release(self.task.id)
 
 
 class DemoAgent(SubAgent):
@@ -2655,12 +2687,12 @@ def dispatch_background_task(task_type: str, conversation_id: str = "",
             kind=kwargs.get("kind"),
             alert_mode=kwargs.get("alert_mode"),
         ).start(),
-        "smarthome": lambda: SmartHomeAgent(
-            kwargs.get("command", ""),
-            conversation_id=conversation_id,
-            conversation_name=conversation_name,
-            kind=kwargs.get("kind"),
-        ).start(),
+        # "smarthome": lambda: SmartHomeAgent(
+        #     kwargs.get("command", ""),
+        #     conversation_id=conversation_id,
+        #     conversation_name=conversation_name,
+        #     kind=kwargs.get("kind"),
+        # ).start(),
         "delegate": lambda: DelegatedAIAgent(
             kwargs.get("objective", "") or kwargs.get("topic", "") or kwargs.get("command", ""),
             context=kwargs.get("context", ""),
@@ -3053,8 +3085,16 @@ def inject_open_main_actions(*, trigger_response: bool = False) -> int:
         and "[PENDING MAIN ACTION]" in str(m.get("content") or "")
         for m in recent
     )
-    if already and not trigger_response:
-        # Still count as present
+    if already:
+        # Already in context — just wake main if asked (chained send must run).
+        if trigger_response:
+            try:
+                from core.AppStates import main_runner
+
+                if not main_runner.is_set():
+                    main_runner.set()
+            except Exception:
+                pass
         return len(open_actions)
 
     lines = [

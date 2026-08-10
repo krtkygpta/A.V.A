@@ -114,29 +114,56 @@ tools = [
             },
         },
     },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "image_description_tool",
+    #         "description": 'Tool to analyze images from camera or screen. Use the "query" parameter to ask specific questions. Use "camera_index" to select a specific camera if multiple are available (defaults to 1).',
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "tool": {
+    #                     "type": "string",
+    #                     "description": "Source of the image (camera or screen)",
+    #                     "enum": ["camera", "screen"],
+    #                 },
+    #                 "query": {
+    #                     "type": "string",
+    #                     "description": "Specific question or instruction for the vision model regarding the image.",
+    #                 },
+    #                 "camera_index": {
+    #                     "type": "integer",
+    #                     "description": "Index of the camera to use (0 for primary, 1 for secondary, etc.)",
+    #                 },
+    #             },
+    #             "required": ["tool", "query"],
+    #         },
+    #     },
+    # },
     {
         "type": "function",
         "function": {
-            "name": "image_description_tool",
-            "description": 'Tool to analyze images from camera or screen. Use the "query" parameter to ask specific questions. Use "camera_index" to select a specific camera if multiple are available (defaults to 1).',
+            "name": "screenshot",
+            "description": (
+                "Capture the current screen on the client, upload it to the AVA server "
+                "(stored under Server/data/screenshots), and return the server absolute "
+                "path plus the image itself so you can see what is on screen. "
+                "Use when the user asks what is on their screen, about a screenshot, "
+                "or you need to look at the desktop yourself."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "tool": {
+                    "filename": {
                         "type": "string",
-                        "description": "Source of the image (camera or screen)",
-                        "enum": ["camera", "screen"],
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Specific question or instruction for the vision model regarding the image.",
-                    },
-                    "camera_index": {
-                        "type": "integer",
-                        "description": "Index of the camera to use (0 for primary, 1 for secondary, etc.)",
+                        "description": (
+                            "Optional file name only (e.g. 'desktop.png'). "
+                            "Saved under data/screenshots; path traversal is ignored. "
+                            "Default: screenshot_YYYYMMDD_HHMMSS.png"
+                        ),
                     },
                 },
-                "required": ["tool", "query"],
+                "required": [],
             },
         },
     },
@@ -399,7 +426,7 @@ tools = [
             "description": (
                 "Dispatch a long-running task to run in the background. "
                 "Use this for tasks that take time like research, web scraping, timers, "
-                "smart home work, open-ended delegated AI work, or a timed demo job for testing. "
+                # "smart home work, open-ended delegated AI work, or a timed demo job for testing. "
                 "The task will run while you continue chatting with the user. "
                 "You will be notified when the task completes. "
                 "For consecutive work (e.g. timer THEN research), set follow_up to the next "
@@ -423,7 +450,7 @@ tools = [
                             "research",
                             "scrape",
                             "timer",
-                            "smarthome",
+                            # "smarthome",
                             "delegate",
                             "mission",
                             "demo",
@@ -494,10 +521,10 @@ tools = [
                         ),
                         "enum": ["silent", "notify", "short", "continuous"],
                     },
-                    "command": {
-                        "type": "string",
-                        "description": "For smarthome tasks: the natural language instruction to execute.",
-                    },
+                    # "command": {
+                    #     "type": "string",
+                    #     "description": "For smarthome tasks: the natural language instruction to execute.",
+                    # },
                     "objective": {
                         "type": "string",
                         "description": (
@@ -596,7 +623,7 @@ tools = [
                             "Optional override for completion behavior only (jobs always outlive chats). "
                             "'long' = sticky unread inbox until result/dismiss. "
                             "'short' = one-shot notify, never re-nag on new conversations. "
-                            "Defaults: research/mission/delegate/demo=long; timer/scrape/smarthome=short. "
+                            "Defaults: research/mission/delegate/demo=long; timer/scrape=short. "
                             "Timers are always treated as short for inbox (they still survive conversations while counting)."
                         ),
                         "enum": ["short", "long"],
@@ -753,7 +780,7 @@ tools = [
                     },
                     "title": {
                         "type": "string",
-                        "description": "Event title (for create)",
+                        "description": "Event title (for create, dont use in case of read)",
                     },
                     "start_datetime": {
                         "type": "string",
@@ -802,7 +829,11 @@ tools = [
         "type": "function",
         "function": {
             "name": "web",
-            "description": "Unified web: search, fetch URLs, AI search, weather, GPS. Use for any internet task.",
+            "description": (
+                "Unified web: search, fetch URLs, AI search, weather, GPS. "
+                "operation=search returns title/url/snippet results (Tavily primary). "
+                "Use for any internet task."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -817,7 +848,7 @@ tools = [
                     },
                     "num_results": {
                         "type": "integer",
-                        "description": "Number of results (for search)",
+                        "description": "Number of results for search (1–10, default 5)",
                     },
                     "url": {
                         "type": "string",
@@ -832,21 +863,5 @@ tools = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "music_agent",
-            "description": "Control YouTube Music: play, pause, next, previous, search songs, add/remove from queue, view queue, and adjust volume using natural language input.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Natural language command for music control. Example: 'play kesariya next', 'pause music', 'add blinding lights to queue', 'what is playing', 'set volume to 50'",
-                    }
-                },
-                "required": ["query"],
-            },
-        },
-    },
+
 ]

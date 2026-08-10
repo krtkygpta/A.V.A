@@ -107,14 +107,27 @@ class LLMService:
             label="MainLLM",
             tools=valid_tools if valid_tools else None,
             tool_choice="auto" if valid_tools else None,
-            temperature=0.8,
             presence_penalty=0.1,
         )
         msg = response.choices[0].message
+        usage_payload: dict[str, Any] = {}
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            try:
+                usage_payload = {
+                    "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+                    "completion_tokens": int(
+                        getattr(usage, "completion_tokens", 0) or 0
+                    ),
+                    "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+                }
+            except (TypeError, ValueError):
+                usage_payload = {}
         return {
             "role": msg.role,
             "content": msg.content,
             "tool_calls": self._serialize_tool_calls(msg.tool_calls),
             "model": model_id,
             "model_tier": model_tier or "main",
+            "usage": usage_payload,
         }

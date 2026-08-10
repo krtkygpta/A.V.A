@@ -267,7 +267,8 @@ Built with Textual framework, provides:
 |-----------|---------|
 | `ChatMessage` | Display user/assistant/tool messages |
 | `ToolCallPanel` | Show tool execution UI |
-| `ModeSwitcher` | Switch between operational modes |
+| `ModeDropdown` | Compact mode selector in input bar |
+| `ModeSelectorPopup` | Modal mode picker (💬 Text, ∞ Continuous, 🎧 Wakeword) |
 | `StatusBar` | Show connection status |
 | `TypingIndicator` | Show when AVA is "thinking" |
 | `SettingsScreen` | Configuration editor |

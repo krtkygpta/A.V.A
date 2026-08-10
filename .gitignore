@@ -59,6 +59,8 @@ settings.json
 .agents/
 .android/
 android/
+.commandcode/
+.freebuff/
 plan.md
 
 # --- User plugins (local installs) ---
@@ -91,3 +93,4 @@ temp/
 
 # --- Accidental path captures ---
 ~/
+test.py

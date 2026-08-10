@@ -52,27 +52,27 @@ def handle_background_task(task_type: str, **kwargs) -> str:
     """
     Handler for background task dispatch.
     Returns an acknowledgment message for the LLM.
-    
+
     ENHANCED: Now passes conversation context for proper task tracking
     and signals that the conversation should stay open for completion.
     """
     # Get current conversation context
     conversation_id, conversation_name = _get_current_conversation_info()
-    
+
     # Signal that we're expecting follow-up (background task completion)
     from core.AppStates import expecting_followup, work_in_progress, background_task_active
     expecting_followup.set()
     work_in_progress.set()
     background_task_active.set()
-    
+
     # Pass conversation context to dispatch
     task_id, message = dispatch_background_task(
-        task_type, 
+        task_type,
         conversation_id=conversation_id,
         conversation_name=conversation_name,
         **kwargs
     )
-    
+
     if task_id:
         try:
             from core.TaskManager import sync_background_task_flag
@@ -92,7 +92,7 @@ def handle_background_task(task_type: str, **kwargs) -> str:
 def handle_get_background_status() -> str:
     """Get status of all running background tasks and pending completions"""
     result = get_running_tasks_summary()
-    
+
     # Also report any completed-but-undelivered background tasks
     completion_queue = CompletionQueue()
     if completion_queue.has_pending():
@@ -108,14 +108,15 @@ def handle_get_background_status() -> str:
 
 TOOL_CONFIGS = {
     # Media
-    "music_agent": functions.run_music_controller,
-    "image_description_tool": functions.image_tool,
+    # "music_agent": functions.run_music_controller,
+    # "image_description_tool": functions.image_tool,
     # System
     "get_time_date": functions.timedate,
     "shutdown_pc": functions.system_action,
     "ping": functions.ping,  # non-blocking audible alert (ring in background)
     "send_notification": functions.send_notification,
     "make_phone_call": functions.make_phone_call,
+    "screenshot": functions.screenshot,
     # Web (unified)
     "web": web,
     # File operations
@@ -163,13 +164,18 @@ def handle_tool_call(tool_call):
             args = {}
 
         function = registry.get(func_name) or TOOL_CONFIGS.get(func_name)
+        args = {k: v for k, v in args.items() if k != ""}
 
         if function:
             result = function(**args)
             if result is None:
                 result = "Success"
+            elif isinstance(result, list):
+                # Multimodal tool content (e.g. screenshot text + image_url parts).
+                # Pass through so the model receives the image like test.py.
+                pass
             elif not isinstance(result, str):
-                # OpenAI requires tool content to be a string — coerce defensively
+                # Most tools return strings; coerce other types to JSON text.
                 import json as _json
 
                 try:

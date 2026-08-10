@@ -430,8 +430,50 @@ class ResearchAgent:
         if self._use_key_pool:
             print(f"[ResearchAgent] using shared key pool n={len(pool)}")
 
+    @staticmethod
+    def _normalize_messages_for_llm(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Upstream (portkey/openai) rejects assistant messages with empty content:
+          "Empty content is not allowed for assistant messages"
+
+        Tool-call turns often have content=None or "". Normalize so:
+          - tool-call assistant turns use content=null (not "")
+          - text-only assistant turns always have a non-empty string
+        """
+        out: list[dict[str, Any]] = []
+        for raw in messages:
+            m = dict(raw)
+            role = m.get("role")
+            if role == "assistant":
+                content = m.get("content")
+                has_tools = bool(m.get("tool_calls"))
+                empty = content is None or (
+                    isinstance(content, str) and not content.strip()
+                )
+                if empty:
+                    if has_tools:
+                        # OpenAI allows null content with tool_calls; never send "".
+                        m["content"] = None
+                    else:
+                        m["content"] = "(no content)"
+                elif not isinstance(content, str) and not has_tools:
+                    m["content"] = str(content)
+            elif role in ("user", "system", "tool"):
+                # Tool/user/system content must be a string for most providers.
+                c = m.get("content")
+                if c is None:
+                    m["content"] = ""
+                elif not isinstance(c, str):
+                    try:
+                        m["content"] = json.dumps(c, ensure_ascii=False)
+                    except Exception:
+                        m["content"] = str(c)
+            out.append(m)
+        return out
+
     def _llm_create(self, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
         """Chat completion via shared key pool (or Groq fallback client)."""
+        messages = self._normalize_messages_for_llm(messages)
         if self._use_key_pool:
             from services.key_rotator import chat_completions_create
 
@@ -444,11 +486,19 @@ class ResearchAgent:
             )
         if self.client is None:
             raise RuntimeError("No LLM client (OPENAI_API_KEYS / GROQ_API_KEY)")
-        return self.client.chat.completions.create(
+        resp = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             **kwargs,
         )
+        # Groq fallback path still counts toward daily usage.
+        try:
+            from services.token_usage import record_usage
+
+            record_usage(model=self.model, response=resp, label="Research")
+        except Exception as usage_err:
+            print(f"[Research] token usage record skipped: {usage_err}")
+        return resp
 
     # ── public entry ────────────────────────────────────────────────────────
 
@@ -540,10 +590,13 @@ class ResearchAgent:
             msg = response.choices[0].message
             tool_calls = list(msg.tool_calls or [])
 
-            # Persist assistant turn
+            # Persist assistant turn.
+            # Never store content="" — portkey/openai reject empty assistant content
+            # on the next round (tool-only turns must use null content).
+            text = (msg.content or "").strip()
             assistant_payload: dict[str, Any] = {
                 "role": "assistant",
-                "content": msg.content or "",
+                "content": text if text else (None if tool_calls else "(no content)"),
             }
             if tool_calls:
                 assistant_payload["tool_calls"] = [
