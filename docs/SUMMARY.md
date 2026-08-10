@@ -28,10 +28,9 @@ Welcome to the A.V.A documentation! Use this index to find the information you n
 
 **Installation:**
 1. Install dependencies: `pip install -r requirements.txt`
-2. Install Playwright: `playwright install`
-3. Configure `settings.json` with API keys
-4. Start server: `python -m Server`
-5. Start client: `python App/__main__.py`
+2. Configure `settings.json` with API keys
+3. Start server: `python -m Server`
+4. Start client: `python -m App`
 
 **Architecture Overview:**
 - Client (`App/`) — TUI, voice modes, local tools, memory
@@ -73,15 +72,19 @@ A.V.A/
 | Shortcut | Action |
 |----------|--------|
 | `Ctrl+C` | Emergency shutdown |
-| `Ctrl+I` | Open settings |
+| `Ctrl+I` / `/settings` | Open settings |
 | `Ctrl+Q` | Quit application |
-| `Ctrl+F` | Search conversations |
+| `Ctrl+F` / `/search` | Search conversations |
+| `Ctrl+M` | Cycle input mode |
+| `Ctrl+H` | History sidebar |
+| `Ctrl+B` | Tasks sidebar |
+| `Ctrl+T` / `/theme` | Theme picker |
+| `Ctrl+N` / `/new` | New conversation |
 
 ## Operational Modes
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| TUI | Default | Full terminal interface |
-| Continuous | `--mode continuous` | Background voice listening |
-| Wake Word | `--mode wakeword` | "Hey AVA" activation |
-| Text | `--mode text` | Keyboard only |
+| Text | Default | Keyboard input |
+| Continuous | `Ctrl+M` or `/mode continuous` | Always-on mic |
+| Wake Word | `Ctrl+M` or `/mode wakeword` | Voice-activated |

@@ -20,7 +20,8 @@ Located in the project root directory.
   "GROQ_API_KEY": "GSK_xxxxxxxxxxxx",
   "USER_NAME": "YourName",
   "ASSISTANT_NAME": "AVA",
-  "AVA_SERVER_URL": "http://127.0.0.1:8765"
+  "AVA_SERVER_URL": "http://127.0.0.1:8765",
+  "THEME": "frost"
 }
 ```
 
@@ -32,6 +33,10 @@ Located in the project root directory.
 | `USER_NAME` | No | Your display name (used in memory) |
 | `ASSISTANT_NAME` | No | Name for the assistant |
 | `AVA_SERVER_URL` | No | Server endpoint (default: `http://127.0.0.1:8765`) |
+| `AVA_START_MODE` | No | Startup mode: `tui_text`, `tui_continuous`, `tui_wakeword` |
+| `TAVILY_API_KEY` | No | For deep research tools |
+| `WEATHER_API_KEY` | No | For weather tool |
+| `THEME` | No | TUI theme (see Theme Customization below) |
 
 ## Server Settings (Server/settings.json)
 
@@ -160,18 +165,21 @@ Press `Ctrl+I` to open settings while running:
 
 ### Theme Customization
 
-Themes are defined in `App/ui/tui.py` under `_register_themes()`:
+Themes are defined in `App/ui/tui.py` under `_register_themes()`. Each theme uses a monochromatic accent on a restrained base:
 
 ```python
-self.themes["cyber"] = {
-    "primary": "#00FF85",
-    "secondary": "#7000FF",
-    "accent": "#FF0055",
-    "background": "#0D0D0D",
-    "surface": "#1A1A1A",
-    "text": "#FFFFFF",
+self.themes["frost"] = {
+    "primary": "#5E9FD6",
+    "secondary": "#3A6A9E",
+    "accent": "#5E9FD6",
+    "background": "#121214",
+    "surface": "#1A1A1E",
+    "text": "#D0D0D4",
+    "text-muted": "#7A7A82",
 }
 ```
+
+Built-in monochromatic themes: `slate` (steel blue), `pine` (sage), `ember` (amber), `frost` (ice blue), `ink` (teal), `paper` (muted blue, light), `stone` (terracotta). Use `Ctrl+T` or `/theme` to browse and switch themes.
 
 ## Troubleshooting
 
