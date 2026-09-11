@@ -162,6 +162,7 @@ def research(
     wait = float(timeout) if timeout is not None else max(base, default_timeout)
 
     server = _server_url()
+    result = None
     try:
         response = requests.post(
             f"{server}/tools/research",
@@ -170,13 +171,19 @@ def research(
         )
         response.raise_for_status()
         result = response.json()
-    except requests.exceptions.RequestException as e:
-        return json.dumps(
-            {
-                "status": "error",
-                "content": f"Server research request failed: {e}",
-            }
-        )
+    except Exception as e:
+        # Fall back to in-process ResearchAgent
+        try:
+            from tools.research import ResearchAgent
+            agent = ResearchAgent()
+            result = agent.execute(question=question, level=lvl)
+        except Exception as in_proc_err:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "content": f"Research failed (server error: {e}; in-process error: {in_proc_err})",
+                }
+            )
 
     if not (isinstance(result, dict) and result.get("status") == "success"):
         if isinstance(result, dict):

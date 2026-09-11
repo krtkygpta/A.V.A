@@ -33,7 +33,7 @@ Located in the project root directory.
 | `USER_NAME` | No | Your display name (used in memory) |
 | `ASSISTANT_NAME` | No | Name for the assistant |
 | `AVA_SERVER_URL` | No | Server endpoint (default: `http://127.0.0.1:8765`) |
-| `AVA_START_MODE` | No | Startup mode: `tui_text`, `tui_continuous`, `tui_wakeword` |
+| `AVA_START_MODE` | No | Startup mode: `tui_text`, `tui_continuous`, `tui_wakeword`, `rich_text`, `rich_continuous`, `rich_wakeword` |
 | `TAVILY_API_KEY` | No | For deep research tools |
 | `WEATHER_API_KEY` | No | For weather tool |
 | `THEME` | No | TUI theme (see Theme Customization below) |
@@ -144,9 +144,35 @@ Place the unzipped folder in `App/models/` or set the path in code.
 
 ## Smart Home Configuration
 
+### Home Assistant Integration
+
+A.V.A integrates dynamically with Home Assistant to read states, rooms, and control devices (lights, switches, climate/AC, covers, media players, locks).
+
+#### Settings (`settings.json`)
+
+```json
+{
+  "HA_URL": "http://homeassistant.local:8123",
+  "HA_TOKEN": "your_long_lived_access_token_here",
+  "HA_TIMEOUT": 5
+}
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `HA_URL` | `http://homeassistant.local:8123` | Primary Home Assistant instance URL |
+| `HA_TOKEN` | `""` | Long-Lived Access Token (Profile -> Security -> Long-Lived Access Tokens) |
+| `HA_TIMEOUT` | `5` | Request timeout in seconds |
+| `HA_FALLBACK_URLS` | `["http://homeassistant.local:8123", "http://127.0.0.1:8123"]` | Fallback URLs probed if primary URL is unreachable |
+
+#### Dynamic Endpoint Discovery & Fallback
+A.V.A automatically tests candidate URLs (`HA_URL`, `http://homeassistant.local:8123`, `http://127.0.0.1:8123`) with a fast pre-flight probe and caches the active responsive URL. If you move between networks (e.g. LAN vs VPN), A.V.A dynamically finds and routes to the reachable endpoint.
+
+### WiZ Lights
+
 WiZ lights require no additional configuration—just ensure they're on the same network. The `GROQ_API_KEY` must be set for natural language control.
 
-### Supported Devices
+#### Supported Devices
 
 - WiZ smart bulbs
 - WiZ smart plugs

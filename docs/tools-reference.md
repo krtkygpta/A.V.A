@@ -122,21 +122,46 @@ Control WiZ smart lights.
 
 ### web
 
-Search the web and fetch content.
+Unified web tool for searching, fetching URLs, AI search, weather forecasts, and GPS location.
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| query | string | Yes | Search query |
-| num_results | integer | No | Number of results (default: 5) |
+| operation | string | Yes | `"search"`, `"fetch"`, `"ai_search"`, `"weather"`, or `"gps"` |
+| query | string | No | Search query for `"search"` or `"ai_search"` |
+| num_results | integer | No | Number of search results (1–10, default: 5) |
+| url | string | No | URL to fetch for `"fetch"` |
+| location | string | No | City for weather, or `"current"` for GPS location |
+| date | string | No | Target date for weather (`"today"`, `"tomorrow"`, `"YYYY-MM-DD"`, `"in 3 days"`) |
+| days | integer | No | Number of forecast days (1–14, default: 1 or 3) |
+| hour | integer/string | No | Target single hour (0–23, or `"14:00"`, `"2pm"`) |
+| start_hour | integer/string | No | Starting hour (0–23 or `"9am"`, `"14:00"`) for hourly range |
+| end_hour | integer/string | No | Ending hour (0–23 or `"5pm"`, `"18:00"`) for hourly range |
+| time_range | string | No | Time range string (e.g. `"2pm-8pm"`, `"09:00-17:00"`) |
+| start_date | string | No | Start date for date range forecast |
+| end_date | string | No | End date for date range forecast (up to 14 days max) |
+| include_hourly | boolean | No | Whether to include full 24-hr hourly breakdown |
 
-**Example:**
+**Examples:**
 ```json
-{"query": "weather in London", "num_results": 5}
+// Current weather
+{"operation": "weather", "location": "Tokyo"}
+
+// 3-day forecast
+{"operation": "weather", "location": "New York", "days": 3}
+
+// Hourly range forecast (e.g., tomorrow from 2 PM to 6 PM)
+{"operation": "weather", "location": "London", "date": "tomorrow", "start_hour": 14, "end_hour": 18}
+
+// Time range string (e.g., 9 AM to 1 PM)
+{"operation": "weather", "location": "Paris", "date": "tomorrow", "time_range": "9am-1pm"}
+
+// Date range (e.g., tomorrow to in 3 days)
+{"operation": "weather", "location": "Berlin", "start_date": "tomorrow", "end_date": "in 3 days"}
 ```
 
-**Returns:** List of search results with titles, URLs, and snippets.
+**Returns:** JSON containing location, rich current conditions, multi-day forecast array, and `hourly_range` array when a time window is requested.
 
 ---
 

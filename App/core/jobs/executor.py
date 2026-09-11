@@ -175,6 +175,19 @@ class JobExecutor:
                 continue
             if task.id in live:
                 continue
+
+            # If task is owned by another active Python process on this machine, do not kill it!
+            meta = getattr(task, "metadata", {}) or {}
+            task_pid = meta.get("pid")
+            if task_pid and task_pid != os.getpid():
+                try:
+                    import psutil
+                    if psutil.pid_exists(task_pid):
+                        proc = psutil.Process(task_pid)
+                        if proc.is_running() and "python" in proc.name().lower():
+                            continue
+                except Exception:
+                    pass
             try:
                 from core.TaskManager import TaskStatus
 

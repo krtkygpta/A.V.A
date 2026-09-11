@@ -475,41 +475,80 @@ class ResponseLoopHandler:
 
     def speak(self, text: str):
         """Display or speak assistant text to the user."""
-        raise NotImplementedError
+        try:
+            from core.gateway import broadcast_assistant_message
+            from config import ASSISTANT_NAME
+            broadcast_assistant_message(text, assistant=ASSISTANT_NAME)
+        except Exception:
+            pass
 
     def on_processing_start(self):
         """Called when an LLM response cycle begins."""
-        pass
+        try:
+            from core.gateway import broadcast_status
+            broadcast_status("thinking...", processing=True)
+        except Exception:
+            pass
 
-    def on_tool_call_start(self, func_name: str, args: dict):
+    def on_tool_call_start(self, func_name: str, args: dict, tool_id: str = ""):
         """Called when a tool call begins executing."""
-        pass
+        try:
+            from core.gateway import broadcast_tool_start, broadcast_status
+            broadcast_tool_start(func_name, args, tool_id=tool_id)
+            broadcast_status(f"tool · {func_name}", processing=True)
+        except Exception:
+            pass
 
-    def on_tool_call_result(self, result: str):
+    def on_tool_call_result(self, result: str, func_name: str = "", tool_id: str = ""):
         """Called when a tool call completes with its result."""
-        pass
+        try:
+            from core.gateway import broadcast_tool_result, broadcast_status
+            broadcast_tool_result(func_name, result, tool_id=tool_id)
+            broadcast_status("generating...", processing=True)
+        except Exception:
+            pass
 
     def on_processing_end(self):
         """Called after each LLM response cycle completes."""
-        pass
+        try:
+            from core.gateway import broadcast_status, broadcast_tasks_sync
+            broadcast_status("ready", processing=False)
+            broadcast_tasks_sync()
+        except Exception:
+            pass
 
     def on_background_task_notify(self, summary: str):
         """Called when a background task completes while the loop is idle."""
-        pass
+        try:
+            from core.gateway import broadcast_system_message, broadcast_tasks_sync
+            broadcast_system_message(f"task update · {summary}")
+            broadcast_tasks_sync()
+        except Exception:
+            pass
 
     def on_immediate_notification(self, text: str):
         """
         Called for immediate notifications (high/urgent priority tasks).
         Should display prominently and potentially interrupt.
         """
-        pass
+        try:
+            from core.gateway import broadcast_system_message, broadcast_tasks_sync
+            broadcast_system_message(f"[IMMEDIATE] {text}", priority="immediate")
+            broadcast_tasks_sync()
+        except Exception:
+            pass
 
     def on_idle_notification(self, task: BackgroundTask):
         """
         Called when in idle/wake-word mode and a task completes.
         Should activate the assistant briefly to deliver notification.
         """
-        pass
+        try:
+            from core.gateway import broadcast_system_message, broadcast_tasks_sync
+            broadcast_system_message(f"[IDLE NOTIFICATION] {task.to_idle_notification()}")
+            broadcast_tasks_sync()
+        except Exception:
+            pass
 
 
 def run_response_loop(handler: ResponseLoopHandler):
@@ -647,7 +686,7 @@ def run_response_loop(handler: ResponseLoopHandler):
                 # Explicit multi-round agent loop (including after [BACKGROUND TASK DONE]).
                 # Tool results are appended with trigger_response=False so we stay in this
                 # turn and call generate again — not a fragile re-entry via main_runner.
-                max_tool_rounds = int(os.getenv("AVA_MAX_TOOL_ROUNDS", "10"))
+                max_tool_rounds = int(os.getenv("AVA_MAX_TOOL_ROUNDS", "8"))
                 # Hard ceiling on the *extended* tool-round budget. The initial
                 # burst is max_tool_rounds; when tools are still making progress
                 # at that point we nudge the model to continue for a few grace
@@ -662,9 +701,9 @@ def run_response_loop(handler: ResponseLoopHandler):
                 max_tool_rounds = max(1, min(
                     max_tool_rounds, max_tool_rounds_ceiling - 1
                 ))
-                grace_rounds = int(os.getenv("AVA_MAX_TOOL_GRACE_ROUNDS", "3"))
+                grace_rounds = int(os.getenv("AVA_MAX_TOOL_GRACE_ROUNDS", "0"))
                 # Grace rounds are bounded by what's left under the ceiling.
-                grace_rounds = max(1, min(
+                grace_rounds = max(0, min(
                     grace_rounds, max_tool_rounds_ceiling - max_tool_rounds
                 ))
                 # Total in-loop generations allowed this turn.
@@ -675,6 +714,7 @@ def run_response_loop(handler: ResponseLoopHandler):
                 turn_spoke = False
                 main_action_nudges = 0
                 tool_round_limit_nudged = False
+                turn_tool_results: list[dict] = []
 
                 for _round in range(total_budget):
                     response = generate_response()
@@ -802,7 +842,7 @@ def run_response_loop(handler: ResponseLoopHandler):
                                     trigger_response=False,
                                 )
                             else:
-                                handler.on_tool_call_start(func_name, args)
+                                handler.on_tool_call_start(func_name, args, tool_id=tool_id)
                                 work_in_progress.set()
                                 expecting_followup.set()
                                 print(
@@ -811,6 +851,11 @@ def run_response_loop(handler: ResponseLoopHandler):
                                 )
 
                                 func_resp, t_id = handle_tool_call(tool_call)
+                                turn_tool_results.append({
+                                    "tool": func_name,
+                                    "arguments": args,
+                                    "result": func_resp,
+                                })
                                 # Multimodal tool results (screenshot image parts)
                                 # need a short UI preview, not str(list).
                                 if isinstance(func_resp, list):
@@ -818,7 +863,7 @@ def run_response_loop(handler: ResponseLoopHandler):
                                     has_img = False
                                     for part in func_resp:
                                         if not isinstance(part, dict):
-                                            continue
+                                             continue
                                         if part.get("type") == "text":
                                             preview_bits.append(
                                                 str(part.get("text") or "")
@@ -835,7 +880,7 @@ def run_response_loop(handler: ResponseLoopHandler):
                                     preview = (
                                         str(func_resp) if func_resp else "done"
                                     )
-                                handler.on_tool_call_result(preview)
+                                handler.on_tool_call_result(preview, func_name=func_name, tool_id=t_id)
                                 state_manager.assistant_spoke()
 
                                 add_message(
@@ -926,26 +971,111 @@ def run_response_loop(handler: ResponseLoopHandler):
                     break
                 else:
                     # Loop exhausted without a break — we burned the full
-                    # tool-round budget (initial + grace) without the model
-                    # producing a final text answer. Don't vanish silently:
-                    # tell the user where we stand so they can say "go on".
-                    if tool_round_limit_nudged:
-                        print(
-                            f"[ResponseLoop] Hit extended tool-round budget "
-                            f"({total_budget}); model did not terminate after nudge"
+                    # tool-round budget without producing a final answer.
+                    # Automatically offload this task to a background delegate agent and inform the user.
+                    print(
+                        f"[ResponseLoop] Hit tool round limit ({total_budget}). "
+                        "Auto-dispatching delegate agent to continue task in background."
+                    )
+                    delegated_ok = False
+                    delegate_task_id = ""
+                    try:
+                        from core.TaskManager import dispatch_background_task, sync_background_task_flag
+                        from core.messageHandler import messages, add_assistant_message
+                        from core.jobs.specialists import infer_specialists
+
+                        # Retrieve user objective from the latest user message
+                        last_user_query = ""
+                        for m in reversed(list(messages)):
+                            if m.get("role") == "user":
+                                last_user_query = str(m.get("content") or "").strip()
+                                break
+                        if not last_user_query:
+                            last_user_query = getattr(state_manager, "current_query", "") or "Continue multi-step tool task"
+
+                        # Build detailed context from all tools executed in this turn so delegate doesn't repeat them
+                        tool_history_blocks = []
+                        if turn_tool_results:
+                            for i, tr in enumerate(turn_tool_results, 1):
+                                t_name = tr.get("tool", "unknown")
+                                t_args = tr.get("arguments", {})
+                                t_res = tr.get("result", "")
+                                args_str = (
+                                    json.dumps(t_args, ensure_ascii=False)
+                                    if isinstance(t_args, dict)
+                                    else str(t_args)
+                                )
+                                if len(args_str) > 500:
+                                    args_str = args_str[:497] + "..."
+                                res_str = (
+                                    t_res
+                                    if isinstance(t_res, str)
+                                    else json.dumps(t_res, ensure_ascii=False)
+                                )
+                                if len(res_str) > 2500:
+                                    res_str = res_str[:2480] + "... [truncated]"
+                                tool_history_blocks.append(
+                                    f"### Tool Execution #{i}: `{t_name}`\n"
+                                    f"- **Arguments:** `{args_str}`\n"
+                                    f"- **Result:**\n```\n{res_str}\n```"
+                                )
+                        else:
+                            for m in list(messages)[-8:]:
+                                if m.get("role") == "tool":
+                                    content_str = str(m.get("content") or "")[:500]
+                                    tool_history_blocks.append(f"Tool output: {content_str}")
+
+                        context_snippet = (
+                            f"Offloaded automatically because main agent reached the tool loop limit ({total_budget} rounds).\n"
+                            "CRITICAL: The following tools were ALREADY executed by the main agent with their respective results. "
+                            "DO NOT repeat these tool calls. Use these existing results to complete the remainder of the task:\n\n"
+                            + (
+                                "\n\n".join(tool_history_blocks)
+                                if tool_history_blocks
+                                else "(No previous tool results available)"
+                            )
+                        ).strip()
+
+                        inferred = infer_specialists(last_user_query, context_snippet)
+                        spec_choice = inferred[0] if inferred else "generic"
+
+                        delegate_task_id, msg = dispatch_background_task(
+                            task_type="delegate",
+                            objective=last_user_query,
+                            context=context_snippet,
+                            specialist=spec_choice,
+                            conversation_id=state_manager.current_conversation_id,
+                            conversation_name=state_manager.current_conversation_name,
                         )
-                        handler.speak(
-                            "I kept working but hit my tool-call budget and "
-                            "haven't reached a final answer. Here's what I have "
-                            "so far — say 'go on' to continue."
+                        if delegate_task_id:
+                            delegated_ok = True
+                            sync_background_task_flag()
+                    except Exception as e:
+                        print(f"[ResponseLoop] Auto-delegate on loop limit failed: {e}")
+
+                    if delegated_ok:
+                        info_msg = (
+                            "I've hit my direct tool limit on this, so I've offloaded the task "
+                            "to a background delegate agent to finish it for you. I'll let you know as soon as it's done."
                         )
+                        handler.speak(info_msg)
+                        try:
+                            add_assistant_message(
+                                f"I reached my direct tool execution limit, so I started a background delegate agent "
+                                f"(Job ID: {delegate_task_id}) to continue and complete this task. I will inform you when it's done."
+                            )
+                        except Exception:
+                            pass
                         state_manager.assistant_spoke()
                         turn_spoke = True
                     else:
-                        print(
-                            f"[ResponseLoop] Hit max tool rounds ({max_tool_rounds}); "
-                            "stopping turn"
+                        handler.speak(
+                            "I kept working but hit my tool-call budget and "
+                            "haven't reached a final answer. Say 'go on' to continue."
                         )
+                        state_manager.assistant_spoke()
+                        turn_spoke = True
+
                     work_in_progress.clear()
                     expecting_followup.clear()
 

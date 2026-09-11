@@ -170,6 +170,35 @@ tools = [
     {
         "type": "function",
         "function": {
+            "name": "view_image",
+            "description": (
+                "Load and visually inspect an image from the client machine (via local file path "
+                "such as 'C:/path/to/image.png' or '~/Downloads/photo.jpg') or a web URL. "
+                "The tool reads the image directly on the client and injects it into your visual context "
+                "so your vision capabilities can inspect and answer questions about it."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_path": {
+                        "type": "string",
+                        "description": (
+                            "The local file path (e.g. 'C:/Users/name/Pictures/img.png', '~/diagram.jpg', "
+                            "'./sample.webp') or web/file URL of the image to inspect."
+                        ),
+                    },
+                    "filename": {
+                        "type": "string",
+                        "description": "Optional custom filename to save as on the server (e.g. 'chart.png').",
+                    },
+                },
+                "required": ["image_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_time_date",
             "description": "Retrieve the current time and date",
             "parameters": {
@@ -349,6 +378,142 @@ tools = [
     {
         "type": "function",
         "function": {
+            "name": "read_file",
+            "description": "Read file contents with 1-indexed line numbers, line slicing (start_line, end_line), and safe length limits.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to read (absolute or relative to project).",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Optional 1-indexed starting line number.",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Optional 1-indexed ending line number.",
+                    },
+                    "max_lines": {
+                        "type": "integer",
+                        "description": "Maximum number of lines to return (default 400).",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": "Surgically search and replace a unique block of text within a file. Exact match required.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path to the file to edit.",
+                    },
+                    "target_content": {
+                        "type": "string",
+                        "description": "The exact existing text chunk to replace.",
+                    },
+                    "replacement_content": {
+                        "type": "string",
+                        "description": "The new replacement text.",
+                    },
+                    "allow_multiple": {
+                        "type": "boolean",
+                        "description": "If true, replace all occurrences. Default false (errors if not unique).",
+                    },
+                },
+                "required": ["path", "target_content", "replacement_content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write or create a complete file with the specified content. Creates parent directories automatically.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Destination file path.",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The content to write into the file.",
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "Whether to overwrite if file exists. Default true.",
+                    },
+                },
+                "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_code",
+            "description": "Search for a keyword or regex pattern across files in a directory or file with line numbers.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "String or regex pattern to search for.",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory or file to search within. Defaults to current workspace.",
+                    },
+                    "is_regex": {
+                        "type": "boolean",
+                        "description": "Whether query is a regular expression. Default false.",
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Whether search is case-sensitive. Default false.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max matching lines to return. Default 50.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_dir",
+            "description": "Explore directory structure with file sizes and depth limit.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Directory path to list. Defaults to current directory.",
+                    },
+                    "max_depth": {
+                        "type": "integer",
+                        "description": "Directory recursion depth (default 2).",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "code_executor",
             "description": (
                 "Execute Python code in a temporary isolated environment. "
@@ -431,7 +596,7 @@ tools = [
                 "You will be notified when the task completes. "
                 "For consecutive work (e.g. timer THEN research), set follow_up to the next "
                 "task JSON — it auto-starts when this job completes, even after a new conversation. "
-                "For coding/apps use task_type opencode (installed OpenCode CLI, its default model). "
+                "For coding / app building / self-editing use task_type coding (native Pi-inspired delegate coding agent). "
                 "ALWAYS pass objective (the coding instruction). "
                 "To continue a prior run also pass session_id — title alone is NOT enough."
             ),
@@ -442,21 +607,33 @@ tools = [
                         "type": "string",
                         "description": (
                             "Type of background task. "
-                            "'opencode' / 'coding' = OpenCode CLI coding agent (default model). "
-                            "'demo' is a deterministic timed job (no LLM) for testing "
-                            "inbox, notifications, and clarifications."
+                            "'coding' = Native Pi-inspired delegate coding agent with precision tools (read/edit/write/bash/search/list). "
+                            "Can build apps, write scripts, or edit AVA itself safely. "
+                            "'delegate' = Specialized AI worker across various domains (coder, researcher, etc.). "
+                            "'research' = Multi-source web investigation. "
+                            "'opencode' = legacy OpenCode CLI. "
+                            "'demo' is a deterministic timed job (no LLM) for testing."
                         ),
                         "enum": [
+                            "coding",
+                            "delegate",
                             "research",
                             "scrape",
                             "timer",
-                            # "smarthome",
-                            "delegate",
                             "mission",
                             "demo",
                             "opencode",
-                            "coding",
                         ],
+                    },
+                    "model_tier": {
+                        "type": "string",
+                        "description": (
+                            "Model tier to use for this background job. "
+                            "'low' = fast/budget; 'medium_low' = light worker; "
+                            "'medium' = balanced everyday; 'high' = advanced reasoning & heavy coding; "
+                            "'very_high' = world-class flagship for critical architecture, tough debugging, and self-editing."
+                        ),
+                        "enum": ["low", "medium_low", "medium", "high", "very_high"],
                     },
                     "topic": {
                         "type": "string",
@@ -529,6 +706,7 @@ tools = [
                         "type": "string",
                         "description": (
                             "REQUIRED for opencode/coding (and for delegate/mission): the actual work. "
+                            "For delegate, this is the task the specialist worker executes. "
                             "OpenCode examples: 'Rewrite test.py to print Hello World only' or "
                             "'Add a countdown timer to Desktop/test.py'. "
                             "When continuing a session you MUST still pass objective with the new change — "
@@ -551,9 +729,9 @@ tools = [
                     "session_id": {
                         "type": "string",
                         "description": (
-                            "For opencode: existing OpenCode session token (ses_...) to continue. "
+                            "For opencode or delegate: existing session token (del_... or ses_...) to continue. "
                             "Always pair with a non-empty objective. "
-                            "From HELD DOSSIERS / manage_background_tasks opencode_list."
+                            "From HELD DOSSIERS / manage_background_tasks delegate_list/opencode_list."
                         ),
                     },
                     "title": {
@@ -581,7 +759,7 @@ tools = [
                     },
                     "continue_session": {
                         "type": "boolean",
-                        "description": "For opencode: continue the last OpenCode session if session_id omitted.",
+                        "description": "For opencode or delegate: continue the last session if session_id omitted.",
                     },
                     "mission": {
                         "type": "string",
@@ -594,6 +772,26 @@ tools = [
                     "expected_output": {
                         "type": "string",
                         "description": "For delegate tasks: what the worker should return when done.",
+                    },
+                    "specialist": {
+                        "type": "string",
+                        "description": (
+                            "For delegate: name of the specialized delegate agent with custom system prompt. "
+                            "Choices: 'researcher', 'coder', 'writer', 'data_analyst', 'file_manager', "
+                            "'automation_ops', 'troubleshooter', 'planner', 'smart_home_iot', 'communicator', "
+                            "or 'generic' (default). Delegate workers have access to all tools and custom plugins, "
+                            "excluding background task tools."
+                        ),
+                    },
+                    "worker_tools": {
+                        "type": "string",
+                        "description": (
+                            "For delegate: optional comma-separated extra/override tool names "
+                            "the worker may use (e.g. 'web,create_file,whatsapp_plugin'). "
+                            "Merged with the specialist's default kit. "
+                            "Cannot grant blocked tools (bash, delete_file, background_task, "
+                            "make_phone_call, shutdown_pc)."
+                        ),
                     },
                     "max_workers": {
                         "type": "integer",
@@ -682,11 +880,15 @@ tools = [
                             "list",
                             "status",
                             "result",
+                            "tool_calls",
+                            "steps",
                             "context",
                             "dossier",
                             "cancel",
                             "dismiss",
                             "answer",
+                            "coding_sessions",
+                            "delegate_list",
                             "opencode_list",
                             "opencode_sessions",
                         ],
@@ -761,46 +963,66 @@ tools = [
         "type": "function",
         "function": {
             "name": "calendar",
-            "description": "Google Calendar: list upcoming events, create new events, or delete events. Use when user wants to check, add, or remove calendar events.",
+            "description": "Google Calendar: list/search upcoming events, create events, update/reschedule events, or delete events. Use when user wants to check, add, reschedule, or remove calendar events.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "operation": {
                         "type": "string",
-                        "description": 'What to do: "list", "create", or "delete"',
-                        "enum": ["list", "create", "delete"],
+                        "description": 'What to do: "list" (or search), "create", "update", "delete", or "get"',
+                        "enum": ["list", "create", "update", "delete", "get"],
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword or title search term (for list/search, e.g., 'birthday', 'dentist', 'meeting')",
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Target date filter (for list, e.g., '2026-09-07' or for creating all-day events)",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Start date for range filter (for list, e.g., '2026-09-01')",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "End date for range filter (for list, e.g., '2026-09-30')",
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Max events to return (for list)",
+                        "description": "Max events to return (for list, default 10)",
                     },
                     "days_ahead": {
                         "type": "integer",
-                        "description": "Days ahead to look (for list)",
+                        "description": "Days ahead to look (for list, default 7)",
                     },
                     "title": {
                         "type": "string",
-                        "description": "Event title (for create, dont use in case of read)",
+                        "description": "Event title/summary (for create/update)",
                     },
                     "start_datetime": {
                         "type": "string",
-                        "description": 'Start time ISO format (for create, e.g., "2024-04-25T14:00:00")',
+                        "description": 'Start time in ISO format or date (for create/update, e.g., "2026-09-01T14:00:00" or "2026-09-01")',
+                    },
+                    "end_datetime": {
+                        "type": "string",
+                        "description": 'End time in ISO format (for create/update, optional, defaults to start + duration)',
                     },
                     "duration_minutes": {
                         "type": "integer",
-                        "description": "Duration in minutes (for create)",
+                        "description": "Duration in minutes (for create/update, default 60)",
                     },
                     "description": {
                         "type": "string",
-                        "description": "Event description (for create)",
+                        "description": "Event description (for create/update)",
                     },
                     "location": {
                         "type": "string",
-                        "description": "Event location (for create)",
+                        "description": "Event location (for create/update)",
                     },
                     "event_id": {
                         "type": "string",
-                        "description": "Event ID to delete (for delete)",
+                        "description": "Event ID (for delete, update, or get)",
                     },
                 },
                 "required": ["operation"],
@@ -831,7 +1053,10 @@ tools = [
             "name": "web",
             "description": (
                 "Unified web: search, fetch URLs, AI search, weather, GPS. "
-                "operation=search returns title/url/snippet results (Tavily primary). "
+                "operation='weather' returns rich conditions, multi-day forecasts (days=1..14), "
+                "specific date queries (date='tomorrow' or 'YYYY-MM-DD'), hourly snapshots (hour=0..23), "
+                "and hourly ranges (start_hour=14, end_hour=18 or time_range='2pm-6pm'). "
+                "operation='search' returns title/url/snippet results (Tavily primary). "
                 "Use for any internet task."
             ),
             "parameters": {
@@ -857,6 +1082,42 @@ tools = [
                     "location": {
                         "type": "string",
                         "description": 'City for weather, or "current" for GPS location',
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "Target date for weather forecast or history (e.g. 'today', 'tomorrow', '2026-08-30', 'in 3 days')",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of forecast days (1–14, default 1). Use for multi-day forecasts (e.g. 3 or 7 days)",
+                    },
+                    "hour": {
+                        "type": "integer",
+                        "description": "Specific hour of day (0–23 or '2pm') for single-hour forecast",
+                    },
+                    "start_hour": {
+                        "type": "integer",
+                        "description": "Starting hour (0–23 or '9am') for hourly range forecast",
+                    },
+                    "end_hour": {
+                        "type": "integer",
+                        "description": "Ending hour (0–23 or '5pm') for hourly range forecast",
+                    },
+                    "time_range": {
+                        "type": "string",
+                        "description": "Time range string for hourly forecast (e.g. '2pm-8pm', '14:00-20:00')",
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Start date for date range forecast (e.g. 'today', '2026-08-29')",
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "End date for date range forecast (up to 14 days from today)",
+                    },
+                    "include_hourly": {
+                        "type": "boolean",
+                        "description": "If true, includes complete hour-by-hour forecast breakdown",
                     },
                 },
                 "required": ["operation"],

@@ -11,6 +11,7 @@ try:
 except Exception:
     pass
 
-USER_NAME = os.getenv("USER_NAME", "Kartikey")
+USER_NAME = os.getenv("USER_NAME", os.getenv("USERNAME") or os.getenv("USER") or "User")
 ASSISTANT_NAME = os.getenv("ASSISTANT_NAME", "AVA")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+STT_LANGUAGE = os.getenv("STT_LANGUAGE", "en")

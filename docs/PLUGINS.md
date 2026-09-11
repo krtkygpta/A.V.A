@@ -2,6 +2,46 @@
 
 A.V.A supports a plugin-based tool system that lets you add new capabilities without modifying core code.
 
+## Claude Code skills
+
+Drop a Claude Code / Agent Skills folder into `App/functions/plugins/` (or `App/functions/skills/`). No Python required.
+
+```
+App/functions/plugins/summarize-changes/
+  SKILL.md
+  scripts/          (optional)
+  references/       (optional)
+```
+
+`SKILL.md` is the standard format:
+
+```markdown
+---
+name: summarize-changes
+description: Summarizes uncommitted changes. Use when the user asks what changed or wants a commit message.
+---
+
+## Current changes
+
+!`git diff HEAD`
+
+## Instructions
+
+Summarize the changes in two or three bullets and list risks.
+```
+
+AVA:
+- lists the skill (name + description) for the main agent
+- loads the **full** body only when the agent calls `use_skill` or you type `/summarize-changes`
+- substitutes `$ARGUMENTS`, `${CLAUDE_SKILL_DIR}`, `${CLAUDE_PROJECT_DIR}`
+- runs `` !`command` `` lines and inlines the output (set `AVA_DISABLE_SKILL_SHELL=1` to disable)
+
+Packs that use `skills/<name>/SKILL.md` or `commands/*.md` also load.
+
+Type `/skills` in the TUI to see what is installed.
+
+---
+
 ## Quick Start
 
 ### 1. Create a Plugin File

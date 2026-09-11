@@ -24,5 +24,6 @@ sounddevice==0.5.2
 soundfile==0.13.1
 tavily==1.1.0
 textual==8.2.3
+xnano>=1.2.3
 thinqconnect==1.0.11
 vosk==0.3.45

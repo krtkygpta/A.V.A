@@ -18,6 +18,12 @@ from core.jobs.resources import ExclusiveLane, get_lane, get_resource_registry
 from core.jobs.executor import JobExecutor, get_executor
 from core.jobs.model_router import infer_model_tier, resolve_model_name
 from core.jobs.notify import flush_pending_announcements, route_service_event
+from core.jobs.specialists import (
+    compose_worker,
+    catalog_for_main,
+    list_modules,
+    parse_specialist_ids,
+)
 
 __all__ = [
     "Inbox",
@@ -41,4 +47,8 @@ __all__ = [
     "resolve_model_name",
     "flush_pending_announcements",
     "route_service_event",
+    "compose_worker",
+    "catalog_for_main",
+    "list_modules",
+    "parse_specialist_ids",
 ]

@@ -31,6 +31,10 @@ env/
 # --- Secrets & local config (API keys, tokens) ---
 settings.json
 **/settings.json
+mcps.json
+mcp.json
+**/mcps.json
+**/mcp.json
 *secret*
 *secrets*
 *token*.json
@@ -59,6 +63,12 @@ settings.json
 .agents/
 .android/
 android/
+android_app/.gradle/
+android_app/.kotlin/
+android_app/**/build/
+android_app/local.properties
+*.apk
+*.aab
 .commandcode/
 .freebuff/
 plan.md
@@ -93,4 +103,5 @@ temp/
 
 # --- Accidental path captures ---
 ~/
+desktop/
 test.py

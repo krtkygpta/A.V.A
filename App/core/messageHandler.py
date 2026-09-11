@@ -26,6 +26,106 @@ from core.tool_definitions import tools
 # RLock: near-duplicate checks may nest under add_message's lock
 messages_lock = threading.RLock()
 
+# Registered UI listeners
+_user_message_listeners = []
+_conversation_reset_listeners = []
+_slash_command_listeners = []
+_clear_chat_listeners = []
+_system_message_listeners = []
+
+
+def register_user_message_listener(callback):
+    """Register a callback fn(content: str) -> None for user messages."""
+    if callback not in _user_message_listeners:
+        _user_message_listeners.append(callback)
+
+
+def unregister_user_message_listener(callback):
+    """Unregister a user message callback."""
+    if callback in _user_message_listeners:
+        _user_message_listeners.remove(callback)
+
+
+def register_conversation_reset_listener(callback):
+    """Register a callback fn() -> None for conversation resets."""
+    if callback not in _conversation_reset_listeners:
+        _conversation_reset_listeners.append(callback)
+
+
+def unregister_conversation_reset_listener(callback):
+    if callback in _conversation_reset_listeners:
+        _conversation_reset_listeners.remove(callback)
+
+
+def notify_conversation_reset():
+    """Notify all listeners that a new conversation has started."""
+    for cb in list(_conversation_reset_listeners):
+        try:
+            cb()
+        except Exception as e:
+            print(f"[MsgHandler] Error in conversation reset listener: {e}")
+
+
+def register_slash_command_listener(callback):
+    """Register a callback fn(command: str, origin: str) -> None for slash commands."""
+    if callback not in _slash_command_listeners:
+        _slash_command_listeners.append(callback)
+
+
+def unregister_slash_command_listener(callback):
+    if callback in _slash_command_listeners:
+        _slash_command_listeners.remove(callback)
+
+
+def notify_slash_command(command: str, origin: str = "remote"):
+    """Notify all listeners of a slash command execution."""
+    for cb in list(_slash_command_listeners):
+        try:
+            cb(command, origin)
+        except Exception as e:
+            print(f"[MsgHandler] Error in slash command listener: {e}")
+
+
+def register_clear_chat_listener(callback):
+    """Register a callback fn() -> None for chat clear events."""
+    if callback not in _clear_chat_listeners:
+        _clear_chat_listeners.append(callback)
+
+
+def unregister_clear_chat_listener(callback):
+    if callback in _clear_chat_listeners:
+        _clear_chat_listeners.remove(callback)
+
+
+def notify_clear_chat():
+    """Notify all listeners that the chat display was cleared."""
+    for cb in list(_clear_chat_listeners):
+        try:
+            cb()
+        except Exception as e:
+            print(f"[MsgHandler] Error in clear chat listener: {e}")
+
+
+def register_system_message_listener(callback):
+    """Register a callback fn(text: str, is_alert: bool) -> None for system notices."""
+    if callback not in _system_message_listeners:
+        _system_message_listeners.append(callback)
+
+
+def unregister_system_message_listener(callback):
+    if callback in _system_message_listeners:
+        _system_message_listeners.remove(callback)
+
+
+def notify_system_message(text: str, is_alert: bool = False):
+    """Notify all listeners of a system message/notice."""
+    for cb in list(_system_message_listeners):
+        try:
+            cb(text, is_alert)
+        except Exception as e:
+            print(f"[MsgHandler] Error in system message listener: {e}")
+
+
 # Import conversation manager (lazy to avoid circular imports)
 _conversation_manager = None
 
@@ -227,7 +327,7 @@ def _content_for_storage(content):
     return summary
 
 
-def add_message(content, tool_id="", role="user", trigger_response=None):
+def add_message(content, tool_id="", role="user", trigger_response=None, broadcast=True, attachments=None):
     """Add a message to both the current messages list and the conversation history."""
     if trigger_response is None:
         trigger_response = role in {"user", "tool"}
@@ -261,10 +361,34 @@ def add_message(content, tool_id="", role="user", trigger_response=None):
         # TUI session (no /new yet) is still persisted when the user later /news.
         mgr = _get_conversation_manager()
         conv = mgr.ensure_current_conversation()
+        msg_payload = {"role": role, "content": content}
+        if attachments:
+            msg_payload["attachments"] = attachments
         with messages_lock:
-            messages.append({"role": role, "content": content})
-        conv.add_message("user", content)
+            messages.append(msg_payload)
+        conv.add_message("user", content, attachments=attachments)
         add_remote_message(role="user", content=content)
+
+        # Notify registered UI listeners (e.g. Textual TUI)
+        for listener in list(_user_message_listeners):
+            try:
+                listener(content)
+            except Exception as e:
+                print(f"[MsgHandler] Listener error: {e}")
+
+        # Broadcast user message to connected remote clients (Web & Android) if requested
+        if broadcast:
+            try:
+                from core.gateway import broadcast_user_message
+                from config import USER_NAME
+                clean_text = content
+                user_prefix = f"{USER_NAME}: "
+                if clean_text.startswith(user_prefix):
+                    clean_text = clean_text[len(user_prefix):]
+                broadcast_user_message(clean_text, user=USER_NAME, attachments=attachments)
+            except Exception:
+                pass
+
         if trigger_response and not main_runner.is_set():
             main_runner.set()
     elif role == "assistant":
@@ -280,6 +404,12 @@ def add_message(content, tool_id="", role="user", trigger_response=None):
             messages.append({"role": role, "content": content})
         conv.add_message("assistant", content)
         add_remote_message(role="assistant", content=content)
+        try:
+            from core.gateway import broadcast_assistant_message
+            from config import ASSISTANT_NAME
+            broadcast_assistant_message(content, assistant=ASSISTANT_NAME)
+        except Exception:
+            pass
     elif role == "system":
         with messages_lock:
             messages.append({"role": role, "content": content})
@@ -320,6 +450,12 @@ def add_assistant_message(content=None, tool_calls=None):
     if clean:
         conv.add_message("assistant", clean)
         add_remote_message(role="assistant", content=clean)
+        try:
+            from core.gateway import broadcast_assistant_message
+            from config import ASSISTANT_NAME
+            broadcast_assistant_message(clean, assistant=ASSISTANT_NAME)
+        except Exception:
+            pass
     return True
 
 
@@ -521,6 +657,30 @@ def get_conversation_context():
         return ""
 
 
+def _sanitize_multimodal_message(msg: dict) -> dict:
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return msg
+    clean_parts = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        if part.get("type") == "image_url":
+            url = str(part.get("image_url", {}).get("url") or "").strip()
+            if url.startswith("data:"):
+                hdr = url.split(";", 1)[0].lower()
+                if not hdr.startswith("data:image/"):
+                    clean_parts.append({
+                        "type": "text",
+                        "text": f"[Non-image attachment omitted: {hdr[5:]}]",
+                    })
+                    continue
+        clean_parts.append(part)
+    res = dict(msg)
+    res["content"] = clean_parts
+    return res
+
+
 def messages_for_llm() -> list:
     """
     Copy of the live message list with prior-conversation context inserted as
@@ -529,7 +689,7 @@ def messages_for_llm() -> list:
     Does not mutate the persistent ``messages`` history.
     """
     with messages_lock:
-        base = [dict(m) for m in messages]
+        base = [_sanitize_multimodal_message(dict(m)) for m in messages]
 
     try:
         ctx = (get_conversation_context() or "").strip()
@@ -537,21 +697,42 @@ def messages_for_llm() -> list:
         print(f"[MsgHandler] messages_for_llm context error: {e}")
         ctx = ""
 
-    if not ctx or ctx.startswith("(no prior") or ctx.startswith("(prior chats injected"):
-        return base
+    extras = []
+    if ctx and not ctx.startswith("(no prior") and not ctx.startswith("(prior chats injected"):
+        extras.append(
+            {
+                "role": "system",
+                "content": (
+                    "[PRIOR CONVERSATION CONTEXT — for continuity only]\n"
+                    "Use when the user continues earlier work. Do not monologue about this on greeting.\n\n"
+                    + ctx
+                ),
+            }
+        )
 
-    # Soft cap already applied in ConversationManager (~12k chars default).
-    ctx_msg = {
-        "role": "system",
-        "content": (
-            "[PRIOR CONVERSATION CONTEXT — for continuity only]\n"
-            "Use when the user continues earlier work. Do not monologue about this on greeting.\n\n"
-            + ctx
-        ),
-    }
+    try:
+        from core.cc_plugins.skills_host import get_host
+
+        catalog = (get_host().catalog_for_main() or "").strip()
+    except Exception:
+        catalog = ""
+    if catalog:
+        extras.append(
+            {
+                "role": "system",
+                "content": (
+                    "[SKILLS]\n"
+                    "Installed Claude Code skills. Call use_skill when one matches.\n\n"
+                    + catalog
+                ),
+            }
+        )
+
+    if not extras:
+        return base
     if base and (base[0].get("role") or "") == "system":
-        return [base[0], ctx_msg] + base[1:]
-    return [ctx_msg] + base
+        return [base[0], *extras] + base[1:]
+    return extras + base
 
 
 messages = [

@@ -19,6 +19,8 @@ intelligent notification delivery for all three use cases:
 import json
 import os
 import queue
+import re
+import sys
 import threading
 import time
 import uuid
@@ -26,8 +28,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from collections import defaultdict
+
+_APP_DIR = str(Path(__file__).resolve().parent.parent)
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
 
 
 TASK_STORE_PATH = Path(__file__).resolve().parent.parent / "data" / "tasks" / "tasks.json"
@@ -120,6 +126,11 @@ _FOLLOW_UP_ARG_KEYS = (
     "mission",
     "context",
     "expected_output",
+    "specialist",
+    "modules",
+    "role",
+    "worker_tools",
+    "tools",
     "max_workers",
     "ask",
     "question",
@@ -449,7 +460,8 @@ class BackgroundTask:
         path = (brief.get("report_path") or brief.get("directory") or "").strip()
         if self.task_type in ("opencode", "coding"):
             sid = (brief.get("session_id") or "")[:24]
-            line = f"done · opencode · {summary}"
+            label = "coding" if self.task_type == "coding" else "opencode"
+            line = f"done · {label} · {summary}"
             if path:
                 line += f"\n{path}"
             if sid:
@@ -480,16 +492,18 @@ class BackgroundTask:
         if len(summary) > 200:
             summary = summary[:197].rsplit(" ", 1)[0] + "..."
 
-        # ── OpenCode: ultra-compact dedicated shape ──
+        # ── OpenCode / Coding: ultra-compact dedicated shape ──
         if self.task_type in ("opencode", "coding"):
             sid = (
                 brief.get("session_id")
+                or meta.get("coding_session_id")
                 or meta.get("opencode_session_id")
                 or meta.get("session_id")
                 or ""
             )
             directory = (
                 brief.get("directory")
+                or meta.get("directory")
                 or meta.get("opencode_directory")
                 or meta.get("cwd")
                 or brief.get("report_path")
@@ -499,8 +513,9 @@ class BackgroundTask:
             tool_s = ",".join(
                 str(t).split(":")[0].strip() for t in tools[:5] if t
             )
+            label = "coding" if self.task_type == "coding" else "opencode"
             lines = [
-                f"type=opencode id={self.id} status={brief.get('status') or self.status.value}",
+                f"type={label} id={self.id} status={brief.get('status') or self.status.value}",
                 f"Summary: {summary}",
             ]
             if directory:
@@ -717,9 +732,10 @@ class TaskRegistry:
             data = json.loads(TASK_STORE_PATH.read_text(encoding="utf-8"))
             for item in data.get("tasks", []):
                 task = BackgroundTask.from_dict(item)
-                self._tasks[task.id] = task
-                if task.conversation_id:
-                    self._conversation_tasks[task.conversation_id].append(task.id)
+                if task.id not in self._tasks:
+                    self._tasks[task.id] = task
+                    if task.conversation_id:
+                        self._conversation_tasks[task.conversation_id].append(task.id)
         except Exception as e:
             print(f"[TaskRegistry] Could not load task store: {e}")
 
@@ -730,10 +746,21 @@ class TaskRegistry:
                 "updated_at": datetime.now().isoformat(),
                 "tasks": [task.to_dict() for task in self._tasks.values()],
             }
-            TASK_STORE_PATH.write_text(
-                json.dumps(payload, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            content = json.dumps(payload, indent=2, ensure_ascii=False)
+            tmp_path = TASK_STORE_PATH.with_suffix(".tmp")
+            tmp_path.write_text(content, encoding="utf-8")
+            try:
+                tmp_path.replace(TASK_STORE_PATH)
+            except (PermissionError, OSError):
+                time.sleep(0.05)
+                try:
+                    tmp_path.replace(TASK_STORE_PATH)
+                except (PermissionError, OSError):
+                    TASK_STORE_PATH.write_text(content, encoding="utf-8")
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
         except Exception as e:
             print(f"[TaskRegistry] Could not save task store: {e}")
 
@@ -766,6 +793,7 @@ class TaskRegistry:
             difficulty=(difficulty or "normal"),
             alert_mode=normalize_alert_mode(alert_mode),
         )
+        task.metadata["pid"] = os.getpid()
         with self._tasks_lock:
             self._tasks[task_id] = task
             if conversation_id:
@@ -819,6 +847,10 @@ class TaskRegistry:
 
     def get_task(self, task_id: str) -> Optional[BackgroundTask]:
         with self._tasks_lock:
+            t = self._tasks.get(task_id)
+            if t:
+                return t
+            self._load_persisted_tasks()
             return self._tasks.get(task_id)
 
     def get_running_tasks(self) -> List[BackgroundTask]:
@@ -972,6 +1004,7 @@ class TaskRegistry:
 
     def get_all_tasks(self) -> List[BackgroundTask]:
         with self._tasks_lock:
+            self._load_persisted_tasks()
             return list(self._tasks.values())
 
     def cleanup_old_tasks(self, max_age_hours: int = 24):
@@ -1650,8 +1683,11 @@ class SubAgent:
         self.completion_queue.push(task)
 
     @staticmethod
-    def _desktop_notify(task: "BackgroundTask"):
+    def _desktop_notify(*args, **kwargs):
         """Optional toast only — no auto-beep. Silent mode skips entirely."""
+        task = kwargs.get("task") or (args[-1] if args else None)
+        if not task:
+            return
         try:
             mode = normalize_alert_mode(getattr(task, "alert_mode", None))
             if not alert_mode_wants_toast(mode):
@@ -2257,8 +2293,60 @@ class OpenCodeAgent(SubAgent):
         return json.dumps(payload, ensure_ascii=False)
 
 
+def _extract_thinking(text: str) -> Tuple[str, str]:
+    """
+    Extract <thinking>...</thinking> content from text.
+    Returns (thinking_text, clean_text).
+    """
+    if not text:
+        return "", ""
+    s = str(text)
+    match = re.search(r"<thinking>(.*?)(?:</thinking>|$)", s, flags=re.DOTALL)
+    if not match:
+        return "", s.strip()
+    thinking_text = match.group(1).strip()
+    clean_text = re.sub(r"<thinking>.*?(?:</thinking>|$)", "", s, flags=re.DOTALL).strip()
+    return thinking_text, clean_text
+
+
+def _truncate_tool_output(output: Any, max_chars: int = 4000) -> str:
+    """
+    Bound oversized tool results to protect context limits.
+    Keeps head and tail with an explicit truncation marker.
+    """
+    if not isinstance(output, str):
+        try:
+            output_str = json.dumps(output, ensure_ascii=False)
+        except Exception:
+            output_str = str(output)
+    else:
+        output_str = output
+
+    if len(output_str) <= max_chars:
+        return output_str
+
+    head_len = max(500, int(max_chars * 0.55))
+    tail_len = max(500, int(max_chars * 0.40))
+    omitted = len(output_str) - (head_len + tail_len)
+    head = output_str[:head_len]
+    tail = output_str[-tail_len:]
+    return f"{head}\n\n[... Output truncated: {omitted} characters omitted to preserve context ...]\n\n{tail}"
+
+
+def _tool_call_signature(func_name: str, args: Any) -> str:
+    """Stable signature for identifying duplicate consecutive tool calls."""
+    if isinstance(args, dict):
+        try:
+            sorted_args = json.dumps(args, sort_keys=True, ensure_ascii=False)
+        except Exception:
+            sorted_args = str(args)
+    else:
+        sorted_args = str(args)
+    return f"{func_name}:{sorted_args}"
+
+
 class DelegatedAIAgent(SubAgent):
-    """General-purpose background AI worker for open-ended delegated tasks."""
+    """Background AI worker. Main picks a specialist + tools + task."""
 
     def __init__(self, objective: str, context: str = "",
                  expected_output: str = "A concise final result",
@@ -2266,7 +2354,11 @@ class DelegatedAIAgent(SubAgent):
                  kind: Optional[str] = None,
                  priority: TaskPriority = TaskPriority.NORMAL,
                  model_tier: Optional[str] = None,
-                 difficulty: Optional[str] = None):
+                 difficulty: Optional[str] = None,
+                 specialist: Any = None,
+                 worker_tools: Any = None,
+                 session_id: str = "",
+                 continue_session: bool = False):
         super().__init__(
             task_name=f"Delegated agent: {objective[:40]}",
             task_description=objective,
@@ -2282,52 +2374,122 @@ class DelegatedAIAgent(SubAgent):
         self.objective = objective
         self.context = context
         self.expected_output = expected_output
+        self.specialist = specialist
+        self.worker_tool_override = worker_tools
+        self.session_id = (session_id or "").strip()
+        self.continue_session = bool(continue_session)
+        if not self.session_id and not self.continue_session:
+            try:
+                from core.jobs.delegate_session import generate_delegate_session_id
+                self.session_id = generate_delegate_session_id()
+            except Exception:
+                pass
+        try:
+            live = self.registry.get_task(self.task.id)
+            if live is not None:
+                live.metadata = dict(live.metadata or {})
+                if specialist:
+                    live.metadata["specialist"] = specialist
+                if worker_tools:
+                    live.metadata["worker_tools"] = worker_tools
+                if self.session_id:
+                    live.metadata["session_id"] = self.session_id
+                    live.metadata["delegate_session_id"] = self.session_id
+        except Exception:
+            pass
 
     def execute(self, **kwargs) -> str:
         from core.server_api import generate_remote_response
         from core.tool_definitions import tools
         from core.tool_registry import init_plugins, registry
         from core.FuncHandler import handle_tool_call
-        from core.jobs.context import compact_worker_user_pack, worker_system_prompt
+        from core.jobs.context import compact_worker_user_pack, clean_outcome_summary
+        from core.jobs.specialists import (
+            ALWAYS_BLOCKED,
+            compose_worker,
+            filter_tool_schemas,
+            _normalize_tool_list,
+        )
+        from core.jobs.delegate_session import (
+            get_delegate_session_store,
+            generate_delegate_session_id,
+            DelegateSessionRecord,
+        )
 
-        # Dangerous / recursive ops only. Plugins (e.g. whatsapp_plugin) ARE allowed —
-        # consecutive timer→message jobs need them. Main chat tools + plugins.
-        blocked_tools = {
-            "background_task",
-            "get_background_tasks_status",
-            "manage_background_tasks",
-            "make_phone_call",
-            "shutdown_pc",
-            "delete_file",
-            "bash",
-            "ping",
-        }
         init_plugins()
         merged = list(tools) + list(registry.get_schema() or [])
-        worker_tools = [
-            tool
-            for tool in merged
-            if tool.get("function", {}).get("name") not in blocked_tools
-        ]
-        # Worker-only bridge: pause and ask main/user for user-specific decisions.
-        worker_tools = list(worker_tools) + [REQUEST_CLARIFICATION_TOOL]
+        available_names = []
+        for tool in merged:
+            name = (tool.get("function") or {}).get("name") or tool.get("name")
+            if name and name not in ALWAYS_BLOCKED:
+                available_names.append(name)
+        available_names.append("request_clarification")
+        available_names.append("request_permission")
 
-        plugin_names = sorted(
-            n
-            for n in (registry.all_tools() or {})
-            if n not in blocked_tools
+        spec = compose_worker(
+            self.specialist,
+            objective=self.objective,
+            context=self.context,
+            expected_output=self.expected_output,
+            extra_tools=self.worker_tool_override,
+            available_tool_names=available_names,
+            auto_infer=True,
         )
-        plugin_hint = ""
-        if plugin_names:
-            plugin_hint = (
-                "Plugin tools available (use these by exact name): "
-                + ", ".join(plugin_names)
-                + ". For WhatsApp: use whatsapp_plugin "
-                "(search_contacts then send_message)."
-            )
+
+        worker_tools = filter_tool_schemas(merged, spec.tool_names)
+        # Worker-only bridge: pause and ask main/user for user-specific decisions and permissions.
+        have_clarify = any(
+            ((t.get("function") or {}).get("name") or t.get("name")) == "request_clarification"
+            for t in worker_tools
+        )
+        if not have_clarify:
+            worker_tools = list(worker_tools) + [REQUEST_CLARIFICATION_TOOL]
+
+        have_perm = any(
+            ((t.get("function") or {}).get("name") or t.get("name")) == "request_permission"
+            for t in worker_tools
+        )
+        if not have_perm:
+            worker_tools = list(worker_tools) + [REQUEST_PERMISSION_TOOL]
+
+        # ── Session System for Delegated Worker ──
+        store = get_delegate_session_store()
+        sid = self.session_id
+        is_continuing = False
+        session_rec: Optional[DelegateSessionRecord] = None
+
+        if not sid and self.continue_session:
+            last = store.get_last_session()
+            if last:
+                sid = last.session_id
+
+        if sid:
+            session_rec = store.get(sid)
+            if session_rec:
+                is_continuing = True
+                self.session_id = sid
+
+        if not self.session_id:
+            self.session_id = generate_delegate_session_id()
+            sid = self.session_id
 
         live = self.registry.get_task(self.task.id) or self.task
-        tier = getattr(live, "model_tier", None) or "small"
+        try:
+            live.metadata = dict(live.metadata or {})
+            live.metadata["session_id"] = self.session_id
+            live.metadata["delegate_session_id"] = self.session_id
+            live.metadata["specialist"] = "+".join(spec.ids)
+            live.metadata["specialist_title"] = spec.title
+            live.metadata["worker_tools"] = list(spec.tool_names)
+            live.metadata["specialist_inferred"] = bool(spec.inferred)
+            live.metadata["continue_hints"] = [
+                f"Continue Delegate: session_id={self.session_id}",
+                f'background_task task_type=delegate session_id={self.session_id} objective="..."',
+            ]
+        except Exception:
+            pass
+
+        tier = getattr(live, "model_tier", None) or spec.model_tier_hint or "small"
 
         # Merge spawn-time origin conversation into worker context
         worker_ctx = (self.context or "").strip()
@@ -2346,92 +2508,290 @@ class DelegatedAIAgent(SubAgent):
         if not worker_ctx:
             worker_ctx = "No additional context provided."
 
-        messages = [
-            {
-                "role": "system",
-                "content": worker_system_prompt(plugin_hint),
-            },
-            {
-                "role": "user",
-                "content": compact_worker_user_pack(
-                    self.objective,
-                    worker_ctx,
-                    self.expected_output,
-                ),
-            },
-        ]
+        user_pack = compact_worker_user_pack(
+            self.objective,
+            worker_ctx,
+            self.expected_output,
+        )
+        role_line = f"Assigned specialist: {spec.title} ({'+'.join(spec.ids)})"
 
-        final_content = ""
-        for _ in range(8):
-            if self.is_cancelled():
-                return "Delegated agent was cancelled."
-            response = generate_remote_response(
-                messages,
-                tools=worker_tools,
-                model_tier=tier,
-                include_server_context=False,
+        if is_continuing and session_rec and session_rec.messages:
+            messages = list(session_rec.messages)
+            if self.specialist:
+                for m in messages:
+                    if m.get("role") == "system":
+                        m["content"] = spec.system_prompt
+                        break
+            followup_content = f"Follow-up task / Continuation:\n{role_line}\n\n{user_pack}"
+            messages.append({"role": "user", "content": followup_content})
+        else:
+            messages = [
+                {
+                    "role": "system",
+                    "content": spec.system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": f"{role_line}\n\n{user_pack}",
+                },
+            ]
+
+        # Immediately save running session record so watcher can inspect live from round 0
+        if not session_rec:
+            session_rec = DelegateSessionRecord(
+                session_id=self.session_id,
+                title=self.objective[:80],
+                specialist="+".join(spec.ids),
+                status="running",
+                task_id=self.task.id,
+                messages=list(messages),
+                summary="Starting delegate execution...",
             )
-            content = response.get("content")
-            tool_calls = response.get("tool_calls") or []
+        else:
+            session_rec.status = "running"
+            session_rec.messages = list(messages)
+            session_rec.task_id = self.task.id
+            session_rec.specialist = "+".join(spec.ids)
+        store.upsert(session_rec)
 
-            assistant_msg = {"role": "assistant"}
-            if content:
-                assistant_msg["content"] = content
-                final_content = content
-            if tool_calls:
-                assistant_msg["tool_calls"] = tool_calls
-            messages.append(assistant_msg)
+        if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict):
+            self.task.metadata["session_id"] = self.session_id
+            self.task.metadata["specialist"] = "+".join(spec.ids)
+            self.task.metadata["current_activity"] = f"Initializing {spec.ids[0]} specialist..."
+            self.task.metadata["messages"] = list(messages)
 
-            if not tool_calls:
-                return final_content or "Delegated agent completed without a text result."
+        max_rounds = int(os.getenv("AVA_DELEGATE_MAX_ROUNDS", "15"))
+        final_content = ""
+        set_current_worker(self)
 
-            for tool_call in tool_calls:
+        # Grok-Build-inspired duplicate tool call / doom-loop tracking
+        call_history_counts: dict[str, int] = {}
+        last_call_signature: Optional[str] = None
+        last_call_result_snippet: str = ""
+
+        try:
+            for _round in range(max_rounds):
                 if self.is_cancelled():
-                    return "Delegated agent was cancelled."
+                    final_content = "Delegated agent was cancelled."
+                    break
 
-                # Resolve function name for special worker tools
-                if isinstance(tool_call, dict):
-                    function_payload = tool_call.get("function", {}) or {}
-                    func_name = function_payload.get("name")
-                    args_raw = function_payload.get("arguments", "{}")
-                    tool_id = tool_call.get("id") or "unknown"
-                else:
-                    func_name = tool_call.function.name
-                    args_raw = tool_call.function.arguments
-                    tool_id = getattr(tool_call, "id", None) or "unknown"
+                if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict):
+                    self.task.metadata["current_activity"] = f"Thinking (round {_round + 1}/{max_rounds})..."
 
-                if isinstance(args_raw, str):
+                response = None
+                for _attempt in range(3):
                     try:
-                        args = json.loads(args_raw) if args_raw.strip() else {}
-                    except json.JSONDecodeError:
-                        args = {}
-                elif isinstance(args_raw, dict):
-                    args = args_raw
-                else:
-                    args = {}
+                        response = generate_remote_response(
+                            messages,
+                            tools=worker_tools,
+                            model_tier=tier,
+                            include_server_context=False,
+                        )
+                        break
+                    except Exception as e:
+                        if self.is_cancelled():
+                            break
+                        print(f"[DelegatedAIAgent] generate attempt {_attempt + 1}/3 failed: {e}")
+                        if _attempt < 2:
+                            if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict):
+                                self.task.metadata["current_activity"] = f"Connection retry {_attempt + 1}/3..."
+                            time.sleep(2.0 * (_attempt + 1))
+                        else:
+                            raise e
 
-                if func_name == "request_clarification":
-                    result = self.ask_main(
-                        question=str(args.get("question", "")),
-                        options=args.get("options"),
-                        context_snippet=str(args.get("context_snippet", "") or ""),
-                        default_if_timeout=args.get("default_if_timeout"),
-                        require_user=bool(args.get("require_user", False)),
-                    )
+                if not response:
+                    break
+
+                content = response.get("content")
+                tool_calls = response.get("tool_calls") or []
+
+                # Chain of Thought extraction
+                thinking_text, clean_text = _extract_thinking(content or "")
+
+                assistant_msg = {"role": "assistant"}
+                if content:
+                    assistant_msg["content"] = content
+                    if clean_text:
+                        final_content = clean_text
+                    else:
+                        final_content = content
+                if tool_calls:
+                    assistant_msg["tool_calls"] = tool_calls
+                messages.append(assistant_msg)
+
+                # Persist live messages
+                session_rec.messages = list(messages)
+                display_text = clean_text or content or ""
+                session_rec.summary = f"Round {_round + 1}: {clean_outcome_summary(display_text, 140) if display_text else 'Executing tools...'}"
+                store.upsert(session_rec)
+                if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict):
+                    self.task.metadata["messages"] = list(messages)
+                    self.task.metadata["summary"] = session_rec.summary
+                    if thinking_text:
+                        self.task.metadata["thinking"] = thinking_text
+                        first_thought = thinking_text.strip().split("\n")[0][:100]
+                        self.task.metadata["current_activity"] = f"Thought: {first_thought}..."
+
+                if not tool_calls:
+                    break
+
+                for tool_call in tool_calls:
                     if self.is_cancelled():
-                        return "Delegated agent was cancelled."
-                else:
-                    result, tool_id = handle_tool_call(tool_call)
+                        final_content = "Delegated agent was cancelled."
+                        break
 
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_id or "unknown",
-                        "content": result if isinstance(result, str) else json.dumps(result),
-                    }
-                )
+                    # Resolve function name for special worker tools
+                    if isinstance(tool_call, dict):
+                        function_payload = tool_call.get("function", {}) or {}
+                        func_name = function_payload.get("name")
+                        args_raw = function_payload.get("arguments", "{}")
+                        tool_id = tool_call.get("id") or "unknown"
+                    else:
+                        func_name = tool_call.function.name
+                        args_raw = tool_call.function.arguments
+                        tool_id = getattr(tool_call, "id", None) or "unknown"
 
-        return final_content or "Delegated agent reached its tool-iteration limit."
+                    if isinstance(args_raw, str):
+                        try:
+                            args = json.loads(args_raw) if args_raw.strip() else {}
+                        except json.JSONDecodeError:
+                            args = {}
+                    elif isinstance(args_raw, dict):
+                        args = args_raw
+                    else:
+                        args = {}
+
+                    # Grok-Build Doom-Loop check: track duplicate consecutive calls
+                    call_sig = _tool_call_signature(func_name or "", args)
+                    if call_sig == last_call_signature:
+                        repetition_count = call_history_counts.get(call_sig, 1) + 1
+                    else:
+                        repetition_count = 1
+                    call_history_counts[call_sig] = repetition_count
+                    last_call_signature = call_sig
+
+                    if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict):
+                        self.task.metadata["current_activity"] = f"Running tool: {func_name}..."
+
+                    if repetition_count == 2:
+                        # 2nd consecutive identical call: intercept with Grok-Build doom-loop safeguard
+                        prev_preview = last_call_result_snippet or "no output"
+                        if len(prev_preview) > 200:
+                            prev_preview = prev_preview[:197] + "..."
+                        result = (
+                            f"[TOOL REPETITION DETECTED - DOOM-LOOP SAFEGUARD]:\n"
+                            f"You called '{func_name}' with the exact same arguments as your previous turn.\n"
+                            f"Previous outcome: {prev_preview}\n"
+                            f"Repeating the identical tool call will not change the outcome or make progress.\n"
+                            f"You MUST pause, reflect in <thinking> on why the previous attempt did not succeed, "
+                            f"and change your approach (e.g. adjust arguments, use a different tool, inspect existing files, or conclude with your current findings)."
+                        )
+                        last_call_result_snippet = result[:200]
+                    elif repetition_count >= 3:
+                        # 3rd+ consecutive identical call: hard block to prevent burning tokens
+                        result = (
+                            f"[DOOM-LOOP BLOCKED]: '{func_name}' with these arguments has now been attempted {repetition_count} times consecutively. "
+                            f"Execution of this duplicate call was blocked. You must try a different tool or complete the task now."
+                        )
+                        last_call_result_snippet = result[:200]
+                    elif func_name == "request_permission":
+                        action = str(args.get("action", "")).strip()
+                        reason = str(args.get("reason", "")).strip()
+                        risk = str(args.get("risk_level", "medium")).strip().lower()
+                        question = f"Permission requested: {action}. Reason: {reason}"
+                        result = self.ask_main(
+                            question=question,
+                            options=["grant", "deny"],
+                            context_snippet=f"Action: {action}\nReason: {reason}\nRisk: {risk}",
+                            default_if_timeout="grant" if risk == "low" else "deny",
+                            require_user=False,
+                            allow_main_self_answer=True,
+                        )
+                        last_call_result_snippet = str(result)[:200]
+                        if self.is_cancelled():
+                            final_content = "Delegated agent was cancelled."
+                            break
+                    elif func_name == "request_clarification":
+                        result = self.ask_main(
+                            question=str(args.get("question", "")),
+                            options=args.get("options"),
+                            context_snippet=str(args.get("context_snippet", "") or ""),
+                            default_if_timeout=args.get("default_if_timeout"),
+                            require_user=bool(args.get("require_user", False)),
+                            allow_main_self_answer=True,
+                        )
+                        last_call_result_snippet = str(result)[:200]
+                        if self.is_cancelled():
+                            final_content = "Delegated agent was cancelled."
+                            break
+                    else:
+                        raw_result, tool_id = handle_tool_call(tool_call)
+                        result = raw_result
+                        last_call_result_snippet = str(result)[:200]
+
+                    # Truncate output to guard context window limits
+                    truncated_content = _truncate_tool_output(result, max_chars=4000)
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_id or "unknown",
+                            "name": func_name,
+                            "content": truncated_content,
+                        }
+                    )
+                    # Persist tool execution
+                    session_rec.messages = list(messages)
+                    store.upsert(session_rec)
+                    if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict):
+                        self.task.metadata["messages"] = list(messages)
+
+                if self.is_cancelled():
+                    break
+        finally:
+            set_current_worker(None)
+
+        if not final_content and not self.is_cancelled():
+            final_content = "Delegated agent completed work."
+
+        # Clean thinking tags from final outcome summary
+        _, clean_final = _extract_thinking(final_content)
+        cleaned_final = clean_final if clean_final else final_content
+
+        # Save / update session record
+        status = "cancelled" if self.is_cancelled() else "completed"
+        outcome_summary = clean_outcome_summary(str(cleaned_final), 280)
+        if not session_rec:
+            session_rec = DelegateSessionRecord(
+                session_id=self.session_id,
+                title=self.objective[:80],
+                specialist="+".join(spec.ids),
+                status=status,
+                task_id=self.task.id,
+                messages=messages,
+                summary=outcome_summary,
+            )
+        else:
+            session_rec.messages = messages
+            session_rec.summary = outcome_summary
+            session_rec.status = status
+            session_rec.task_id = self.task.id
+            session_rec.specialist = "+".join(spec.ids)
+        store.upsert(session_rec)
+
+        if hasattr(self.task, "metadata") and isinstance(self.task.metadata, dict):
+            self.task.metadata["status"] = status
+            self.task.metadata["messages"] = list(messages)
+            self.task.metadata["current_activity"] = "Completed" if status == "completed" else "Cancelled"
+            self.task.metadata["summary"] = outcome_summary
+
+        payload = {
+            "summary": outcome_summary,
+            "session_id": self.session_id,
+            "specialist": "+".join(spec.ids),
+            "status": status,
+        }
+        return json.dumps(payload, ensure_ascii=False)
 
 
 # Tool schema available only to background workers (not main agent tool list).
@@ -2475,6 +2835,50 @@ REQUEST_CLARIFICATION_TOOL = {
     },
 }
 
+REQUEST_PERMISSION_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "request_permission",
+        "description": (
+            "Pause this background job and request permission from the main agent to execute a sensitive, "
+            "modifying, or system operation (e.g. bash commands, file deletion, or external actions). "
+            "The main agent will evaluate the request and grant or deny it."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "The specific action or command requiring permission.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why this action is needed to accomplish the task.",
+                },
+                "risk_level": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "Estimated risk level (default: medium).",
+                },
+            },
+            "required": ["action", "reason"],
+        },
+    },
+}
+
+_CURRENT_WORKER = threading.local()
+
+
+def get_current_worker() -> Optional[Any]:
+    """Return the currently executing worker in this thread, if any."""
+    return getattr(_CURRENT_WORKER, "worker", None)
+
+
+def set_current_worker(worker: Optional[Any]) -> None:
+    """Set the currently executing worker in this thread."""
+    _CURRENT_WORKER.worker = worker
+
+
 class MissionAgent(SubAgent):
     """Supervisor that decomposes a mission into parallel background workers."""
 
@@ -2504,7 +2908,10 @@ class MissionAgent(SubAgent):
                 "role": "system",
                 "content": (
                     "You plan work for background AI workers. Return only JSON: "
-                    "{\"tasks\":[{\"objective\":\"...\",\"expected_output\":\"...\"}]}. "
+                    '{"tasks":[{"objective":"...","expected_output":"...","specialist":"id or id+id"}]}'
+                    ". specialist is 1–3 ids from: researcher, web_reader, writer, explorer, "
+                    "planner, coder, messenger, shopper, comparator, summarizer, fact_checker, "
+                    "debugger, documenter, calendar_ops, general. "
                     "Create independent tasks that can run in parallel. Do not include more tasks "
                     "than requested."
                 ),
@@ -2537,6 +2944,7 @@ class MissionAgent(SubAgent):
                     {
                         "objective": objective,
                         "expected_output": str(item.get("expected_output", "A useful result")).strip(),
+                        "specialist": str(item.get("specialist") or item.get("modules") or "").strip(),
                     }
                 )
         if not planned:
@@ -2544,6 +2952,7 @@ class MissionAgent(SubAgent):
                 {
                     "objective": self.mission,
                     "expected_output": "Complete the mission and report the useful result.",
+                    "specialist": "",
                 }
             )
         return planned
@@ -2593,6 +3002,7 @@ class MissionAgent(SubAgent):
                 conversation_id=self.task.conversation_id,
                 conversation_name=self.task.conversation_name,
                 priority=self.task.priority,
+                specialist=item.get("specialist") or None,
             )
             child.notify_on_completion = False
             child.start()
@@ -2651,8 +3061,18 @@ def dispatch_background_task(task_type: str, conversation_id: str = "",
             return False
         return default
 
+    def _start_coding_agent(**agent_kwargs) -> str:
+        try:
+            from core.jobs.coding_agent import CodingAgent
+        except ImportError:
+            from App.core.jobs.coding_agent import CodingAgent
+
+        agent = CodingAgent(**agent_kwargs)
+        return agent.start()
+
     difficulty = kwargs.get("difficulty")
     model_tier = kwargs.get("model_tier")
+    priority = kwargs.get("priority") or TaskPriority.NORMAL
 
     # follow_up + internal chain metadata (not agent ctor kwargs)
     follow_up_raw = kwargs.pop("follow_up", None)
@@ -2703,6 +3123,12 @@ def dispatch_background_task(task_type: str, conversation_id: str = "",
             priority=TaskPriority.NORMAL,
             model_tier=model_tier,
             difficulty=difficulty,
+            specialist=kwargs.get("specialist")
+            or kwargs.get("modules")
+            or kwargs.get("role"),
+            worker_tools=kwargs.get("worker_tools") or kwargs.get("tools"),
+            session_id=kwargs.get("session_id") or kwargs.get("session") or "",
+            continue_session=_as_bool(kwargs.get("continue_session"), False),
         ).start(),
         "mission": lambda: MissionAgent(
             kwargs.get("mission", "") or kwargs.get("objective", "") or kwargs.get("topic", ""),
@@ -2754,24 +3180,22 @@ def dispatch_background_task(task_type: str, conversation_id: str = "",
             conversation_name=conversation_name,
             kind=kwargs.get("kind"),
         ).start(),
-        "coding": lambda: OpenCodeAgent(
-            objective=kwargs.get("objective") or "",
-            prompt=kwargs.get("prompt") or "",
-            topic=kwargs.get("topic") or "",
-            command=kwargs.get("command") or "",
-            message=kwargs.get("message") or "",
-            directory=kwargs.get("directory") or kwargs.get("dir") or "",
+        # Native Pi-inspired delegate coding agent (can edit projects or AVA itself)
+        "coding": lambda: _start_coding_agent(
+            objective=kwargs.get("objective") or kwargs.get("prompt") or kwargs.get("topic") or kwargs.get("command") or kwargs.get("message") or "",
+            directory=kwargs.get("directory") or kwargs.get("dir") or kwargs.get("cwd") or "",
             session_id=kwargs.get("session_id") or kwargs.get("session") or "",
             title=kwargs.get("title") or kwargs.get("description") or "",
             description=kwargs.get("description") or kwargs.get("title") or "",
-            permissions=kwargs.get("permissions") or "auto",
-            continue_session=_as_bool(kwargs.get("continue_session"), False),
-            model=kwargs.get("model") or "",
+            model_tier=kwargs.get("model_tier") or kwargs.get("tier") or model_tier,
+            continue_session=_as_bool(kwargs.get("continue_session") or kwargs.get("continue"), False),
             context=kwargs.get("context") or "",
             conversation_id=conversation_id,
             conversation_name=conversation_name,
+            priority=priority,
             kind=kwargs.get("kind"),
-        ).start(),
+            permissions=kwargs.get("permissions") or "auto",
+        ),
     }
 
     if task_type not in agents:
@@ -3266,6 +3690,33 @@ def manage_background_tasks(
         lines.extend(old[:10] or ["  (none)"])
         return "\n".join(lines)
 
+    if action in {"delegate_list", "delegate_sessions"}:
+        try:
+            from core.jobs.delegate_session import get_delegate_session_store
+
+            q = (task_id or answer or "").strip()
+            store = get_delegate_session_store()
+            if q:
+                rows = store.find_by_description(q, limit=15)
+            else:
+                rows = store.list_recent(15)
+            lines = ["Delegate sessions (AVA index — use session_id to continue):"]
+            if rows:
+                for s in rows:
+                    lines.append(
+                        f"- {s.session_id}: {s.title or '(no title)'} "
+                        f"[{s.status}] specialist={s.specialist} job={s.task_id or '-'}"
+                    )
+            else:
+                lines.append("  (no delegate sessions found)")
+            lines.append("")
+            lines.append(
+                "Continue: background_task task_type=delegate session_id=<id> objective=<next instruction>"
+            )
+            return "\n".join(lines)
+        except Exception as e:
+            return f"delegate_list failed: {e}"
+
     if action in {"opencode_list", "opencode_sessions"}:
         try:
             from functions.system.opencode_client import (
@@ -3303,6 +3754,64 @@ def manage_background_tasks(
             return "\n".join(lines)
         except Exception as e:
             return f"opencode_list failed: {e}"
+
+    if action in {"coding_list", "coding_sessions"}:
+        try:
+            from core.jobs.delegate_session import get_delegate_session_store
+
+            q = (task_id or answer or "").strip()
+            store = get_delegate_session_store()
+            all_recs = store.find_by_description(q, limit=25) if q else store.list_recent(25)
+            coding_recs = [
+                r for r in all_recs
+                if r.specialist == "coder" or r.session_id.startswith("code_")
+            ]
+            lines = ["Coding sessions (AVA index — use session_id to continue):"]
+            if coding_recs:
+                for s in coding_recs:
+                    meta = s.metadata or {}
+                    dir_info = meta.get("directory") or "?"
+                    lines.append(
+                        f"- {s.session_id}: {s.title or '(no title)'} "
+                        f"[{s.status}] dir={dir_info} job={s.task_id or '-'}"
+                    )
+            else:
+                lines.append("  (no coding sessions found)")
+            lines.append("")
+            lines.append("Continue: background_task task_type=coding session_id=<id> objective=<next instruction>")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"coding_list failed: {e}"
+
+    if action in {"tool_calls", "steps"}:
+        if not task_id:
+            return "Please provide task_id to inspect tool calls."
+        task = registry.get_task(task_id)
+        if not task:
+            return f"Task {task_id} was not found."
+        meta = task.metadata if isinstance(task.metadata, dict) else {}
+        history = meta.get("tool_history") or []
+        activity = meta.get("current_activity") or task.status.value
+        lines = [
+            f"Tool Execution History for Task {task.id} ({task.name}):",
+            f"Status: {task.status.value} | Activity: {activity}",
+            f"Total Tool Calls: {len(history)}",
+            "",
+        ]
+        if not history:
+            lines.append("  (No tool calls recorded yet or worker does not support step logging)")
+        else:
+            for step in history:
+                r = step.get("round", "?")
+                tool = step.get("tool", "unknown")
+                st = step.get("status", "ok")
+                args = step.get("args") or {}
+                args_preview = ", ".join(f"{k}={repr(v)[:40]}" for k, v in args.items() if k not in ("code", "target_content", "replacement_content"))
+                summary = step.get("summary") or ""
+                lines.append(f"- Round {r} [{st}] {tool}({args_preview})")
+                if summary:
+                    lines.append(f"    Result: {summary[:160]}")
+        return "\n".join(lines)
 
     if action in {"context", "dossier"}:
         if not task_id:

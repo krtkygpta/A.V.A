@@ -156,10 +156,11 @@ class ResearchFetchTools:
     """Bounded search / fetch / PDF tools for the research agent."""
 
     def __init__(self, tavily_key: Optional[str] = None):
+        t_key = tavily_key or os.getenv("TAVILY_API_KEY")
         self.tavily = None
-        if tavily_key and TavilyClient is not None:
+        if t_key and TavilyClient is not None:
             try:
-                self.tavily = TavilyClient(api_key=tavily_key)
+                self.tavily = TavilyClient(api_key=t_key)
             except Exception:
                 self.tavily = None
         self.session = requests.Session()

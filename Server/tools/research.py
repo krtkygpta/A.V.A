@@ -392,6 +392,9 @@ class ResearchAgent:
         openai_base_url: Optional[str] = None,
         model_name: Optional[str] = None,
     ):
+        tavily_key = tavily_key or os.getenv("TAVILY_API_KEY")
+        groq_key = groq_key or os.getenv("GROQ_API_KEY")
+        openai_api_key = openai_api_key or os.getenv("OPENAI_API_KEY")
         self.fetch = ResearchFetchTools(tavily_key=tavily_key)
 
         # Prefer shared OpenAI-compatible key pool (same as main LLM + dreamer).
@@ -474,6 +477,9 @@ class ResearchAgent:
     def _llm_create(self, messages: list[dict[str, Any]], **kwargs: Any) -> Any:
         """Chat completion via shared key pool (or Groq fallback client)."""
         messages = self._normalize_messages_for_llm(messages)
+        call_kwargs = dict(kwargs)
+        # Drop temperature to avoid 400 Bad Request on reasoning / proxy models
+        call_kwargs.pop("temperature", None)
         if self._use_key_pool:
             from services.key_rotator import chat_completions_create
 
@@ -482,14 +488,14 @@ class ResearchAgent:
                 messages=messages,
                 base_url=self.base_url,
                 label="Research",
-                **kwargs,
+                **call_kwargs,
             )
         if self.client is None:
             raise RuntimeError("No LLM client (OPENAI_API_KEYS / GROQ_API_KEY)")
         resp = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
-            **kwargs,
+            **call_kwargs,
         )
         # Groq fallback path still counts toward daily usage.
         try:
@@ -574,7 +580,6 @@ class ResearchAgent:
                     messages=messages,
                     tools=tools,
                     tool_choice="auto",
-                    temperature=cfg.temperature,
                     max_tokens=cfg.max_output_tokens,
                 )
             except Exception as e:
@@ -584,7 +589,6 @@ class ResearchAgent:
                     messages=messages,
                     tools=tools,
                     tool_choice="auto",
-                    temperature=cfg.temperature,
                 )
 
             msg = response.choices[0].message

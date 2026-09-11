@@ -379,8 +379,13 @@ def infer_continue_hints(task: Any, brief: Optional[dict] = None) -> List[str]:
         hints.append(
             "If user says run/open/continue the work, use artifacts above or inspect the result."
         )
-    # OpenCode session token for continue
-    sid = meta.get("opencode_session_id") or meta.get("session_id") or ""
+    # OpenCode / Delegate session token for continue
+    sid = (
+        meta.get("opencode_session_id")
+        or meta.get("delegate_session_id")
+        or meta.get("session_id")
+        or ""
+    )
     if not sid and isinstance(getattr(task, "result", None), str):
         try:
             import json as _json
@@ -393,10 +398,18 @@ def infer_continue_hints(task: Any, brief: Optional[dict] = None) -> List[str]:
         except Exception:
             pass
     if sid:
-        hints.append(f"Continue OpenCode: session_id={sid}")
-        hints.append(
-            f'background_task task_type=opencode session_id={sid} objective="..."'
-        )
+        if task_type in ("opencode", "coding"):
+            hints.append(f"Continue OpenCode: session_id={sid}")
+            hints.append(
+                f'background_task task_type=opencode session_id={sid} objective="..."'
+            )
+        elif task_type == "delegate":
+            hints.append(f"Continue Delegate: session_id={sid}")
+            hints.append(
+                f'background_task task_type=delegate session_id={sid} objective="..."'
+            )
+        else:
+            hints.append(f"Continue session_id={sid}")
     if meta.get("follow_up_main_action"):
         # After tools run, dossier still records what was done
         hints.append(f"Post-action was: {meta.get('follow_up_main_action')}")

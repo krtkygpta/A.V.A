@@ -259,7 +259,7 @@ Manages conversation history for recall and search.
 
 ### User Interface
 
-#### App/ui/tui.py — Terminal User Interface
+#### App/ui/tui.py — Terminal User Interface (Textual)
 
 Built with Textual framework, provides:
 
@@ -281,6 +281,12 @@ Built with Textual framework, provides:
 - Theme support (light/dark)
 - Keyboard shortcuts
 - Live transcription display
+
+#### App/ui/rich_ui/ — Parallel Rich frontend
+
+Same commands, sidebars, voice modes, and response-loop hooks, rendered with
+Rich Live instead of Textual widgets. Launch with `AVA_START_MODE=rich_text`
+or `AVA_UI=rich`.
 
 ## Data Flow
 

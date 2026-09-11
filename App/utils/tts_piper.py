@@ -88,7 +88,13 @@ def synthesize_bytes(text: str) -> bytes | None:
     Returns None on error.
     """
     try:
-        return synthesize_remote_tts(text)
+        import re
+        # Clean any stray markdown formatting so Piper TTS never stumbles on asterisks or symbols
+        cleaned = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+        cleaned = re.sub(r"\*([^*]+)\*", r"\1", cleaned)
+        cleaned = re.sub(r"__([^_]+)__", r"\1", cleaned)
+        cleaned = re.sub(r"`([^`]+)`", r"\1", cleaned)
+        return synthesize_remote_tts(cleaned.strip())
     except Exception as exc:
         print(f"[TTS] Remote synthesis error ({SERVER_URL}): {exc}")
         return None

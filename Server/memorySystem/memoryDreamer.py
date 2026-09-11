@@ -1,5 +1,5 @@
 """
-memoryDreamer.py — Interval-based offline memory consolidation ("dreaming").
+memoryDreamer.py -- Interval-based offline memory consolidation ("dreaming").
 
 Runs on a fixed wall-clock interval (default 1 hour). Does NOT dream on every
 chat end, and does NOT reset the timer on user activity.
@@ -7,7 +7,7 @@ chat end, and does NOT reset the timer on user activity.
 Flow:
   1. Sleep AVA_DREAM_INTERVAL_SECONDS (default 3600).
   2. Load conversations newer than last_checked.
-  3. If any: LLM merge → memories.txt / behaviours.txt; only then advance cursor.
+  3. If any: LLM merge -> memories.txt / behaviours.txt; only then advance cursor.
   4. Repeat forever.
 """
 
@@ -42,7 +42,7 @@ MAX_MSG_CHARS = int(os.getenv("AVA_DREAM_MAX_MSG_CHARS", "800"))
 MAX_BATCH_CHARS = int(os.getenv("AVA_DREAM_MAX_BATCH_CHARS", "60000"))
 
 # Optional: other code may set this to wake the sleeper early (e.g. tests / admin).
-# Activity on /generate does NOT reset the interval — dreaming stays periodic.
+# Activity on /generate does NOT reset the interval -- dreaming stays periodic.
 dreamerEvent = threading.Event()
 dreamerEvent.clear()
 
@@ -80,9 +80,9 @@ def _truncate_content(content: Any) -> str:
     # Drop obvious task/noise blobs that drown personal signal.
     lower = text.lower()
     if lower.startswith("task ") and "status" in lower[:80]:
-        return text[:200] + ("…" if len(text) > 200 else "")
+        return text[:200] + ("..." if len(text) > 200 else "")
     if len(text) > MAX_MSG_CHARS:
-        return text[:MAX_MSG_CHARS] + "…"
+        return text[:MAX_MSG_CHARS] + "..."
     return text
 
 
@@ -109,7 +109,7 @@ def clean_conversation(data: dict[str, Any]) -> dict[str, Any]:
 def collect_new_conversations() -> tuple[list[dict[str, Any]], str]:
     """
     Load conversation files newer than last_checked.
-    Does NOT advance the cursor — caller advances only after a successful dream.
+    Does NOT advance the cursor -- caller advances only after a successful dream.
     Returns (cleaned_list, newest_timestamp_in_batch).
     """
     last_timestamp = load_last_timestamp()
@@ -130,7 +130,7 @@ def collect_new_conversations() -> tuple[list[dict[str, Any]], str]:
             data = json.loads(file.read_text(encoding="utf-8"))
             cleaned_one = clean_conversation(data)
             if not cleaned_one.get("messages"):
-                # Empty shell — still advance past it later so we don't stuck-loop.
+                # Empty shell -- still advance past it later so we don't stuck-loop.
                 cleaned.append(cleaned_one)
             else:
                 cleaned.append(cleaned_one)
@@ -282,7 +282,7 @@ REMEMBER AGGRESSIVELY (user-centric):
 YOUR TASK:
 Produce COMPLETE updated lists. Start from EXISTING MEMORIES and only drop items that are
 clearly wrong, contradicted, or pure noise. Do NOT wipe the list to (none) because a batch
-was mostly tools/tests — keep prior user facts.
+was mostly tools/tests -- keep prior user facts.
 
 ANALYSIS STEPS:
 1. KEEP nearly all existing valid memories
@@ -292,10 +292,10 @@ ANALYSIS STEPS:
 5. BEHAVIOURS: weak / half-formed interaction patterns (not full memories yet)
 
 RULES:
-- Explicit user statements → memory (confidence ≥ 0.75), even if said once
-- Preferences and relationships → memory
-- Repeated requests → preference memory
-- Vague hints → behaviour first; upgrade to memory when confirmed
+- Explicit user statements -> memory (confidence ≥ 0.75), even if said once
+- Preferences and relationships -> memory
+- Repeated requests -> preference memory
+- Vague hints -> behaviour first; upgrade to memory when confirmed
 - If new chats add nothing personal, output EXISTING memories largely unchanged
 - Never invent facts not supported by conversations or existing store
 
@@ -335,7 +335,7 @@ OUTPUT COMPLETE UPDATED LISTS NOW:
     response = _call_dream_llm(prompt)
     parsed = _parse_dream_output(response)
     if not parsed:
-        print("[Dreamer] Unparseable LLM output — keeping previous memories, cursor unchanged")
+        print("[Dreamer] Unparseable LLM output -- keeping previous memories, cursor unchanged")
         preview = (response or "")[:300].replace("\n", " ")
         print(f"[Dreamer] Output preview: {preview}")
         return False
@@ -359,14 +359,14 @@ def run_dream_once() -> dict[str, Any]:
         last = load_last_timestamp()
 
         if not batch:
-            print(f"[Dreamer] Interval tick — no new conversations (last_checked={last})")
+            print(f"[Dreamer] Interval tick -- no new conversations (last_checked={last})")
             return {"status": "idle", "new_conversations": 0, "last_checked": last}
 
-        # All empty shells → advance cursor without LLM spend.
+        # All empty shells -> advance cursor without LLM spend.
         if all(not c.get("messages") for c in batch):
             save_last_timestamp(newest)
             print(
-                f"[Dreamer] Interval tick — {len(batch)} empty convo(s), "
+                f"[Dreamer] Interval tick -- {len(batch)} empty convo(s), "
                 f"advanced cursor to {newest}"
             )
             return {
@@ -377,11 +377,11 @@ def run_dream_once() -> dict[str, Any]:
 
         conversations_json = json.dumps(batch, ensure_ascii=False, indent=2)
         if len(conversations_json) > MAX_BATCH_CHARS:
-            conversations_json = conversations_json[:MAX_BATCH_CHARS] + "\n…[truncated]"
+            conversations_json = conversations_json[:MAX_BATCH_CHARS] + "\n...[truncated]"
 
         existing_memories, previous_behaviours = get_memories_and_behaviours()
         print(
-            f"[Dreamer] Interval tick — consolidating {len(batch)} conversation(s) "
+            f"[Dreamer] Interval tick -- consolidating {len(batch)} conversation(s) "
             f"(through {newest})"
         )
         try:
@@ -399,7 +399,7 @@ def run_dream_once() -> dict[str, Any]:
 
         if ok:
             save_last_timestamp(newest)
-            print(f"[Dreamer] Done — last_checked → {newest}")
+            print(f"[Dreamer] Done -- last_checked -> {newest}")
             return {
                 "status": "dreamed",
                 "new_conversations": len(batch),
@@ -429,13 +429,13 @@ def DreamerStart() -> None:
 
     - Not triggered by chat end.
     - User activity does not change the schedule (pure period).
-    - dreamerEvent is kept for optional admin/tests (set → run soon); the main
+    - dreamerEvent is kept for optional admin/tests (set -> run soon); the main
       loop still sleeps the full interval between ticks and does not treat
       normal /generate traffic as a dream signal.
     """
     interval = _interval_seconds()
     print(
-        f"[Dreamer] Started — interval={interval:.0f}s "
+        f"[Dreamer] Started -- interval={interval:.0f}s "
         f"(AVA_DREAM_INTERVAL_SECONDS), conversations={_CONVERSATIONS}"
     )
     _ensure_memory_files()

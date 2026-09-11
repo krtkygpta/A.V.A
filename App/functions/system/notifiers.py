@@ -2,9 +2,10 @@ import ctypes
 import json
 import threading
 import time
-import winsound
-
-from plyer import notification
+try:
+    from plyer import notification
+except ImportError:
+    notification = None
 
 # Register an explicit App User Model ID so Windows toasts are attributed to
 # AVA in the Action Center and survive focus assist more reliably. This must
@@ -248,15 +249,16 @@ def _show_toast_blocking(
             winsound.MessageBeep(0x00000040)  # MB_ICONASTERISK
         except Exception:
             pass
-    try:
-        notification.notify(
-            title=str(title)[:80],
-            message=str(message)[:200],
-            app_name="AVA",
-            timeout=timeout,
-        )
-    except Exception as e:
-        print(f"[Notifier] {e}")
+    if notification is not None:
+        try:
+            notification.notify(
+                title=str(title)[:80],
+                message=str(message)[:200],
+                app_name="AVA",
+                timeout=timeout,
+            )
+        except Exception as e:
+            print(f"[Notifier] {e}")
 
 
 def show_toast_only(title, message, timeout: int = 10):
@@ -267,6 +269,16 @@ def show_toast_only(title, message, timeout: int = 10):
         kwargs={"sound": False},
         daemon=True,
     ).start()
+    try:
+        from core.gateway import broadcast_notification
+        broadcast_notification(
+            title=str(title),
+            message=str(message),
+            priority="normal",
+            sound=False
+        )
+    except Exception:
+        pass
     return json.dumps(
         {"status": "success", "content": "Toast shown (no sound)"}
     )
@@ -284,6 +296,16 @@ def send_notification(title, message):
         kwargs={"sound": True},
         daemon=True,
     ).start()
+    try:
+        from core.gateway import broadcast_notification
+        broadcast_notification(
+            title=str(title),
+            message=str(message),
+            priority="high",
+            sound=True
+        )
+    except Exception:
+        pass
     return json.dumps(
         {
             "status": "success",

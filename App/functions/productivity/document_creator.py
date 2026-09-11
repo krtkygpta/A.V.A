@@ -8,9 +8,10 @@ import re
 import subprocess
 from pathlib import Path
 
-import markdown
-
-from utils.paths import resolve_file_path, resolve_location
+try:
+    from utils.paths import resolve_file_path, resolve_location
+except ImportError:
+    from App.utils.paths import resolve_file_path, resolve_location
 
 
 def create_file(data, filename, location, extension):

@@ -22,28 +22,37 @@ Copy the downloaded JSON contents into:
 App/data/calendar_client_secrets.json
 ```
 
-Or just replace the placeholder values in the file with:
-- `client_id`: from JSON
-- `project_id`: from JSON  
-- `client_secret`: from JSON
-
 ## Step 3: First Run
 
 On first use, AVA will open a browser window for Google login.
-After auth, credentials are saved to `App/data/calendar_token.json`.
+After auth, credentials are saved to `App/data/calendar_token.json` and automatically refreshed.
 
-## Available Functions
+## Available Operations
 
-| Function | Description |
-|----------|-------------|
-| `list_calendar_events` | List upcoming events (max_results, days_ahead) |
-| `create_calendar_event` | Create event (title, start_datetime, duration_minutes, description, location) |
-| `delete_calendar_event` | Delete event by ID |
+| Operation | Description | Key Parameters |
+|-----------|-------------|----------------|
+| `list` | List/search events | `query`, `date`, `start_date`, `end_date`, `days_ahead`, `max_results` |
+| `create` | Create new event (datetime or all-day) | `title`, `start_datetime`, `end_datetime`, `duration_minutes`, `description`, `location`, `all_day` |
+| `update` | Update/reschedule event | `event_id`, `title`, `start_datetime`, `duration_minutes`, `description`, `location` |
+| `delete` | Delete event | `event_id` |
+| `get` | Get event details | `event_id` |
 
 ## Example Usage
 
-```
-list_calendar_events(max_results=5, days_ahead=7)
-create_calendar_event(title="Meeting", start_datetime="2024-04-25T14:00:00", duration_minutes=60)
-delete_calendar_event(event_id="abc123...")
+```python
+# List upcoming events or search by query / date
+calendar(operation="list", query="meeting", days_ahead=14)
+calendar(operation="list", date="2026-09-07")
+
+# Create a timed event (auto timezone-aware)
+calendar(operation="create", title="Team Sync", start_datetime="2026-09-01T14:00:00", duration_minutes=45)
+
+# Create an all-day event
+calendar(operation="create", title="Holiday", start_datetime="2026-09-10", all_day=True)
+
+# Update or reschedule
+calendar(operation="update", event_id="abc123...", start_datetime="2026-09-01T15:00:00")
+
+# Delete an event
+calendar(operation="delete", event_id="abc123...")
 ```

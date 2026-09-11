@@ -65,10 +65,29 @@ WORKER_SYSTEM_BASE = (
 )
 
 
-def worker_system_prompt(extra: str = "") -> str:
-    if extra:
-        return WORKER_SYSTEM_BASE + "\n\n" + clip_text(extra, 500)
-    return WORKER_SYSTEM_BASE
+def worker_system_prompt(
+    extra: str = "",
+    specialist: str = "",
+    *,
+    objective: str = "",
+    extra_tools: str = "",
+) -> str:
+    """Compose the worker system prompt (core + optional specialist mix)."""
+    try:
+        from core.jobs.specialists import compose_worker
+
+        spec = compose_worker(
+            specialist or None,
+            objective=objective,
+            extra=clip_text(extra, 500) if extra else "",
+            extra_tools=extra_tools or None,
+            auto_infer=bool(objective) and not specialist,
+        )
+        return spec.system_prompt
+    except Exception:
+        if extra:
+            return WORKER_SYSTEM_BASE + "\n\n" + clip_text(extra, 500)
+        return WORKER_SYSTEM_BASE
 
 
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9_\-]+")
@@ -106,6 +125,10 @@ def clean_outcome_summary(text: str, limit: int = 220) -> str:
     Drops intermediate 'let me verify' chatter; keeps last useful paragraph.
     """
     s = (text or "").strip()
+    if not s:
+        return ""
+    # Strip Chain-of-Thought <thinking> blocks if present
+    s = re.sub(r"<thinking>.*?(?:</thinking>|$)", "", s, flags=re.DOTALL).strip()
     if not s:
         return ""
     # Split paragraphs / sentences

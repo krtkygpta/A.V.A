@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="description" content="Always Voiced Ally — Minimalist AI Assistant & Command Portal">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="A.V.A">
+  <meta name="application-name" content="A.V.A">
+  
+  <title>A.V.A</title>
+  
+  <!-- PWA Manifest & Icons -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- Markdown & Code Highlighting -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  
+  <link rel="stylesheet" href="/static/style.css?v=5">
+</head>
+<body>
+  <div id="codex-app">
+    <!-- Desktop Left Sidebar -->
+    <aside class="desktop-sidebar" id="desktop-sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <img src="/static/logo.png" alt="AVA" class="brand-wordmark">
+        </div>
+        <button class="icon-btn" id="btn-sidebar-new" title="New Conversation (Ctrl+N)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Quick Commands</div>
+        <div class="nav-list">
+          <button class="nav-item" data-cmd="/new">
+            <span class="nav-icon">+</span>
+            <span class="nav-label">New Conversation</span>
+          </button>
+          <button class="nav-item" data-cmd="/tasks">
+            <span class="nav-icon">⏱</span>
+            <span class="nav-label">Background Tasks</span>
+          </button>
+          <button class="nav-item" data-cmd="What time is it?">
+            <span class="nav-icon">🕒</span>
+            <span class="nav-label">Check Time & Date</span>
+          </button>
+          <button class="nav-item" data-cmd="Set a timer for 5 minutes">
+            <span class="nav-icon">⏳</span>
+            <span class="nav-label">Set 5-Min Timer</span>
+          </button>
+          <button class="nav-item" data-cmd="/clear">
+            <span class="nav-icon">🧹</span>
+            <span class="nav-label">Clear Chat View</span>
+          </button>
+          <button class="nav-item" data-cmd="/help">
+            <span class="nav-icon">❓</span>
+            <span class="nav-label">Help Reference</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-section conversations-section">
+        <div class="section-label">Recent Chats</div>
+        <div class="conversations-list" id="conversations-list">
+          <div class="conv-empty-hint">Loading chats...</div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="system-status-card">
+          <div class="status-row">
+            <span class="status-dot"></span>
+            <span class="status-label" id="desktop-status-text">Ready</span>
+          </div>
+          <div class="status-sub">Gateway Port 8766 · Terminal Synced</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Column -->
+    <main class="main-workspace">
+      <!-- Top Navigation Bar -->
+      <header class="workspace-header">
+        <div class="header-left">
+          <button class="icon-btn mobile-only" id="btn-mobile-menu" aria-label="Open Menu">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="header-title" id="header-title">A.V.A Portal</div>
+        </div>
+
+        <div class="header-right">
+          <!-- PWA Install Button (Dynamic) -->
+          <button class="pwa-install-btn hidden" id="btn-pwa-install">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span>Install App</span>
+          </button>
+
+          <div class="conn-badge" id="conn-badge">
+            <span class="conn-dot"></span>
+            <span class="conn-label" id="conn-label">online</span>
+          </div>
+
+          <button class="icon-btn" id="btn-toggle-tasks-panel" title="Toggle Tasks Dashboard">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span class="badge-count hidden" id="task-badge">0</span>
+          </button>
+
+          <button class="icon-btn mobile-only" id="btn-mobile-new" title="New Conversation">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Message Viewport -->
+      <section class="messages-container" id="chat-viewport">
+        <div class="messages-wrapper" id="message-feed">
+          <div class="session-divider">
+            <span>Terminal Synchronized</span>
+          </div>
+        </div>
+
+        <!-- Inline Thinking Strip -->
+        <div class="thinking-strip hidden" id="thinking-row">
+          <div class="thinking-indicator">
+            <div class="pulse-point"></div>
+            <span id="thinking-text">thinking...</span>
+          </div>
+        </div>
+
+        <!-- Scroll To Bottom Button -->
+        <button class="scroll-down-btn hidden" id="btn-scroll-bottom" aria-label="Scroll to bottom">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <polyline points="19 12 12 19 5 12"></polyline>
+          </svg>
+        </button>
+      </section>
+
+      <!-- Slash Commands Quick Row -->
+      <div class="slash-quick-row">
+        <button class="slash-chip" data-cmd="/new">/new</button>
+        <button class="slash-chip" data-cmd="/tasks">/tasks</button>
+        <button class="slash-chip" data-cmd="What time is it?">Time</button>
+        <button class="slash-chip" data-cmd="Set a timer for 5 minutes">Timer 5m</button>
+        <button class="slash-chip" data-cmd="/clear">/clear</button>
+        <button class="slash-chip" data-cmd="/help">/help</button>
+      </div>
+
+      <!-- Bottom Composer -->
+      <footer class="composer-container">
+        <div class="composer-card" id="composer-card">
+          <!-- Attachment Preview Strip (Top of Composer) -->
+          <div class="composer-attachments hidden" id="composer-attachments"></div>
+
+          <div class="composer-main-row">
+            <!-- Attach File Button (+) -->
+            <button class="composer-attach-btn" id="btn-attach-file" title="Attach image or document (+)">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
+            <input type="file" id="file-picker" multiple accept="image/*,.pdf,.txt,.md,.doc,.docx,.csv,.json,.py,.js,.html,.css" style="display:none">
+
+            <textarea id="composer-input" placeholder="Message AVA, paste or drag files..." rows="1"></textarea>
+            
+            <button class="composer-send-btn" id="btn-submit" aria-label="Send Message">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="19" x2="12" y2="5"></line>
+                <polyline points="5 12 12 5 19 12"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </footer>
+    </main>
+
+    <!-- Right Side Tasks Panel (Desktop Docked / Mobile Slide-over) -->
+    <aside class="tasks-panel" id="tasks-panel">
+      <div class="tasks-panel-header">
+        <h3>Background Tasks</h3>
+        <button class="icon-btn" id="btn-close-tasks-panel" aria-label="Close Tasks Panel">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="tasks-panel-body" id="tasks-panel-body">
+        <div class="tasks-empty-state">
+          <p>No active background tasks</p>
+          <span>Spawn timers, deep research, or coding missions on AVA to monitor them live.</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Mobile Drawer Overlay -->
+    <div class="drawer-overlay hidden" id="drawer-overlay"></div>
+
+    <!-- Drag & Drop Overlay -->
+    <div class="dropzone-overlay hidden" id="dropzone-overlay">
+      <div class="dropzone-box">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <span>Drop images or documents here to attach</span>
+      </div>
+    </div>
+
+    <!-- Image Modal Viewer -->
+    <div class="image-viewer-modal hidden" id="image-viewer-modal">
+      <button class="modal-close-btn" id="btn-close-modal">×</button>
+      <img id="modal-img-target" src="" alt="Full preview">
+    </div>
+
+    <!-- Task Live Watcher Modal (Live process popup) -->
+    <div class="task-watcher-modal hidden" id="task-watcher-modal">
+      <div class="task-watcher-dialog">
+        <div class="task-watcher-header">
+          <div class="watcher-title-area">
+            <div class="watcher-badges">
+              <span class="watcher-badge status running" id="watcher-badge-status">RUNNING</span>
+              <span class="watcher-badge spec" id="watcher-badge-spec">specialist</span>
+              <span class="watcher-badge session" id="watcher-badge-session">session</span>
+            </div>
+            <h3 class="watcher-title" id="watcher-title">Task Name</h3>
+          </div>
+          <button class="icon-btn watcher-close-btn" id="btn-close-watcher" title="Close Watcher (Esc)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="task-watcher-body" id="task-watcher-body">
+          <div class="watcher-feed" id="watcher-feed">
+            <!-- Rendered live conversation-style turns -->
+          </div>
+        </div>
+
+        <div class="task-watcher-footer">
+          <div class="watcher-footer-left">
+            <span class="watcher-pulse-dot running" id="watcher-pulse-dot"></span>
+            <span class="watcher-activity-label" id="watcher-activity-label">Initializing...</span>
+          </div>
+          <div class="watcher-footer-right">
+            <button class="watcher-action-btn secondary" id="btn-watcher-refresh">Refresh</button>
+            <button class="watcher-action-btn primary" id="btn-watcher-done">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=6"></script>
+</body>
+</html>

@@ -112,9 +112,17 @@ def generate_response():
         content = message.get("content")
         tool_calls = message.get("tool_calls") or []
 
-        if isinstance(content, str) and not content.strip():
-            content = None
-            message["content"] = None
+        if isinstance(content, str):
+            # Clean markdown bold/italic asterisks from spoken responses (e.g. **word** -> word)
+            import re
+            cleaned_content = re.sub(r"\*\*([^*]+)\*\*", r"\1", content)
+            cleaned_content = re.sub(r"\*([^*]+)\*", r"\1", cleaned_content)
+            cleaned_content = re.sub(r"__([^_]+)__", r"\1", cleaned_content)
+            cleaned_content = re.sub(r"^[#\s]+", "", cleaned_content, flags=re.MULTILINE)
+            content = cleaned_content.strip()
+            if not content:
+                content = None
+            message["content"] = content
 
         # Model returned text only while a main_action still needs tools —
         # treat as incomplete so the response loop can re-nudge (flag only).

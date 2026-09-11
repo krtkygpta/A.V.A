@@ -160,5 +160,21 @@ def init_plugins():
             # Silently ignore import errors
             pass
 
+    # Claude Code SKILL.md folders dropped into plugins/ or skills/
+    try:
+        from core.cc_plugins.skills_host import get_host
+
+        get_host().load()
+    except Exception as e:
+        print(f"[ToolRegistry] Claude Code skills failed to load: {e}")
+
+    # MCP servers configured in mcps.json
+    try:
+        from core.mcp_manager import init_mcp_servers
+
+        init_mcp_servers(tool_registry=registry)
+    except Exception as e:
+        print(f"[ToolRegistry] MCP servers failed to load: {e}")
+
     registry._initialized = True
     print(f"[ToolRegistry] Loaded {len(registry._tools)} tools")

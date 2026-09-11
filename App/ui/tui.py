@@ -16,12 +16,86 @@ import json
 import os
 import random
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+_APP_DIR = str(Path(__file__).resolve().parent.parent)
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _patch_terminal_cell_widths() -> None:
+    """Ensure complex scripts (Indic, Arabic, Thai, Hebrew, etc.) whose combining
+    marks take positive visual space in terminal fonts are measured
+    as width 1 rather than width 0. This prevents Textual/Rich from undercounting cell
+    widths, which generates phantom padding spaces and misaligns vertical borders and lines.
+    """
+    try:
+        import rich.cells
+
+        orig_get_cell_size = rich.cells.get_character_cell_size
+
+        def patched_get_character_cell_size(character: str, unicode_version: str = "auto") -> int:
+            cp = ord(character)
+            # Indic & complex script blocks where terminal monospace fonts render
+            # combining marks / vowels / matras as discrete 1-cell glyphs:
+            # Hebrew (0590-05FF), Arabic (0600-08FF),
+            # Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil, Telugu, Kannada,
+            # Malayalam, Sinhala (0900-0DFF),
+            # Thai, Lao, Tibetan, Myanmar (0E00-109F),
+            # Vedic Extensions (1CD0-1CFF), Devanagari Extended (A8E0-A8FF)
+            if (
+                (0x0590 <= cp <= 0x109F)
+                or (0x1CD0 <= cp <= 0x1CFF)
+                or (0xA8E0 <= cp <= 0xA8FF)
+            ):
+                return 1
+            return orig_get_cell_size(character, unicode_version)
+
+        rich.cells.get_character_cell_size = patched_get_character_cell_size
+        try:
+            rich.cells.get_character_cell_size.cache_clear()
+        except Exception:
+            pass
+        try:
+            rich.cells.cached_cell_len.cache_clear()
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[TUI] Terminal cell width patch failed: {e}")
+
+
+_patch_terminal_cell_widths()
+
+from rich.text import Text
+
+
+def escape(markup: str) -> str:
+    """Safely escape arbitrary text so Textual and Rich won't interpret it as markup.
+
+    Textual's markup tokenizer treats ANY unescaped '[' as a tag opening (including uppercase
+    tags with attributes, such as '[TASK DOSSIER id=... status=...]'). Standard rich/textual
+    escape() only regex-escapes lowercase tags '[a-z#/@]', which leaves bracketed expressions
+    unescaped and causes Textual to crash with MarkupError when rendered.
+    """
+    if not markup:
+        return ""
+    escaped = re.sub(r"(\\*)(\[)", lambda m: f"{m.group(1)}{m.group(1)}\\[", str(markup))
+    if escaped.endswith("\\") and not escaped.endswith("\\\\"):
+        return escaped + "\\"
+    return escaped
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -58,7 +132,20 @@ from core.AppStates import (
 from utils import chime
 
 _mode_switch_event = threading.Event()
-from core.messageHandler import add_message, reset_messages
+from core.messageHandler import (
+    add_message,
+    reset_messages,
+    register_user_message_listener,
+    unregister_user_message_listener,
+    register_conversation_reset_listener,
+    unregister_conversation_reset_listener,
+    register_slash_command_listener,
+    unregister_slash_command_listener,
+    register_clear_chat_listener,
+    unregister_clear_chat_listener,
+    register_system_message_listener,
+    unregister_system_message_listener,
+)
 from core.response_loop import ResponseLoopHandler, main_running, run_response_loop
 from knowledge.ConversationManager import (
     save_current_conversation,
@@ -332,6 +419,9 @@ CONFIG_DESCRIPTIONS = {
     "GOOGLE_AI_API_KEY": "Google AI (Gemini) API key",
     "WEATHER_API_KEY": "OpenWeatherMap API key",
     "THEME": "UI theme name (ctrl+t for full A–Z list)",
+    "HA_URL": "Home Assistant URL (e.g., http://homeassistant.local:8123)",
+    "HA_TOKEN": "Home Assistant Long-Lived Access Token",
+    "HA_TIMEOUT": "Home Assistant timeout in seconds (default: 5)",
 }
 
 CONFIG_SECRET_KEYS = {
@@ -340,6 +430,7 @@ CONFIG_SECRET_KEYS = {
     "WEATHER_API_KEY",
     "TAVILY_API_KEY",
     "pat",
+    "HA_TOKEN",
 }
 
 AVA_ASCII = r"""
@@ -410,6 +501,12 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         needs_args=True,
         arg_hint="<id>",
     ),
+    SlashCommand(
+        "/watch",
+        "Watch background task live process stream",
+        needs_args=False,
+        arg_hint="[<id>]",
+    ),
     SlashCommand("/history", "Toggle history sidebar", ("/chats", "/conversations")),
     SlashCommand("/taskside", "Toggle tasks sidebar", ("/sidebar",)),
     SlashCommand(
@@ -419,6 +516,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     ),
     SlashCommand("/settings", "Open settings", ("/config", "/set")),
     SlashCommand("/new", "Start a new conversation"),
+    SlashCommand("/skills", "List installed Claude Code skills", ("/plugins",)),
     SlashCommand("/quit", "Exit AVA"),
 )
 SHUTUP_COMMANDS = {"shutup", "shut up", "exit", "quiet", "stop", "bye", "goodbye"}
@@ -636,7 +734,7 @@ class ToolCallPanel(Static):
     def on_mount(self) -> None:
         if self._pending:
             self.add_class("tool-pending")
-            self._spin_timer = self.set_interval(0.08, self._tick_spinner)
+            self._spin_timer = self.set_interval(0.15, self._tick_spinner)
         else:
             self.add_class("tool-done")
 
@@ -783,7 +881,8 @@ class ModeSelectorPopup(ModalScreen[str | None]):
         background: $background 40%;
     }
     #mode-popup {
-        width: 36;
+        width: 40;
+        max-width: 90%;
         height: auto;
         background: $panel;
         border: solid $primary;
@@ -791,12 +890,14 @@ class ModeSelectorPopup(ModalScreen[str | None]):
         layout: vertical;
     }
     #mode-popup .popup-title {
+        width: 100%;
         height: 1;
         color: $primary;
         text-style: bold;
         margin: 0 0 0 0;
     }
     #mode-popup .popup-hint {
+        width: 100%;
         height: 1;
         color: $secondary;
         text-style: none;
@@ -1035,7 +1136,7 @@ class GeneratingIndicator(Static):
 
     def on_mount(self) -> None:
         self._tick()
-        self._timer = self.set_interval(0.09, self._tick)
+        self._timer = self.set_interval(0.15, self._tick)
 
     def on_unmount(self) -> None:
         if self._timer is not None:
@@ -1097,6 +1198,10 @@ SETTING_CHOICES: dict[str, list[str]] = {
         "tui_text",
         "tui_continuous",
         "tui_wakeword",
+        "rich",
+        "rich_text",
+        "rich_continuous",
+        "rich_wakeword",
         "continuous",
         "wakeword",
         "text",
@@ -1119,6 +1224,7 @@ class ThemePickerModal(ModalScreen[str | None]):
     }
     #theme-dialog {
         width: 70;
+        max-width: 95%;
         height: auto;
         max-height: 90%;
         background: $panel;
@@ -1127,18 +1233,21 @@ class ThemePickerModal(ModalScreen[str | None]):
         layout: vertical;
     }
     #theme-dialog .dialog-title {
+        width: 100%;
         height: 1;
         color: $primary;
         text-style: bold;
         margin: 0;
     }
     #theme-dialog .dialog-hint {
+        width: 100%;
         height: 1;
         color: $secondary;
         text-style: none;
         margin: 0 0 1 0;
     }
     #theme-dialog #theme-preview {
+        width: 100%;
         height: 2;
         padding: 0 1;
         margin: 0 0 1 0;
@@ -1147,6 +1256,7 @@ class ThemePickerModal(ModalScreen[str | None]):
         color: $foreground;
     }
     #theme-dialog #theme-list {
+        width: 100%;
         height: 16;
         min-height: 10;
         max-height: 20;
@@ -1158,12 +1268,14 @@ class ThemePickerModal(ModalScreen[str | None]):
         border: solid $primary;
     }
     #theme-dialog .dialog-footer {
+        width: 100%;
         height: 1;
         margin: 1 0 0 0;
         color: $secondary;
         text-style: none;
     }
     #theme-dialog #theme-actions {
+        width: 100%;
         height: 1;
         layout: horizontal;
         align-horizontal: right;
@@ -1324,18 +1436,21 @@ class SettingsModal(ModalScreen[dict | None]):
         layout: vertical;
     }
     #settings-dialog .dialog-title {
+        width: 100%;
         height: 1;
         color: $primary;
         text-style: bold;
         margin: 0 0 0 0;
     }
     #settings-dialog .dialog-hint {
+        width: 100%;
         height: 1;
         color: $secondary;
         text-style: none;
         margin: 0 0 1 0;
     }
     #settings-body {
+        width: 100%;
         height: 1fr;
         layout: horizontal;
     }
@@ -1787,6 +1902,7 @@ class HelpOverlay(Static):
         yield Static("[bold]ctrl+i[/]  Toggle settings", classes="help-row")
         yield Static("[bold]ctrl+f[/]  Search in chat", classes="help-row")
         yield Static("[bold]ctrl+d[/]  Full task dashboard", classes="help-row")
+        yield Static("[bold]ctrl+r[/]  Remote mobile QR access", classes="help-row")
         yield Static("[bold]ctrl+b[/]  Toggle tasks sidebar", classes="help-row")
         yield Static("[bold]ctrl+h[/]  Toggle history sidebar", classes="help-row")
         yield Static("[bold]ctrl+t[/]  Theme list", classes="help-row")
@@ -1794,6 +1910,7 @@ class HelpOverlay(Static):
         yield Static("[bold]escape[/]  Focus input / close overlay", classes="help-row")
         yield Static(":", classes="help-section")
         yield Static("[bold]/help[/]  Show commands", classes="help-row")
+        yield Static("[bold]/remote[/]  Show QR code & URL for mobile access", classes="help-row")
         yield Static("[bold]/theme[/]  Open theme picker", classes="help-row")
         yield Static("[bold]/theme name[/]  Set theme by name", classes="help-row")
         yield Static("[bold]/themes[/]  Open theme picker", classes="help-row")
@@ -1817,6 +1934,28 @@ class HelpOverlay(Static):
         self.remove()
 
 
+def _all_slash_commands() -> list[SlashCommand]:
+    """Built-in /commands plus installed Claude Code skills."""
+    out = list(SLASH_COMMANDS)
+    try:
+        from core.cc_plugins.skills_host import get_host
+
+        host = get_host()
+        host.load()
+        for skill in host.slash_entries():
+            out.append(
+                SlashCommand(
+                    skill.slash,
+                    (skill.description or "Claude Code skill")[:80],
+                    needs_args=bool(skill.argument_hint or skill.arguments),
+                    arg_hint=skill.argument_hint or ("<args>" if skill.arguments else ""),
+                )
+            )
+    except Exception:
+        pass
+    return out
+
+
 def filter_slash_commands(query: str) -> list[SlashCommand]:
     """Return slash commands matching the current input (prefix filter)."""
     raw = query or ""
@@ -1826,13 +1965,14 @@ def filter_slash_commands(query: str) -> list[SlashCommand]:
     q = raw.strip().lower()
     if not q.startswith("/"):
         return []
+    catalog = _all_slash_commands()
     # Bare "/" shows everything
     if q == "/":
-        return list(SLASH_COMMANDS)
+        return list(catalog)
 
     scored: list[tuple[int, SlashCommand]] = []
     seen: set[tuple[str, str, bool]] = set()
-    for cmd in SLASH_COMMANDS:
+    for cmd in catalog:
         key = (cmd.command, cmd.description, cmd.needs_args)
         if key in seen:
             continue
@@ -2006,6 +2146,21 @@ class ChatInput(Input):
         if hasattr(self.app, "action_focus_input"):
             self.app.action_focus_input()  # type: ignore[attr-defined]
 
+    def on_paste(self, event: events.Paste) -> None:
+        """If clipboard contains an image (or copied image file), paste its path."""
+        try:
+            from utils.clipboard_image import get_clipboard_image_path
+
+            img_path = get_clipboard_image_path()
+            if img_path:
+                event.stop()
+                event.prevent_default()
+                self.insert_text_at_cursor(img_path)
+                return
+        except Exception:
+            pass
+
+
 
 class SearchOverlay(Static):
     """Search in chat overlay."""
@@ -2170,6 +2325,7 @@ class HistoryEntry(Static):
         color: $foreground;
         background: transparent;
         content-align: left middle;
+        overflow-x: hidden;
     }
     HistoryEntry:hover {
         background: $panel;
@@ -2183,7 +2339,7 @@ class HistoryEntry(Static):
     """
 
     def __init__(self, conversation_id: str, name: str, **kwargs):
-        super().__init__(name, **kwargs)
+        super().__init__(name, markup=False, **kwargs)
         self.conversation_id = conversation_id
         self.chat_name = name
 
@@ -2205,6 +2361,7 @@ class HistorySidebar(Static):
         border-right: solid $panel;
         layout: vertical;
         padding: 1 0 0 0;
+        overflow-x: hidden;
     }
     HistorySidebar .sidebar-header {
         height: 1;
@@ -2245,6 +2402,7 @@ class HistorySidebar(Static):
         scrollbar-size: 1 1;
         scrollbar-background: $background;
         scrollbar-color: $secondary 25%;
+        overflow-x: hidden;
     }
     HistorySidebar .history-empty {
         height: 2;
@@ -2342,8 +2500,8 @@ class HistorySidebar(Static):
             if not cid:
                 continue
             name = (conv.get("name") or "Unnamed").strip().replace("\n", " ")
-            if len(name) > 20:
-                name = name[:19] + "…"
+            if len(name) > 26:
+                name = name[:25] + "…"
             scroller.mount(HistoryEntry(cid, name))
 
     def action_open_highlighted(self) -> None:
@@ -2351,8 +2509,59 @@ class HistorySidebar(Static):
         pass
 
 
+class TaskLiveEntry(Static):
+    """One live task row in the tasks sidebar / dashboard — click to watch live process."""
+
+    DEFAULT_CSS = """
+    TaskLiveEntry {
+        width: 100%;
+        height: auto;
+        padding: 0 1;
+        margin: 0 0 1 0;
+        background: transparent;
+        border-left: solid $accent;
+        color: $foreground;
+        overflow-x: hidden;
+    }
+    TaskLiveEntry:hover {
+        background: $panel;
+        color: $primary;
+    }
+    TaskLiveEntry.running {
+        border-left: solid $warning;
+    }
+    TaskLiveEntry.pending {
+        border-left: solid $warning;
+    }
+    TaskLiveEntry.timer {
+        border-left: solid $primary;
+    }
+    TaskLiveEntry.needs_input {
+        border-left: solid $error;
+    }
+    TaskLiveEntry.completed {
+        border-left: solid $success;
+    }
+    TaskLiveEntry.failed {
+        border-left: solid $error;
+    }
+    """
+
+    def __init__(self, task_id: str, formatted_content: str, classes: str = "", **kwargs):
+        super().__init__(formatted_content, classes=classes, **kwargs)
+        self.task_id = task_id
+
+    def on_click(self) -> None:
+        self.post_message(TasksSidebar.TaskSelected(self.task_id))
+
+
 class TasksSidebar(Static):
     """Right sidebar: truly live background tasks + timer countdowns."""
+
+    class TaskSelected(Message):
+        def __init__(self, task_id: str) -> None:
+            super().__init__()
+            self.task_id = task_id
 
     DEFAULT_CSS = """
     TasksSidebar {
@@ -2363,6 +2572,7 @@ class TasksSidebar(Static):
         border-left: solid $panel;
         layout: vertical;
         padding: 0;
+        overflow-x: hidden;
     }
     TasksSidebar .sidebar-header {
         height: 1;
@@ -2404,6 +2614,7 @@ class TasksSidebar(Static):
         scrollbar-size: 1 1;
         scrollbar-background: $background;
         scrollbar-color: $secondary 30%;
+        overflow-x: hidden;
     }
     TasksSidebar .task-live {
         width: 100%;
@@ -2413,6 +2624,7 @@ class TasksSidebar(Static):
         background: transparent;
         border-left: solid $accent;
         color: $foreground;
+        overflow-x: hidden;
     }
     TasksSidebar .task-live.running {
         border-left: solid $warning;
@@ -2455,8 +2667,8 @@ class TasksSidebar(Static):
 
     def on_mount(self) -> None:
         self.refresh_list()
-        # 4 Hz so timer partial-blocks animate smoothly
-        self._refresh_timer = self.set_interval(0.25, self.refresh_list)
+        # 1 Hz is smooth for live countdowns and prevents input lag / DOM thrashing
+        self._refresh_timer = self.set_interval(1.0, self.refresh_list)
 
     def on_unmount(self) -> None:
         if self._refresh_timer is not None:
@@ -2514,36 +2726,39 @@ class TasksSidebar(Static):
         recent_done.sort(key=lambda t: t.get("completed_at", ""), reverse=True)
         display = active + recent_done[:4]
 
-        # Include ~4Hz timer quanta so the partial-block bar advances smoothly
-        render_key = tuple(
-            (
-                t.get("id"),
-                t.get("status"),
-                # tenths of a second remaining for smooth bar motion
-                int((_timer_remaining(t) or 0) * 10)
-                if t.get("task_type") == "timer"
-                and t.get("status") in ("running", "pending")
-                else None,
-                self._spin_idx if t.get("status") in ("running", "pending") else 0,
-            )
-            for t in display
-        )
-        if render_key == self._last_render_key:
-            return
-        self._last_render_key = render_key
-
         try:
             scroller = self.query_one("#tasks-live-list", VerticalScroll)
         except NoMatches:
             return
-        scroller.remove_children()
+
         if not display:
-            scroller.mount(Static("No active tasks", classes="task-empty"))
+            self._last_render_key = ()
+            if not any(not isinstance(w, TaskLiveEntry) for w in scroller.children):
+                scroller.remove_children()
+                scroller.mount(Static("No active tasks", classes="task-empty"))
             return
 
+        # Check if same task IDs are already mounted — update in place to avoid lag
+        existing_entries = [w for w in scroller.children if isinstance(w, TaskLiveEntry)]
+        existing_ids = [w.task_id for w in existing_entries]
+        display_ids = [str(t.get("id") or "") for t in display]
+
+        if existing_ids == display_ids:
+            for w, task in zip(existing_entries, display):
+                w.update(self._format_row(task))
+                w.set_classes(self._row_classes(task))
+            return
+
+        # Task list membership changed — remount entries
+        scroller.remove_children()
         for task in display:
+            tid = str(task.get("id") or "")
             scroller.mount(
-                Static(self._format_row(task), classes=self._row_classes(task))
+                TaskLiveEntry(
+                    tid,
+                    self._format_row(task),
+                    classes=self._row_classes(task),
+                )
             )
 
     def _row_classes(self, task: dict) -> str:
@@ -2556,11 +2771,12 @@ class TasksSidebar(Static):
     def _format_row(self, task: dict) -> str:
         status = task.get("status", "")
         glyph = _status_glyph(status, self._spin_idx)
-        name = str(task.get("name") or "task").strip()
-        if len(name) > 24:
-            name = name[:23] + "..."
-        ttype = task.get("task_type") or "general"
+        raw_name = str(task.get("name") or "task").strip()
+        if len(raw_name) > 24:
+            raw_name = raw_name[:23] + "..."
+        name = escape(raw_name)
         remaining = _timer_remaining(task)
+        ttype = str(task.get("task_type") or "general")
         # Two lines max for clean density
         lines = [f"{glyph} {name}"]
         if remaining is not None and status in ("running", "pending"):
@@ -2577,18 +2793,18 @@ class TasksSidebar(Static):
                 if result:
                     if len(result) > 28:
                         result = result[:27] + "..."
-                    lines.append(f"[dim]{result}[/]")
+                    lines.append(f"[dim]{escape(result)}[/]")
                 else:
                     lines.append(f"[dim]{status_label}[/]")
             elif status == "failed":
                 err = str(task.get("error") or "failed").replace("\n", " ").strip()
                 if len(err) > 28:
                     err = err[:27] + "..."
-                lines.append(f"[red]{err}[/]")
+                lines.append(f"[red]{escape(err)}[/]")
             elif status == "needs_input":
                 lines.append("[yellow]needs input[/]")
             else:
-                lines.append(f"[dim]{status_label} / {ttype}[/]")
+                lines.append(f"[dim]{escape(status_label)} / {escape(ttype)}[/]")
         return "\n".join(lines)
 
     # 8 partial block glyphs → sub-cell smooth fill (classic terminal meter)
@@ -2646,16 +2862,20 @@ class ConversationViewerModal(ModalScreen[None]):
         layout: vertical;
     }
     #viewer-dialog .viewer-title {
+        width: 100%;
+        height: 1;
         color: $primary;
         text-style: bold;
     }
     #viewer-dialog .viewer-hint {
+        width: 100%;
         height: 1;
         color: $secondary;
         text-style: none;
         margin: 0 0 1 0;
     }
     #viewer-dialog #viewer-scroll {
+        width: 100%;
         height: 1fr;
         border: none;
         background: $surface;
@@ -2685,6 +2905,7 @@ class ConversationViewerModal(ModalScreen[None]):
         text-style: none;
     }
     #viewer-dialog #viewer-actions {
+        width: 100%;
         height: 1;
         layout: horizontal;
         align-horizontal: right;
@@ -2713,11 +2934,11 @@ class ConversationViewerModal(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="viewer-dialog"):
             yield Static(
-                f"📖  {self._name}",
+                f"📖  {escape(self._name)}",
                 classes="viewer-title",
             )
             yield Static(
-                f"Read only  -  {self._conversation_id}  -  Esc closes",
+                f"Read only  -  {escape(self._conversation_id)}  -  Esc closes",
                 classes="viewer-hint",
             )
             with VerticalScroll(id="viewer-scroll"):
@@ -2802,6 +3023,7 @@ class TaskDashboardModal(ModalScreen[None]):
         layout: vertical;
     }
     #tasks-dialog .tasks-title {
+        width: 100%;
         height: 1;
         color: $primary;
         text-style: bold;
@@ -2809,12 +3031,14 @@ class TaskDashboardModal(ModalScreen[None]):
         margin: 0 0 1 0;
     }
     #tasks-dialog .tasks-hint {
+        width: 100%;
         height: 1;
         color: $secondary;
         text-style: none;
         margin: 0 0 1 0;
     }
     #tasks-dialog #tasks-scroll {
+        width: 100%;
         height: 1fr;
         border: none;
         background: $surface;
@@ -2853,6 +3077,7 @@ class TaskDashboardModal(ModalScreen[None]):
         border-left: solid $error;
     }
     #tasks-dialog .tasks-empty {
+        width: 100%;
         height: 3;
         padding: 0 1;
         color: $secondary;
@@ -2860,6 +3085,7 @@ class TaskDashboardModal(ModalScreen[None]):
         content-align: left middle;
     }
     #tasks-dialog #tasks-actions {
+        width: 100%;
         height: 1;
         layout: horizontal;
         align-horizontal: right;
@@ -2920,20 +3146,42 @@ class TaskDashboardModal(ModalScreen[None]):
         except NoMatches:
             return
         tasks = self._load_tasks()
-        scroller.remove_children()
         if not tasks:
-            scroller.mount(
-                Static("No background tasks yet.", classes="tasks-empty")
-            )
+            if not any(not isinstance(w, TaskLiveEntry) for w in scroller.children):
+                scroller.remove_children()
+                scroller.mount(
+                    Static("No background tasks yet.", classes="tasks-empty")
+                )
             return
+
+        # Check if same task IDs are mounted — update in place to eliminate layout thrashing
+        existing_entries = [w for w in scroller.children if isinstance(w, TaskLiveEntry)]
+        existing_ids = [w.task_id for w in existing_entries]
+        display_ids = [str(t.get("id") or "") for t in tasks]
+
+        if existing_ids == display_ids:
+            for w, task in zip(existing_entries, tasks):
+                status = str(task.get("status") or "")
+                w.update(self._format_task(task))
+                w.set_classes(f"task-row {status}")
+            return
+
+        scroller.remove_children()
         for task in tasks:
+            tid = str(task.get("id") or "")
             status = str(task.get("status") or "")
             scroller.mount(
-                Static(
+                TaskLiveEntry(
+                    tid,
                     self._format_task(task),
                     classes=f"task-row {status}",
                 )
             )
+
+    def on_tasks_sidebar_task_selected(self, message: TasksSidebar.TaskSelected) -> None:
+        self.dismiss(None)
+        if hasattr(self.app, "_open_task_watcher"):
+            self.app._open_task_watcher(message.task_id)
 
     def _load_tasks(self) -> list[dict]:
         try:
@@ -2954,9 +3202,9 @@ class TaskDashboardModal(ModalScreen[None]):
             result = result[:177] + "…"
         name = str(task.get("name") or "task").strip()
         tid = str(task.get("id") or "")
-        ttype = task.get("task_type") or "general"
+        ttype = str(task.get("task_type") or "general")
         status_label = str(status).replace("_", " ")
-        conv = task.get("conversation_name") or "no conversation"
+        conv = str(task.get("conversation_name") or "no conversation")
         created = str(task.get("created_at", ""))[11:19]
         completed = (
             str(task.get("completed_at", ""))[11:19]
@@ -2966,17 +3214,17 @@ class TaskDashboardModal(ModalScreen[None]):
         timing = created + (f"  →  {completed}" if completed else "")
 
         lines = [
-            f"{glyph} {name}",
-            f"[dim]{status_label} / {ttype} / {tid}[/]",
+            f"{glyph} {escape(name)}",
+            f"[dim]{escape(status_label)} / {escape(ttype)} / {escape(tid)}[/]",
         ]
         if remaining is not None and status in ("running", "pending"):
             lines.append(f"{_format_countdown(remaining)} remaining")
         if timing:
-            lines.append(f"[dim]{timing}  -  {conv}[/]")
+            lines.append(f"[dim]{escape(timing)}  -  {escape(conv)}[/]")
         elif conv:
-            lines.append(f"[dim]{conv}[/]")
+            lines.append(f"[dim]{escape(conv)}[/]")
         if result:
-            lines.append(result)
+            lines.append(escape(result))
         return "\n".join(lines)
 
     @on(Button.Pressed, "#btn-tasks-close")
@@ -2989,6 +3237,420 @@ class TaskDashboardModal(ModalScreen[None]):
 
 # Back-compat name used in type hints / older call sites
 TaskDashboard = TaskDashboardModal
+
+
+class TaskWatcherModal(ModalScreen[None]):
+    """Live modal to watch a background delegate agent or task process in real time."""
+
+    BINDINGS = [
+        Binding("escape", "close_watcher", "Close", show=True),
+        Binding("q", "close_watcher", "Close", show=False),
+        Binding("r", "refresh_watcher", "Refresh", show=True),
+    ]
+
+    CSS = """
+    TaskWatcherModal {
+        align: center middle;
+        background: $background 65%;
+    }
+    #watcher-dialog {
+        width: 96;
+        max-width: 100%;
+        height: 38;
+        max-height: 94%;
+        background: $surface;
+        border: solid $primary 70%;
+        padding: 1 2;
+        layout: vertical;
+    }
+    #watcher-dialog .watcher-header {
+        width: 100%;
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+        layout: horizontal;
+        align-vertical: middle;
+        margin: 0 0 1 0;
+    }
+    #watcher-dialog .watcher-title {
+        color: $primary;
+        text-style: bold;
+        width: 1fr;
+        height: 1;
+    }
+    #watcher-dialog .watcher-badge {
+        width: auto;
+        height: 1;
+        padding: 0 1;
+        text-style: bold;
+        background: $panel;
+        color: $foreground;
+    }
+    #watcher-dialog .watcher-badge.running {
+        color: $warning;
+    }
+    #watcher-dialog .watcher-badge.completed {
+        color: $success;
+    }
+    #watcher-dialog .watcher-badge.failed {
+        color: $error;
+    }
+    #watcher-dialog .watcher-hint {
+        width: 100%;
+        height: 1;
+        color: $secondary;
+        text-style: none;
+        margin: 0 0 1 0;
+    }
+    #watcher-dialog #watcher-scroll {
+        width: 100%;
+        height: 1fr;
+        border: none;
+        background: $surface;
+        padding: 0 0;
+        scrollbar-size: 1 1;
+        scrollbar-color: $primary 40%;
+    }
+    #watcher-dialog .watcher-msg {
+        width: 100%;
+        height: auto;
+        padding: 1 1 1 2;
+        margin: 0 0 1 0;
+        background: $panel;
+        border-left: thick $secondary;
+    }
+    #watcher-dialog .watcher-msg.user {
+        border-left: thick $secondary;
+    }
+    #watcher-dialog .watcher-msg.assistant {
+        border-left: thick $primary;
+    }
+    #watcher-dialog .watcher-msg.tool {
+        border-left: thick $accent;
+        background: $background;
+    }
+    #watcher-dialog .watcher-msg.system {
+        border-left: thick $secondary;
+        text-style: none;
+    }
+    #watcher-dialog #watcher-footer {
+        width: 100%;
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+        layout: horizontal;
+        align-vertical: middle;
+        margin: 1 0 0 0;
+    }
+    #watcher-dialog .watcher-activity {
+        width: 1fr;
+        height: 1;
+        color: $secondary;
+        text-style: none;
+    }
+    #watcher-dialog #watcher-actions {
+        width: auto;
+        height: 1;
+        layout: horizontal;
+    }
+    #watcher-dialog #watcher-actions Button {
+        width: auto;
+        min-width: 8;
+        height: 1;
+        min-height: 1;
+        max-height: 1;
+        margin-left: 1;
+        padding: 0 2;
+        border: none;
+    }
+    """
+
+    def __init__(self, task_id: str, **kwargs):
+        super().__init__(**kwargs)
+        self.task_id = task_id
+        self._poll_timer = None
+        self._last_msg_count = -1
+        self._last_status = ""
+        self._spin_idx = 0
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="watcher-dialog"):
+            with Horizontal(classes="watcher-header"):
+                yield Static(f"⚡  WATCHING: {self.task_id}", id="watcher-title-text", classes="watcher-title", markup=False)
+                yield Static("RUNNING", id="watcher-status-tag", classes="watcher-badge running", markup=False)
+            yield Static("Live process stream  ·  Esc / Q closes  ·  R refreshes", classes="watcher-hint", markup=False)
+            yield VerticalScroll(id="watcher-scroll")
+            with Horizontal(id="watcher-footer"):
+                yield Static("Agent active...", id="watcher-activity-text", classes="watcher-activity", markup=False)
+                with Horizontal(id="watcher-actions"):
+                    yield Button("refresh", id="btn-watcher-refresh", variant="default", flat=True)
+                    yield Button("close", id="btn-watcher-close", variant="primary", flat=True)
+
+    def on_mount(self) -> None:
+        self.refresh_stream()
+        self._poll_timer = self.set_interval(1.0, self.refresh_stream)
+
+    def on_unmount(self) -> None:
+        if self._poll_timer:
+            try:
+                self._poll_timer.stop()
+            except Exception:
+                pass
+
+    def refresh_stream(self) -> None:
+        self._spin_idx = (self._spin_idx + 1) % len(_BRAILLE_SPINNER)
+        try:
+            from core.TaskManager import TaskRegistry
+            from core.jobs.delegate_session import get_delegate_session_store
+
+            registry = TaskRegistry()
+            task = registry.get_task(self.task_id)
+            if not task:
+                return
+
+            meta = getattr(task, "metadata", {}) or {}
+            session_id = meta.get("session_id") or meta.get("delegate_session_id") or ""
+            specialist = meta.get("specialist") or ""
+            current_activity = meta.get("current_activity") or ""
+            status = getattr(task.status, "value", str(task.status))
+            is_running = status in ("running", "pending")
+
+            messages = []
+            if session_id:
+                store = get_delegate_session_store()
+                s_rec = store.get(session_id)
+                if s_rec:
+                    messages = list(s_rec.messages or [])
+                    if not specialist:
+                        specialist = s_rec.specialist
+
+            if not messages and "messages" in meta and isinstance(meta["messages"], list):
+                messages = list(meta["messages"])
+
+            # Fallback to tool_history if session has no message history yet
+            tool_history = meta.get("tool_history") or []
+            if not messages and tool_history:
+                obj_text = getattr(task, "description", None) or meta.get("objective") or getattr(task, "original_query", None) or ""
+                if obj_text:
+                    messages.append({"role": "user", "content": obj_text})
+                for th in tool_history:
+                    messages.append({
+                        "role": "tool",
+                        "name": th.get("tool", "tool"),
+                        "content": f"[Round {th.get('round', '?')}] {th.get('summary', '')}",
+                    })
+
+            if not messages:
+                if getattr(task, "description", None):
+                    messages.append({"role": "user", "content": task.description})
+                if getattr(task, "result", None):
+                    messages.append({"role": "assistant", "content": str(task.result)})
+                elif is_running:
+                    messages.append({
+                        "role": "system",
+                        "content": current_activity or "Agent is executing in the background...",
+                    })
+
+            # Update header & status
+            try:
+                title_widget = self.query_one("#watcher-title-text", Static)
+                spec_label = f" [{specialist}]" if specialist else ""
+                title_widget.update(f"⚡  {task.name or self.task_id}{spec_label}")
+
+                tag_widget = self.query_one("#watcher-status-tag", Static)
+                spin = _BRAILLE_SPINNER[self._spin_idx] if is_running else ""
+                tag_widget.update(f"{spin} {status.upper()}".strip())
+                tag_widget.set_classes(f"watcher-badge {status}")
+
+                act_widget = self.query_one("#watcher-activity-text", Static)
+                act_widget.update(current_activity or ("In progress..." if is_running else "Completed"))
+            except NoMatches:
+                return
+
+            # Re-mount messages if count or status changed
+            if len(messages) != self._last_msg_count or status != self._last_status:
+                self._last_msg_count = len(messages)
+                self._last_status = status
+                scroller = self.query_one("#watcher-scroll", VerticalScroll)
+                scroller.remove_children()
+
+                for msg in messages:
+                    role = msg.get("role") or "system"
+                    content = str(msg.get("content") or "")
+                    tool_calls = msg.get("tool_calls") or []
+                    tool_name = msg.get("name") or ""
+
+                    t = Text()
+                    if role == "system":
+                        t.append("SYSTEM / SPECIALIST\n", style="bold")
+                        snippet = content[:350] + ("…" if len(content) > 350 else "")
+                        t.append(snippet)
+                    elif role == "user":
+                        t.append("OBJECTIVE\n", style="bold cyan")
+                        t.append(content)
+                    elif role == "assistant":
+                        t.append("DELEGATE AGENT", style="bold green")
+                        if content:
+                            t.append(f"\n{content}")
+                        if tool_calls:
+                            for tc in tool_calls:
+                                fn = tc.get("function", {}).get("name", "tool") if isinstance(tc, dict) else getattr(getattr(tc, "function", None), "name", "tool")
+                                args = tc.get("function", {}).get("arguments", "") if isinstance(tc, dict) else getattr(getattr(tc, "function", None), "arguments", "")
+                                t.append("\n▶ Invoking Tool: ", style="yellow")
+                                t.append(str(fn), style="bold")
+                                t.append(f"\n{str(args)[:500]}")
+                    elif role == "tool":
+                        t.append("TOOL OUTPUT", style="bold yellow")
+                        if tool_name:
+                            t.append(f" ({tool_name})", style="bold yellow")
+                        t.append("\n")
+                        snippet = content[:1500] + ("…" if len(content) > 1500 else "")
+                        t.append(snippet)
+                    else:
+                        t.append(f"{role.upper()}\n", style="bold")
+                        t.append(content)
+
+                    scroller.mount(Static(t, classes=f"watcher-msg {role}"))
+
+                scroller.scroll_end(animate=False)
+        except Exception as e:
+            print(f"[TaskWatcherModal] refresh error: {e}")
+
+    @on(Button.Pressed, "#btn-watcher-close")
+    def on_close_pressed(self) -> None:
+        self.action_close_watcher()
+
+    @on(Button.Pressed, "#btn-watcher-refresh")
+    def on_refresh_pressed(self) -> None:
+        self.action_refresh_watcher()
+
+    def action_refresh_watcher(self) -> None:
+        self.refresh_stream()
+
+    def action_close_watcher(self) -> None:
+        self.dismiss(None)
+
+
+class RemoteAccessModal(ModalScreen[None]):
+    """Modal showing QR Code & URL for mobile/web remote access."""
+
+    BINDINGS = [
+        Binding("escape", "close_remote", "Close", show=True),
+        Binding("q", "close_remote", "Close", show=False),
+        Binding("enter", "close_remote", "Close", show=False),
+    ]
+
+    CSS = """
+    RemoteAccessModal {
+        align: center middle;
+        background: $background 65%;
+    }
+    #remote-dialog {
+        width: 58;
+        max-width: 95%;
+        height: auto;
+        max-height: 92%;
+        background: $surface;
+        border: solid $primary 70%;
+        padding: 1 2;
+        layout: vertical;
+        align-horizontal: center;
+    }
+    #remote-dialog .remote-title {
+        width: 100%;
+        height: 1;
+        color: $primary;
+        text-style: bold;
+        text-align: center;
+        margin: 0 0 1 0;
+    }
+    #remote-dialog .remote-qr-box {
+        width: auto;
+        height: auto;
+        color: #ffffff;
+        background: #000000;
+        padding: 0 1;
+        border: solid $secondary 40%;
+        margin: 0 0 1 0;
+        align: center middle;
+        text-align: center;
+    }
+    #remote-dialog .remote-url {
+        width: 100%;
+        height: 1;
+        color: $secondary;
+        text-style: bold underline;
+        text-align: center;
+        margin: 0 0 1 0;
+    }
+    #remote-dialog .remote-hint {
+        width: 100%;
+        height: 2;
+        color: $text-muted;
+        text-align: center;
+        margin: 0 0 1 0;
+    }
+    #remote-dialog #remote-actions {
+        width: 100%;
+        height: 3;
+        align: center middle;
+        margin-top: 1;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 1))
+            ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            ip = "127.0.0.1"
+
+        port = 8766
+        url = f"http://{ip}:{port}"
+
+        qr_text = ""
+        try:
+            import qrcode
+            qr = qrcode.QRCode(border=1)
+            qr.add_data(url)
+            qr.make(fit=True)
+            m = qr.get_matrix()
+            lines = []
+            for y in range(0, len(m), 2):
+                row = []
+                for x in range(len(m[0])):
+                    top = m[y][x]
+                    bottom = m[y + 1][x] if y + 1 < len(m) else False
+                    if top and bottom:
+                        row.append("█")
+                    elif top and not bottom:
+                        row.append("▀")
+                    elif not top and bottom:
+                        row.append("▄")
+                    else:
+                        row.append(" ")
+                lines.append("".join(row))
+            qr_text = "\n".join(lines)
+        except Exception as e:
+            qr_text = f"(QR Code generation error: {e})"
+
+        with Vertical(id="remote-dialog"):
+            yield Static("📱 A.V.A Remote Mobile & Web Access", classes="remote-title")
+            yield Static(qr_text, classes="remote-qr-box")
+            yield Static(f"🔗 [b]{url}[/b]", classes="remote-url")
+            yield Static("Scan with your phone's camera\nor open link in any browser on your Wi-Fi", classes="remote-hint")
+            with Horizontal(id="remote-actions"):
+                yield Button("close (Esc)", id="btn-remote-close", variant="primary")
+
+    @on(Button.Pressed, "#btn-remote-close")
+    def on_close_pressed(self) -> None:
+        self.action_close_remote()
+
+    def action_close_remote(self) -> None:
+        self.dismiss(None)
 
 
 MAIN_CSS = """
@@ -3247,12 +3909,20 @@ class _TUIResponseLoopHandler(ResponseLoopHandler):
         except Exception:
             gen = None
         self.app.call_from_thread(self.app._speak_to_ui, text, gen)
+        try:
+            from core.gateway import broadcast_assistant_message
+            from config import ASSISTANT_NAME
+            broadcast_assistant_message(text, assistant=ASSISTANT_NAME)
+        except Exception:
+            pass
 
     def on_processing_start(self):
+        super().on_processing_start()
         self.app.call_from_thread(self.app._set_processing, True)
         self.app.call_from_thread(self.app._update_status, "thinking...")
 
-    def on_tool_call_start(self, func_name: str, args: dict):
+    def on_tool_call_start(self, func_name: str, args: dict, tool_id: str = ""):
+        super().on_tool_call_start(func_name, args, tool_id=tool_id)
         self.app.call_from_thread(
             self.app._update_status, f"tool  ·  {func_name}"
         )
@@ -3260,15 +3930,18 @@ class _TUIResponseLoopHandler(ResponseLoopHandler):
             self.app._on_tool_running, func_name, args
         )
 
-    def on_tool_call_result(self, result: str):
+    def on_tool_call_result(self, result: str, func_name: str = "", tool_id: str = ""):
+        super().on_tool_call_result(result, func_name=func_name, tool_id=tool_id)
         self.app.call_from_thread(
             self.app._update_last_tool_result, result
         )
 
     def on_processing_end(self):
+        super().on_processing_end()
         self.app.call_from_thread(self.app._set_processing, False)
 
     def on_background_task_notify(self, summary: str):
+        super().on_background_task_notify(summary)
         # Prefer a one-line UI string; callers may still pass the old multi-line
         # compact blob — collapse whitespace and hard-cap length for the chat log.
         text = " ".join(str(summary or "").split())
@@ -3313,6 +3986,7 @@ class AVAApp(App):
         Binding("?", "toggle_help", "Help", show=True),
         Binding("ctrl+f", "toggle_search", "Search", show=False),
         Binding("ctrl+d", "toggle_tasks", "Tasks", show=True),
+        Binding("ctrl+r", "show_remote_access", "Remote", show=True),
         Binding("ctrl+b", "toggle_tasks_sidebar", "Task Side", show=False),
         Binding("ctrl+h", "toggle_history_sidebar", "History", show=True),
         Binding("ctrl+l", "toggle_system_log", "Logs", show=False),
@@ -3323,6 +3997,7 @@ class AVAApp(App):
     search_open: reactive[bool] = reactive(False)
     tasks_open: reactive[bool] = reactive(False)
     viewer_open: reactive[bool] = reactive(False)
+    task_watcher_open: reactive[bool] = reactive(False)
     history_sidebar_visible: reactive[bool] = reactive(True)
     tasks_sidebar_visible: reactive[bool] = reactive(True)
     # Off by default — theme/online tips stay mounted but hidden until /quiet
@@ -3338,6 +4013,9 @@ class AVAApp(App):
         self.current_mode = start_mode
         self.app_theme = start_theme
         self._voice_thread: threading.Thread | None = None
+        self._last_local_dispatched_text: str | None = None
+        self._last_mounted_user_text: str | None = None
+        self._last_mounted_user_time: float = 0.0
 
     # ── Theme management ──────────────────────────────────────────────────────
 
@@ -3616,6 +4294,16 @@ class AVAApp(App):
         self.tasks_open = False
         self._tasks_widget = None
 
+    def action_show_remote_access(self) -> None:
+        """Show the QR code and URL for mobile/web remote access."""
+        def _on_close(_result: None) -> None:
+            try:
+                self.query_one("#user-input", Input).focus()
+            except NoMatches:
+                pass
+
+        self.push_screen(RemoteAccessModal(), _on_close)
+
     # ── Sidebars ──────────────────────────────────────────────────────────────
 
     @on(Button.Pressed, "#btn-close-history")
@@ -3702,6 +4390,41 @@ class AVAApp(App):
         except Exception:
             pass
         self.viewer_open = False
+
+    def on_tasks_sidebar_task_selected(
+        self, message: TasksSidebar.TaskSelected
+    ) -> None:
+        self._open_task_watcher(message.task_id)
+
+    def _open_task_watcher(self, task_id: str) -> None:
+        if not task_id:
+            return
+        if self.task_watcher_open or self.settings_open or self.theme_picker_open:
+            return
+        self.task_watcher_open = True
+
+        def _on_close(_result: None) -> None:
+            self.task_watcher_open = False
+            try:
+                self.query_one("#user-input", Input).focus()
+            except NoMatches:
+                pass
+
+        self.push_screen(
+            TaskWatcherModal(task_id),
+            _on_close,
+        )
+
+    def _close_task_watcher(self) -> None:
+        if not self.task_watcher_open:
+            return
+        try:
+            if isinstance(self.screen, TaskWatcherModal):
+                self.screen.dismiss(None)
+                return
+        except Exception:
+            pass
+        self.task_watcher_open = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -3794,7 +4517,98 @@ class AVAApp(App):
         except NoMatches:
             pass
 
+        # Listen for events arriving from outside (e.g. phone gateway, web portal)
+        register_user_message_listener(self._on_incoming_user_message)
+        register_conversation_reset_listener(self._on_remote_new_conversation)
+        register_slash_command_listener(self._on_remote_slash_command)
+        register_clear_chat_listener(self._on_remote_clear_chat)
+        register_system_message_listener(self._on_incoming_system_message)
+
         self.query_one("#user-input", Input).focus()
+
+    def on_unmount(self) -> None:
+        unregister_user_message_listener(self._on_incoming_user_message)
+        unregister_conversation_reset_listener(self._on_remote_new_conversation)
+        unregister_slash_command_listener(self._on_remote_slash_command)
+        unregister_clear_chat_listener(self._on_remote_clear_chat)
+        unregister_system_message_listener(self._on_incoming_system_message)
+
+    def _on_remote_new_conversation(self) -> None:
+        """Called when a new conversation is started remotely (Web / Android)."""
+        def _apply():
+            self._add_separator()
+            self._add_system_message("new conversation started remotely")
+            self.conversation_active = True
+            self._update_status(
+                f"ready  ·  {MODE_LABELS.get(self.current_mode, self.current_mode).lower()} mode"
+            )
+            try:
+                hist = self.query_one("#history-sidebar", HistorySidebar)
+                hist.refresh_list()
+            except NoMatches:
+                pass
+        try:
+            self.call_from_thread(_apply)
+        except Exception:
+            pass
+
+    def _on_remote_slash_command(self, command: str, origin: str) -> None:
+        """Called when a slash command is sent from a remote client."""
+        def _apply():
+            self._add_system_message(f"[{origin}] {command}")
+        try:
+            self.call_from_thread(_apply)
+        except Exception:
+            pass
+
+    def _on_remote_clear_chat(self) -> None:
+        """Called when chat clear is requested remotely."""
+        def _apply():
+            try:
+                log = self.query_one("#chat-log", Vertical)
+                for child in log.children:
+                    child.remove()
+            except NoMatches:
+                pass
+        try:
+            self.call_from_thread(_apply)
+        except Exception:
+            pass
+
+    def _on_incoming_system_message(self, text: str, is_alert: bool = False) -> None:
+        """Called when a system notification is broadcast."""
+        def _apply():
+            self._add_system_message(text)
+        try:
+            self.call_from_thread(_apply)
+        except Exception:
+            pass
+
+    def _on_incoming_user_message(self, content: str) -> None:
+        """Called when a user message arrives from any source (e.g. phone gateway)."""
+        clean_text = content
+        user_prefix = f"{USER_NAME}: "
+        if clean_text.startswith(user_prefix):
+            clean_text = clean_text[len(user_prefix):]
+
+        if self._last_local_dispatched_text and clean_text.strip() == self._last_local_dispatched_text.strip():
+            self._last_local_dispatched_text = None
+            return
+
+        now = time.time()
+        if (
+            self._last_mounted_user_text
+            and clean_text.strip() == self._last_mounted_user_text.strip()
+            and (now - self._last_mounted_user_time) < 2.0
+        ):
+            return
+
+        try:
+            self.call_from_thread(self._add_user_message, clean_text)
+            self.call_from_thread(self._update_status, "thinking...")
+            self.call_from_thread(self._set_processing, True)
+        except Exception as e:
+            print(f"[TUI] Error mounting incoming user message: {e}")
 
     def on_ready(self) -> None:
         if self.current_mode != "text":
@@ -3966,6 +4780,31 @@ class AVAApp(App):
         if not text:
             return
 
+        # Claude Code skill: /skill-name [args]
+        try:
+            from core.cc_plugins.skills_host import get_host
+            from core.messageHandler import add_message
+
+            host = get_host()
+            host.load()
+            hit = host.match_slash(text)
+        except Exception:
+            hit = None
+        if hit:
+            skill, args = hit
+            try:
+                body = get_host().render(skill.name, args)
+                add_message(content=body, role="system", trigger_response=False)
+                add_message(
+                    content=text,
+                    role="user",
+                    trigger_response=True,
+                )
+                self._add_system_message(f"loaded skill {skill.slash}")
+            except Exception as e:
+                self._add_system_message(f"Skill {skill.slash} failed: {e}")
+            return
+
         # Settings command
         if (
             text.lower().startswith("/settings")
@@ -3978,8 +4817,19 @@ class AVAApp(App):
         # Help command
         if text.lower() in {"/help", "/commands"}:
             self._add_system_message("available commands  ·  type / for the palette:")
-            for cmd in SLASH_COMMANDS:
+            for cmd in _all_slash_commands():
                 self._add_system_message(f"{cmd.display_cmd()}  —  {cmd.description}")
+            return
+
+        if text.lower() in {"/skills", "/plugins"}:
+            try:
+                from core.cc_plugins.skills_host import get_host
+
+                host = get_host()
+                host.load()
+                self._add_system_message(host.summary())
+            except Exception as e:
+                self._add_system_message(f"Skills failed to load: {e}")
             return
 
         # New conversation command
@@ -4043,6 +4893,11 @@ class AVAApp(App):
                     child.remove()
             except NoMatches:
                 pass
+            try:
+                from core.gateway import get_broadcaster
+                get_broadcaster().broadcast_sync("event:clear_chat", {})
+            except Exception:
+                pass
             return
 
         if text.lower() == "/tasks":
@@ -4067,6 +4922,31 @@ class AVAApp(App):
 
             result = manage_background_tasks("result", task_id)
             self._add_system_message(result)
+            return
+
+        if text.lower().startswith("/watch"):
+            target_id = text[6:].strip()
+            if not target_id:
+                try:
+                    from core.TaskManager import list_all_tasks
+
+                    running = [
+                        t for t in list_all_tasks()
+                        if t.get("status") in ("running", "pending")
+                    ]
+                    if running:
+                        target_id = str(running[0].get("id") or "")
+                except Exception:
+                    pass
+            if target_id:
+                self._open_task_watcher(target_id)
+            else:
+                self._add_system_message("No active task to watch. Usage: /watch <task_id>")
+            return
+
+        # Remote / QR Code Access command
+        if text.lower() in {"/remote", "/remote-access", "/qr", "/mobile", "/web"}:
+            self.action_show_remote_access()
             return
 
         # New conversation command
@@ -4106,6 +4986,7 @@ class AVAApp(App):
         if not self.conversation_active:
             self.conversation_active = True
 
+        self._last_local_dispatched_text = text
         add_message(role="user", content=user_msg, tool_id="")
 
     # ── Conversation management ───────────────────────────────────────────────
@@ -4140,6 +5021,14 @@ class AVAApp(App):
         except NoMatches:
             pass
         self.query_one("#user-input", Input).focus()
+
+        # Notify Gateway & remote clients (Web & Android)
+        try:
+            from core.gateway import get_broadcaster, broadcast_system_message
+            get_broadcaster().broadcast_sync("event:new_conversation", {})
+            broadcast_system_message("New conversation started on PC")
+        except Exception:
+            pass
 
     def _has_saveable_dialogue(self) -> bool:
         """True if the live LLM history or ConversationManager has user/assistant turns."""
@@ -4282,13 +5171,20 @@ class AVAApp(App):
                         if _mode_switch_event.is_set():
                             break
 
+                        transcription = transcription.strip()
+                        if not transcription:
+                            break
+
                         self.call_from_thread(self._add_user_message, transcription)
+                        self.call_from_thread(self._update_status, "thinking...")
+                        self.call_from_thread(self._set_processing, True)
 
                         if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
                             resp = random.choice(EXIT_RESPONSES)
                             self.call_from_thread(self._add_assistant_message, resp)
                             break
 
+                        self._last_local_dispatched_text = transcription.strip()
                         user_msg = f"{USER_NAME}: {transcription}"
                         add_message(role="user", content=user_msg, tool_id="")
 
@@ -4321,8 +5217,11 @@ class AVAApp(App):
 
                         if continued:
                             stop_event.clear()
-                            transcription = str(recorder.get_whisper_result(timeout=15))
-                            continue
+                            transcription = recorder.get_whisper_result(timeout=15) or ""
+                            if transcription.strip():
+                                continue
+                            else:
+                                break
                         else:
                             # If we were expecting follow-up but timed out, try one more time
                             if work_in_progress.is_set():
@@ -4334,8 +5233,11 @@ class AVAApp(App):
                                 )
                                 if continued:
                                     stop_event.clear()
-                                    transcription = str(recorder.get_whisper_result(timeout=15))
-                                    continue
+                                    transcription = recorder.get_whisper_result(timeout=15) or ""
+                                    if transcription.strip():
+                                        continue
+                                    else:
+                                        break
                             stop_event.clear()
                             break
 
@@ -4415,13 +5317,20 @@ class AVAApp(App):
 
             while self.current_mode == "wakeword" and not _mode_switch_event.is_set():
                 if not main_runner.is_set():
+                    transcription = transcription.strip()
+                    if not transcription:
+                        break
+
                     self.call_from_thread(self._add_user_message, transcription)
+                    self.call_from_thread(self._update_status, "thinking...")
+                    self.call_from_thread(self._set_processing, True)
 
                     if any(cmd in transcription.lower() for cmd in SHUTUP_COMMANDS):
                         resp = random.choice(EXIT_RESPONSES)
                         self.call_from_thread(self._speak_to_ui, resp)
                         break
 
+                    self._last_local_dispatched_text = transcription.strip()
                     full = f"{USER_NAME}: {transcription}"
                     add_message(role="user", content=full, tool_id="")
 
@@ -4531,15 +5440,12 @@ class AVAApp(App):
             log.mount(widget)
 
     def _add_user_message(self, text: str) -> None:
+        self._last_mounted_user_text = (text or "").strip()
+        self._last_mounted_user_time = time.time()
         self._clear_mic_status()
         ts = datetime.now().strftime("%H:%M")
         # Escape body only — labels use intentional Rich markup
-        try:
-            from rich.markup import escape as _esc
-
-            body = _esc(text or "")
-        except Exception:
-            body = text or ""
+        body = escape(text or "")
         self._mount_chat_child(
             ChatMessage(
                 f"[bold]{USER_NAME}[/]  [dim]{ts}[/]\n{body}",
@@ -4550,12 +5456,7 @@ class AVAApp(App):
 
     def _add_assistant_message(self, text: str) -> None:
         ts = datetime.now().strftime("%H:%M")
-        try:
-            from rich.markup import escape as _esc
-
-            body = _esc(text or "")
-        except Exception:
-            body = text or ""
+        body = escape(text or "")
         self._mount_chat_child(
             ChatMessage(
                 f"[bold]{ASSISTANT_NAME}[/]  [dim]{ts}[/]\n{body}",
@@ -4603,12 +5504,7 @@ class AVAApp(App):
     def _add_system_message(self, text: str) -> None:
         """Faded ephemeral line (theme, tips, status). Hide with /quiet or ctrl+l."""
         clean = " ".join(str(text or "").split())
-        try:
-            from rich.markup import escape as _esc
-
-            clean = _esc(clean)
-        except Exception:
-            pass
+        clean = escape(clean)
         self._mount_chat_child(
             ChatMessage(f"[dim]· {clean}[/]", classes="system-msg")
         )
@@ -4759,5 +5655,12 @@ class AVAApp(App):
 
 def run_tui(start_mode: str = "text", start_theme: str = "ava") -> None:
     """Launch the AVA TUI."""
+    try:
+        from core.server_manager import ensure_server_running
+
+        ensure_server_running()
+    except Exception as e:
+        print(f"[Server] Check failed: {e}")
+
     app = AVAApp(start_mode=start_mode, start_theme=start_theme)
     app.run()

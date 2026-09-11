@@ -4,7 +4,10 @@ import asyncio
 import json
 import threading
 
-from pywizlight import PilotBuilder, discovery, wizlight
+try:
+    from pywizlight import PilotBuilder, discovery, wizlight
+except ImportError:
+    PilotBuilder = discovery = wizlight = None
 
 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -180,7 +183,10 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import ClientSession
-from thinqconnect.thinq_api import ThinQApi
+try:
+    from thinqconnect.thinq_api import ThinQApi
+except ImportError:
+    ThinQApi = None
 
 # ---------------------------------------------------------------------------
 # Config

@@ -32,12 +32,13 @@ from groq import Groq
 import logging
 
 from core.AppStates import stop_event, voice_stop_event
-_settings_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'settings.json')
 try:
-    with open(_settings_path, 'r') as _f:
-        os.environ.update({k: str(v) for k, v in json.load(_f).items()})
-except Exception:
-    pass
+    from config import ASSISTANT_NAME, USER_NAME, STT_LANGUAGE
+except ImportError:
+    USER_NAME = os.getenv("USER_NAME", os.getenv("USERNAME") or os.getenv("USER") or "User")
+    ASSISTANT_NAME = os.getenv("ASSISTANT_NAME", "AVA")
+    STT_LANGUAGE = os.getenv("STT_LANGUAGE", "en")
+
 # Groq client for Whisper transcription
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
@@ -83,12 +84,42 @@ def transcribe_whisper(filename) -> str | None:
     
     try:
         with open(filename, "rb") as file:
-            transcription = groq_client.audio.transcriptions.create(
-                file=(filename, file.read()),
-                model="whisper-large-v3-turbo",
-                response_format="text",
-            )
-            return str(transcription)
+            kwargs = {
+                "file": (filename, file.read()),
+                "model": "whisper-large-v3-turbo",
+                "response_format": "text",
+                "temperature": 0.0,
+            }
+
+            # Enforce language (default English) to stop Whisper from hallucinating
+            # random foreign languages (e.g. Korean, Welsh, etc.) on noise or quiet speech
+            lang = os.getenv("STT_LANGUAGE", STT_LANGUAGE)
+            if lang and lang.strip().lower() != "auto":
+                kwargs["language"] = lang.strip().lower()
+
+            # Biasing prompt with assistant name and user name to improve recognition of names
+            names = [n for n in [ASSISTANT_NAME, USER_NAME] if n]
+            if names:
+                kwargs["prompt"] = ", ".join(names)
+
+            transcription = groq_client.audio.transcriptions.create(**kwargs)
+            result = str(transcription).strip() if transcription is not None else ""
+
+            # Filter out common Whisper hallucinations on low-energy background noise or silence
+            import re
+            cleaned = re.sub(r"[^\w\s]", "", result).strip().lower()
+            if not cleaned:
+                return ""
+
+            known_hallucinations = {
+                "thank you", "thanks for watching", "thank you for watching",
+                "subtitles by the amaraorg community", "subtitles by",
+                "please subscribe", "subscribe", "you", "bye", "mbc 뉴스",
+            }
+            if cleaned in known_hallucinations:
+                return ""
+
+            return result
     except Exception as e:
         logging.error(f"[Whisper] Error transcribing: {e}")
         return None

@@ -1,7 +1,10 @@
 import pyautogui
 import datetime
 import os
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 import base64
 import json
 import requests
@@ -34,6 +37,10 @@ def capture_and_save_image(camera_index=1, folder=None):
     if not os.path.exists(folder):
         os.makedirs(folder)
     
+    if cv2 is None:
+        print("[ImageTool] OpenCV (cv2) is not installed")
+        return None
+
     camera = cv2.VideoCapture(camera_index)
     
     if not camera.isOpened():

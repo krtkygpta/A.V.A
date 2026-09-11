@@ -3,7 +3,10 @@ import os
 import threading
 import time
 import json
-import keyboard  # This library is used for detecting keypresses
+try:
+    import keyboard  # This library is used for detecting keypresses
+except ImportError:
+    keyboard = None
 
 def system_action(action, delay_seconds=10):
     """

@@ -117,6 +117,7 @@ def screenshot(
                 "type": "image_url",
                 "image_url": {
                     "url": _image_bytes_to_data_url(data, mime=mime),
+                    "detail": "high",
                 },
             },
         ]

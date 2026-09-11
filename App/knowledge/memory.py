@@ -5,9 +5,9 @@ Stores memories as natural language sentences instead of key-value pairs.
 Uses LLM to find relevant memories when retrieving.
 
 Example memories:
-- "Kartikey's favorite song is Believer by Imagine Dragons"
-- "Kartikey usually wakes up at 7 AM"
-- "Kartikey's best friend is named Rohan"
+- "User's favorite song is Believer by Imagine Dragons"
+- "User usually wakes up at 7 AM"
+- "User's best friend is named Alex"
 """
 
 import json

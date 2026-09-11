@@ -33,7 +33,10 @@ class ToolService:
         model_name: Optional[str] = None,
     ):
         self.google_ai = GoogleAISearch(api_key=google_ai_api_key)
-        self.image_analysis = ImageAnalysis(api_key=groq_api_key)
+        self.image_analysis = ImageAnalysis(
+            google_ai_api_key=google_ai_api_key,
+            groq_api_key=groq_api_key,
+        )
         self.code_sandbox = CodeSandbox()
         self.research_agent = ResearchAgent(
             tavily_key=tavily_api_key,
@@ -93,32 +96,53 @@ class ToolService:
             ext = ".jpg"
         elif "webp" in mime_l:
             ext = ".webp"
+        elif "gif" in mime_l:
+            ext = ".gif"
         elif "bmp" in mime_l:
             ext = ".bmp"
+        elif "tiff" in mime_l or "tif" in mime_l:
+            ext = ".tiff"
+        elif "svg" in mime_l:
+            ext = ".svg"
 
+        valid_exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif", ".svg")
         if filename:
             name = Path(str(filename).strip().strip('"').strip("'")).name
             name = re.sub(r"[^\w.\-]+", "_", name)
-            if not name.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+            if not name.lower().endswith(valid_exts):
                 name = f"{name}{ext}"
         else:
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            name = f"screenshot_{stamp}{ext}"
+            name = f"image_{stamp}{ext}"
 
         SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
         path = (SCREENSHOTS_DIR / name).resolve()
         try:
             path.write_bytes(data)
         except OSError as exc:
-            return {"status": "error", "content": f"Failed to write screenshot: {exc}"}
+            return {"status": "error", "content": f"Failed to write image: {exc}"}
 
         if not path.is_file() or path.stat().st_size <= 0:
-            return {"status": "error", "content": "Screenshot was not written correctly"}
+            return {"status": "error", "content": "Image was not written correctly"}
 
         abs_path = str(path)
         return {
             "status": "success",
             "path": abs_path,
             "filename": path.name,
-            "content": f"Screenshot stored at {abs_path}",
+            "content": f"Image stored at {abs_path}",
         }
+
+    def store_image(
+        self,
+        image_base64: str,
+        filename: Optional[str] = None,
+        mime: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Alias for store_screenshot to store any client-provided image."""
+        return self.store_screenshot(
+            image_base64=image_base64,
+            filename=filename,
+            mime=mime,
+        )
+

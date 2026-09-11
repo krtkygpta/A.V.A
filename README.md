@@ -249,12 +249,17 @@ Set in `App/settings.json` / root `settings.json`:
 
 | Value | Behavior |
 |-------|----------|
-| `tui_text` | TUI + keyboard (best first try) |
-| `tui_continuous` | TUI + always-on mic |
-| `tui_wakeword` | TUI + “Hey AVA”-style wake word (needs Vosk) |
+| `tui_text` | Textual TUI + keyboard (best first try) |
+| `tui_continuous` | Textual TUI + always-on mic |
+| `tui_wakeword` | Textual TUI + “Hey AVA”-style wake word (needs Vosk) |
+| `rich_text` | Rich UI + keyboard (parallel frontend, uniform padding) |
+| `rich_continuous` | Rich UI + always-on mic |
+| `rich_wakeword` | Rich UI + wake word |
 | `text` | Classic CLI text (no TUI) |
 | `continuous` | Classic continuous voice |
 | `vosk` | Classic wake-word voice |
+
+Set `AVA_UI=rich` to force the Rich frontend while keeping a `tui_*` start mode.
 
 Inside the TUI you can also switch with:
 

@@ -42,6 +42,27 @@ def _check_permission(command_str):
     return None
 
 def _prompt_and_get_result(command_str):
+    # If running inside a background worker, ask main agent for permission instead of blocking on GUI
+    try:
+        from core.TaskManager import get_current_worker
+
+        worker = get_current_worker()
+        if worker is not None:
+            ans = worker.ask_main(
+                question=f"Permission to run bash command: {command_str}",
+                options=["grant", "deny"],
+                context_snippet=f"Worker '{worker.task.name}' requested permission to run: {command_str}",
+                allow_main_self_answer=True,
+                require_user=False,
+                default_if_timeout="grant",
+            )
+            ans_str = str(ans).strip().lower()
+            if ans_str in ("grant", "granted", "allow", "allowed", "yes", "y", "true"):
+                return "allowed"
+            return "denied"
+    except Exception:
+        pass
+
     result_queue = queue.Queue()
     cmd_type = _get_command_type(command_str)
     
