@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#131315">
+  <meta name="description" content="A.V.A — Connected Device Registry & Node Hub">
+  <title>AVA // Device Management</title>
+
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=103">
+
+  <style>
+    html, body {
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+      height: auto !important;
+      min-height: 100% !important;
+      min-height: 100vh !important;
+      min-height: 100dvh !important;
+      background-color: var(--bg-surface-lowest) !important;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .material-symbols-outlined,
+    .material-icons {
+      font-family: 'Material Symbols Outlined', 'Material Icons', sans-serif !important;
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      vertical-align: middle;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      font-feature-settings: 'liga';
+      user-select: none;
+    }
+
+    .devices-layout {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px 20px 80px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .devices-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+      flex-wrap: wrap;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      background: var(--bg-surface-container);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      text-decoration: none;
+      transition: all 0.15s ease;
+    }
+    .back-btn:hover {
+      background: var(--bg-surface-highest);
+      border-color: var(--outline-variant);
+      transform: translateX(-2px);
+    }
+
+    .header-title-col {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .header-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    .sys-badge {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-color);
+      color: var(--text-dim);
+    }
+
+    .header-subtitle {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 36px;
+      padding: 0 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      font-family: var(--font-body);
+      background: var(--bg-surface-container);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-action:hover {
+      background: var(--bg-surface-highest);
+      border-color: var(--outline-variant);
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .stat-card {
+      padding: 16px 20px;
+      border-radius: 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .stat-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .stat-value {
+      font-family: var(--font-mono);
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.1;
+    }
+
+    .stat-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    /* Devices List */
+    .section-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .section-heading {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .device-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .device-card {
+      border-radius: 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .device-card:hover {
+      border-color: var(--outline-variant);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    .device-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .device-info-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .device-avatar {
+      width: 46px;
+      height: 46px;
+      border-radius: 10px;
+      background: var(--bg-surface-container);
+      border: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-primary);
+      flex-shrink: 0;
+    }
+
+    .device-title-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .device-name-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .device-display-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .btn-inline-rename {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      padding: 2px;
+      border-radius: 4px;
+      transition: color 0.15s;
+    }
+    .btn-inline-rename:hover {
+      color: var(--text-primary);
+      background: var(--bg-surface-highest);
+    }
+
+    .device-meta-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .device-id-code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-secondary);
+      background: var(--bg-surface-lowest);
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .device-type-tag {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .device-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border-color);
+      background: var(--bg-surface-lowest);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status-dot.online {
+      background: #10b981;
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+      animation: pulse-green 2s infinite ease-in-out;
+    }
+    .status-dot.offline {
+      background: #71717a;
+    }
+
+    @keyframes pulse-green {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(0.85); }
+    }
+
+    /* Capabilities list */
+    .caps-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .caps-label {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .caps-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .cap-tag {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: var(--bg-surface-container);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+    }
+
+    .cap-tag.highlight {
+      border-color: rgba(255, 255, 255, 0.2);
+      color: #fff;
+    }
+
+    /* Tool Catalog Drawer */
+    .tool-catalog-section {
+      border-top: 1px solid var(--border-subtle);
+      padding-top: 12px;
+    }
+
+    .catalog-toggle-btn {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 0;
+      transition: color 0.15s;
+    }
+    .catalog-toggle-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .catalog-items-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .catalog-item-card {
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: var(--bg-surface-lowest);
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .catalog-item-name {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .catalog-item-desc {
+      font-size: 11.5px;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+
+    /* Actions Footer */
+    .device-actions-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid var(--border-color);
+      padding-top: 14px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .action-group-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .btn-card-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      font-weight: 500;
+      background: var(--bg-surface-container);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn-card-action:hover {
+      background: var(--bg-surface-highest);
+      border-color: var(--outline-variant);
+    }
+
+    .btn-card-action.danger {
+      color: #ef4444;
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+    .btn-card-action.danger:hover {
+      background: rgba(239, 68, 68, 0.1);
+      border-color: #ef4444;
+    }
+
+    .ping-latency-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.1);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #10b981;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* Guide Box */
+    .guide-card {
+      border-radius: 12px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .guide-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .guide-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .guide-tabs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .guide-tab-card {
+      padding: 16px;
+      border-radius: 8px;
+      background: var(--bg-surface-lowest);
+      border: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .guide-tab-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .guide-code-block {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 10px;
+      border-radius: 6px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-secondary);
+      word-break: break-all;
+      user-select: all;
+    }
+
+    .guide-step-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.45;
+    }
+
+    /* Toast */
+    .toast-msg {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #27272a;
+      color: #ffffff;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 12px 18px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+      z-index: 9999;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .toast-msg.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
+
+    /* Modal for Rename */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9000;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal-box {
+      width: 90%;
+      max-width: 440px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .modal-input {
+      width: 100%;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: var(--bg-surface-lowest);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 14px;
+      outline: none;
+    }
+    .modal-input:focus {
+      border-color: #ffffff;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .empty-devices-state {
+      padding: 48px 24px;
+      text-align: center;
+      background: var(--bg-surface);
+      border: 1px dashed var(--border-color);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    .empty-devices-state .material-symbols-outlined {
+      font-size: 48px;
+      color: var(--text-dim);
+    }
+    .empty-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .empty-sub {
+      font-size: 13px;
+      color: var(--text-dim);
+      max-width: 420px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="devices-layout">
+
+    <!-- Header -->
+    <div class="devices-header">
+      <div class="header-left">
+        <a href="/" class="back-btn" title="Return to Chat Workspace">
+          <span class="material-symbols-outlined">arrow_back</span>
+        </a>
+        <div class="header-title-col">
+          <div class="header-title-row">
+            <h1 class="header-title">DEVICE REGISTRY</h1>
+            <span class="sys-badge">NODES // ECOSYSTEM</span>
+          </div>
+          <span class="header-subtitle">Manage connected client endpoints, remote PC agents, and device RPC tools</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn-action" id="btn-refresh" title="Refresh Registry">
+          <span class="material-symbols-outlined">refresh</span>
+          <span>REFRESH</span>
+        </button>
+        <a href="/" class="btn-action" style="text-decoration: none;">
+          <span class="material-symbols-outlined">chat</span>
+          <span>OPEN CHAT</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Stat Metric Cards -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">
+          <span>TOTAL REGISTERED</span>
+          <span class="material-symbols-outlined" style="font-size: 16px;">hub</span>
+        </div>
+        <div class="stat-value" id="stat-total">--</div>
+        <div class="stat-desc">Persisted devices in server registry</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">
+          <span>ONLINE NODES</span>
+          <span class="material-symbols-outlined" style="font-size: 16px; color: #10b981;">sensors</span>
+        </div>
+        <div class="stat-value" style="color: #10b981;" id="stat-online">--</div>
+        <div class="stat-desc">Active WebSockets ready for execution</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label">
+          <span>OFFLINE NODES</span>
+          <span class="material-symbols-outlined" style="font-size: 16px;">cloud_off</span>
+        </div>
+        <div class="stat-value" style="color: var(--text-dim);" id="stat-offline">--</div>
+        <div class="stat-desc">Registered endpoints currently standby</div>
+      </div>
+    </div>
+
+    <!-- Registered Devices Section -->
+    <div class="section-title-row">
+      <div class="section-heading">CONNECTED &amp; PERSISTED CLIENTS</div>
+      <div id="last-updated-text" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">UPDATING...</div>
+    </div>
+
+    <div class="device-grid" id="device-grid">
+      <div class="empty-devices-state">
+        <span class="material-symbols-outlined">sync</span>
+        <div class="empty-title">Loading registered devices...</div>
+      </div>
+    </div>
+
+    <!-- How to Connect Guide -->
+    <div class="guide-card">
+      <div class="guide-header">
+        <span class="material-symbols-outlined" style="color: #ffffff;">integration_instructions</span>
+        <div class="guide-title">CONNECTING NEW CLIENT DEVICES</div>
+      </div>
+
+      <div class="guide-tabs">
+        <!-- PC Daemon -->
+        <div class="guide-tab-card">
+          <div class="guide-tab-title">
+            <span class="material-symbols-outlined" style="font-size: 18px;">desktop_windows</span>
+            <span>PC CLIENT DAEMON (pc_main)</span>
+          </div>
+          <div class="guide-step-desc">
+            Enables autonomous background coding, terminal bash commands, desktop control, and direct file saving to PC:
+          </div>
+          <div class="guide-code-block">python -m App.core.device_client --server ws://&lt;server-ip&gt;:8765/ws/device</div>
+        </div>
+
+        <!-- Android Client -->
+        <div class="guide-tab-card">
+          <div class="guide-tab-title">
+            <span class="material-symbols-outlined" style="font-size: 18px;">smartphone</span>
+            <span>ANDROID CLIENT (android_phone)</span>
+          </div>
+          <div class="guide-step-desc">
+            Provides GPS location, battery telemetry, speaker alarm / ring, and audio synthesis capabilities.
+          </div>
+          <div class="guide-step-desc">
+            1. Open AVA on Android &rarr; Settings<br>
+            2. Enter Server IP and Port (8765)<br>
+            3. Tap Connect
+          </div>
+        </div>
+
+        <!-- Web Client -->
+        <div class="guide-tab-card">
+          <div class="guide-tab-title">
+            <span class="material-symbols-outlined" style="font-size: 18px;">language</span>
+            <span>WEB CLIENT NODE</span>
+          </div>
+          <div class="guide-step-desc">
+            Any browser tab opening the chat automatically registers as a web node with timedate and local workspace capabilities.
+          </div>
+          <div class="guide-code-block">http://&lt;server-ip&gt;:8765/</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Rename Modal -->
+  <div class="modal-overlay" id="rename-modal">
+    <div class="modal-box">
+      <div class="modal-title">Rename Device</div>
+      <input type="hidden" id="rename-device-id">
+      <input type="text" class="modal-input" id="rename-device-name" placeholder="Enter new device name...">
+      <div class="modal-actions">
+        <button class="btn-action" id="rename-cancel-btn">Cancel</button>
+        <button class="btn-action" id="rename-confirm-btn" style="background: #ffffff; color: #000000; font-weight: 600;">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Element -->
+  <div class="toast-msg" id="toast-msg">
+    <span class="material-symbols-outlined" id="toast-icon">check_circle</span>
+    <span id="toast-text">Message</span>
+  </div>
+
+  <script>
+    let devicesCache = [];
+    let refreshTimer = null;
+
+    function showToast(text, isError = false) {
+      const t = document.getElementById('toast-msg');
+      const icon = document.getElementById('toast-icon');
+      const txt = document.getElementById('toast-text');
+      txt.textContent = text;
+      icon.textContent = isError ? 'error' : 'check_circle';
+      icon.style.color = isError ? '#ef4444' : '#10b981';
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), 3500);
+    }
+
+    async function fetchDevices() {
+      try {
+        const res = await fetch('/api/devices');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        devicesCache = data.devices || [];
+        renderDevices(devicesCache);
+        document.getElementById('last-updated-text').textContent = 'SYNCED ' + new Date().toLocaleTimeString();
+      } catch (err) {
+        console.error('Error fetching devices:', err);
+        document.getElementById('last-updated-text').textContent = 'SYNC FAILED';
+      }
+    }
+
+    function getDeviceIcon(type) {
+      const t = String(type || '').toLowerCase();
+      if (t.includes('pc') || t.includes('desktop') || t.includes('windows') || t.includes('linux') || t.includes('mac')) {
+        return 'desktop_windows';
+      }
+      if (t.includes('android') || t.includes('phone') || t.includes('mobile')) {
+        return 'smartphone';
+      }
+      if (t.includes('web') || t.includes('browser')) {
+        return 'language';
+      }
+      return 'hub';
+    }
+
+    function renderDevices(devices) {
+      const grid = document.getElementById('device-grid');
+      const totalCount = devices.length;
+      const onlineCount = devices.filter(d => d.online).length;
+      const offlineCount = totalCount - onlineCount;
+
+      document.getElementById('stat-total').textContent = totalCount;
+      document.getElementById('stat-online').textContent = onlineCount;
+      document.getElementById('stat-offline').textContent = offlineCount;
+
+      if (devices.length === 0) {
+        grid.innerHTML = `
+          <div class="empty-devices-state">
+            <span class="material-symbols-outlined">phonelink_off</span>
+            <div class="empty-title">No Devices Registered Yet</div>
+            <div class="empty-sub">Follow the instructions below to connect your PC Client daemon or Android phone.</div>
+          </div>
+        `;
+        return;
+      }
+
+      const sorted = [...devices].sort((a, b) => {
+        if (a.online === b.online) return a.name.localeCompare(b.name);
+        return a.online ? -1 : 1;
+      });
+
+      grid.innerHTML = sorted.map(dev => {
+        const iconName = getDeviceIcon(dev.device_type);
+        const isOnline = !!dev.online;
+        const statusClass = isOnline ? 'online' : 'offline';
+        const statusText = isOnline ? 'ONLINE' : 'OFFLINE';
+        const lastSeen = dev.last_seen_text || 'Never';
+
+        const capabilities = Array.isArray(dev.capabilities) ? dev.capabilities : [];
+        const catalog = dev.tool_catalog || {};
+        const catalogKeys = Object.keys(catalog);
+
+        const capsHtml = capabilities.map(c => {
+          const isSave = c === 'save_file';
+          return `<span class="cap-tag ${isSave ? 'highlight' : ''}">${escapeHtml(c)}</span>`;
+        }).join('');
+
+        let catalogHtml = '';
+        if (catalogKeys.length > 0) {
+          const items = catalogKeys.map(k => {
+            const desc = catalog[k] || '';
+            return `
+              <div class="catalog-item-card">
+                <span class="catalog-item-name">${escapeHtml(k)}</span>
+                <span class="catalog-item-desc">${escapeHtml(desc)}</span>
+              </div>
+            `;
+          }).join('');
+
+          catalogHtml = `
+            <div class="tool-catalog-section">
+              <button class="catalog-toggle-btn" onclick="toggleCatalog('${dev.device_id}')">
+                <span class="material-symbols-outlined" style="font-size: 15px;" id="cat-icon-${dev.device_id}">expand_more</span>
+                <span>TOOL CATALOG (${catalogKeys.length} RPC TOOLS)</span>
+              </button>
+              <div class="catalog-items-grid" id="cat-grid-${dev.device_id}" style="display: none;">
+                ${items}
+              </div>
+            </div>
+          `;
+        }
+
+        return `
+          <div class="device-card" id="card-${dev.device_id}">
+            <div class="device-card-header">
+              <div class="device-info-left">
+                <div class="device-avatar">
+                  <span class="material-symbols-outlined">${iconName}</span>
+                </div>
+                <div class="device-title-group">
+                  <div class="device-name-row">
+                    <span class="device-display-name">${escapeHtml(dev.name)}</span>
+                    <button class="btn-inline-rename" title="Rename Device" onclick="openRenameModal('${dev.device_id}', '${escapeHtml(dev.name)}')">
+                      <span class="material-symbols-outlined" style="font-size: 16px;">edit</span>
+                    </button>
+                  </div>
+                  <div class="device-meta-row">
+                    <span class="device-id-code">${escapeHtml(dev.device_id)}</span>
+                    <span class="device-type-tag">// TYPE: ${escapeHtml(dev.device_type)}</span>
+                    ${dev.ip ? `<span class="device-type-tag">// IP: ${escapeHtml(dev.ip)}</span>` : ''}
+                  </div>
+                </div>
+              </div>
+
+              <div class="device-status-badge">
+                <span class="status-dot ${statusClass}"></span>
+                <span>${statusText}</span>
+                <span style="color: var(--text-dim); margin-left: 4px;">(${lastSeen})</span>
+              </div>
+            </div>
+
+            ${capabilities.length > 0 ? `
+              <div class="caps-container">
+                <div class="caps-label">REGISTERED CAPABILITIES</div>
+                <div class="caps-tags">${capsHtml}</div>
+              </div>
+            ` : ''}
+
+            ${catalogHtml}
+
+            <div class="device-actions-row">
+              <div class="action-group-left">
+                <button class="btn-card-action" onclick="pingDevice('${dev.device_id}')">
+                  <span class="material-symbols-outlined" style="font-size: 15px;">network_check</span>
+                  <span>PING</span>
+                </button>
+                <button class="btn-card-action" onclick="openRenameModal('${dev.device_id}', '${escapeHtml(dev.name)}')">
+                  <span class="material-symbols-outlined" style="font-size: 15px;">drive_file_rename_outline</span>
+                  <span>RENAME</span>
+                </button>
+                <span id="ping-res-${dev.device_id}"></span>
+              </div>
+
+              <button class="btn-card-action danger" onclick="removeDevice('${dev.device_id}', '${escapeHtml(dev.name)}')">
+                <span class="material-symbols-outlined" style="font-size: 15px;">delete_outline</span>
+                <span>REMOVE</span>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function toggleCatalog(deviceId) {
+      const grid = document.getElementById(`cat-grid-${deviceId}`);
+      const icon = document.getElementById(`cat-icon-${deviceId}`);
+      if (!grid) return;
+      const isHidden = grid.style.display === 'none';
+      grid.style.display = isHidden ? 'grid' : 'none';
+      if (icon) icon.textContent = isHidden ? 'expand_less' : 'expand_more';
+    }
+
+    async function pingDevice(deviceId) {
+      const pill = document.getElementById(`ping-res-${deviceId}`);
+      if (pill) {
+        pill.innerHTML = `<span class="ping-latency-pill" style="color: #f59e0b; border-color: rgba(245, 158, 11, 0.3); background: rgba(245, 158, 11, 0.1);">Pinging...</span>`;
+      }
+
+      try {
+        const res = await fetch('/api/devices/ping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id: deviceId }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          const lat = data.result.latency_ms;
+          if (pill) {
+            pill.innerHTML = `<span class="ping-latency-pill"><span class="material-symbols-outlined" style="font-size: 13px;">check</span> ${lat} ms</span>`;
+          }
+          showToast(`Ping ${deviceId}: ${lat} ms`);
+        } else {
+          const errMsg = data.result?.message || 'Device is offline';
+          if (pill) {
+            pill.innerHTML = `<span class="ping-latency-pill" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.1);">${escapeHtml(errMsg)}</span>`;
+          }
+          showToast(`Ping ${deviceId}: ${errMsg}`, true);
+        }
+      } catch (err) {
+        if (pill) {
+          pill.innerHTML = `<span class="ping-latency-pill" style="color: #ef4444;">Ping failed</span>`;
+        }
+        showToast(`Failed to ping ${deviceId}`, true);
+      }
+    }
+
+    function openRenameModal(deviceId, currentName) {
+      document.getElementById('rename-device-id').value = deviceId;
+      document.getElementById('rename-device-name').value = currentName;
+      const modal = document.getElementById('rename-modal');
+      modal.classList.add('active');
+      setTimeout(() => document.getElementById('rename-device-name').focus(), 50);
+    }
+
+    function closeRenameModal() {
+      document.getElementById('rename-modal').classList.remove('active');
+    }
+
+    async function submitRename() {
+      const deviceId = document.getElementById('rename-device-id').value;
+      const newName = document.getElementById('rename-device-name').value.trim();
+      if (!newName) return;
+
+      try {
+        const res = await fetch('/api/devices/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id: deviceId, name: newName }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          closeRenameModal();
+          showToast(`Renamed device to "${newName}"`);
+          fetchDevices();
+        } else {
+          showToast(data.error || 'Failed to rename', true);
+        }
+      } catch (err) {
+        showToast('Error renaming device: ' + err.message, true);
+      }
+    }
+
+    async function removeDevice(deviceId, deviceName) {
+      if (!confirm(`Are you sure you want to remove device "${deviceName}" (${deviceId}) from the registry?`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/devices/remove', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_id: deviceId }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          showToast(`Removed device ${deviceId}`);
+          fetchDevices();
+        } else {
+          showToast(data.error || 'Failed to remove', true);
+        }
+      } catch (err) {
+        showToast('Error removing device: ' + err.message, true);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    document.getElementById('btn-refresh').addEventListener('click', () => {
+      fetchDevices();
+      showToast('Refreshing registry...');
+    });
+    document.getElementById('rename-cancel-btn').addEventListener('click', closeRenameModal);
+    document.getElementById('rename-confirm-btn').addEventListener('click', submitRename);
+    document.getElementById('rename-device-name').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submitRename();
+      if (e.key === 'Escape') closeRenameModal();
+    });
+
+    fetchDevices();
+    refreshTimer = setInterval(fetchDevices, 4000);
+  </script>
+</body>
+</html>

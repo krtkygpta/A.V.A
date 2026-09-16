@@ -73,7 +73,9 @@ def _drain_clarification_wakes(handler: "ResponseLoopHandler", state_manager: Co
     idle_seconds = state_manager.get_idle_duration().total_seconds()
     chat_active = state_manager.is_conversation_active
     busy = state_manager.is_speaking or state_manager.is_listening
-    idle_mode = (not chat_active) or state_manager.current_mode in ("wakeword", "idle")
+    mode_name = (state_manager.current_mode or "").lower()
+    user_present = chat_active or mode_name in ("tui", "text", "tui_text", "interactive")
+    idle_mode = (not user_present) or mode_name in ("wakeword", "idle")
 
     for req in wakes:
         # Mid-speech/listen: requeue for a later turn boundary.
@@ -84,8 +86,8 @@ def _drain_clarification_wakes(handler: "ResponseLoopHandler", state_manager: Co
                 pass
             continue
 
-        # Active conversation and not long-idle: wake main to self-answer or ask.
-        if chat_active and idle_seconds < WAKE_IDLE_THRESHOLD_SECONDS:
+        # Active conversation or user present and not long-idle: wake main to self-answer or ask.
+        if user_present and idle_seconds < WAKE_IDLE_THRESHOLD_SECONDS:
             add_message(
                 role="system",
                 content=f"[TASK NEEDS INPUT]\n{req.to_compact_inject()}",
@@ -432,15 +434,9 @@ def _route_completed_tasks(
             _enqueue_for_speak(task, already_alerted=already)
 
         elif strategy.delivery_method == DeliveryMethod.NEXT_RESPONSE:
-            # User is present → announce (speak). Only hold while TTS is
-            # playing so we don't cut audio mid-sentence. Do NOT defer while
-            # the mic is open waiting for the user — that is exactly when
-            # voice modes need DONE to wake the model (listen timeouts used
-            # to end the chat and leave only a UI line with no generate).
-            if state_manager.is_speaking:
-                completion_queue.store_deferred(task)
-            else:
-                _enqueue_for_speak(task, already_alerted=False)
+            # User is present → announce (speak). AnnounceQueue handles queueing
+            # and waits for previous speech to finish before delivering.
+            _enqueue_for_speak(task, already_alerted=False)
 
         elif strategy.delivery_method == DeliveryMethod.QUEUE_FOR_IDLE:
             # Away from chat: desktop toast already fired in TaskManager.
@@ -479,6 +475,14 @@ class ResponseLoopHandler:
             from core.gateway import broadcast_assistant_message
             from config import ASSISTANT_NAME
             broadcast_assistant_message(text, assistant=ASSISTANT_NAME)
+        except Exception:
+            pass
+
+    def on_response_chunk(self, delta: str):
+        """Called as assistant tokens stream in real-time."""
+        try:
+            from core.gateway import broadcast_assistant_chunk
+            broadcast_assistant_chunk(delta)
         except Exception:
             pass
 
@@ -623,6 +627,20 @@ def run_response_loop(handler: ResponseLoopHandler):
                     # main_runner may already be set by add_message; loop will process
                     continue
 
+            # If main is free and announce queue has no pending items, check if any
+            # deferred tasks can now be routed (e.g. user returned to chat / TUI active)
+            if not main_running.is_set() and not announce_q.has_pending():
+                mode_name = (state_manager.current_mode or "").lower()
+                user_present = state_manager.is_conversation_active or mode_name in ("tui", "text", "tui_text", "interactive")
+                if user_present:
+                    deferred = completion_queue.get_deferred_notifications()
+                    if deferred:
+                        _route_completed_tasks(
+                            deferred, handler, state_manager, decision_engine
+                        )
+                        if announce_q.has_pending():
+                            continue
+
             # Legacy idle list → move to deferred (same as QUEUE_FOR_IDLE path).
             # Never mark_as_notified without a real DONE inject / speak turn.
             if completion_queue.has_idle_notifications():
@@ -717,7 +735,7 @@ def run_response_loop(handler: ResponseLoopHandler):
                 turn_tool_results: list[dict] = []
 
                 for _round in range(total_budget):
-                    response = generate_response()
+                    response = generate_response(on_chunk=handler.on_response_chunk)
                     if response.get("error"):
                         content = response.get("content") or (
                             "I hit an error processing that."
@@ -1098,6 +1116,11 @@ def run_response_loop(handler: ResponseLoopHandler):
                 main_running.clear()
                 try:
                     handler.on_processing_end()
+                except Exception:
+                    pass
+                try:
+                    from knowledge.ConversationManager import save_current_conversation
+                    threading.Thread(target=save_current_conversation, daemon=True).start()
                 except Exception:
                     pass
                 # Free announce queue; if more serial items wait, inject next + wake

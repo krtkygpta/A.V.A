@@ -199,7 +199,13 @@ def get_openai_client_for_key(
     with _client_lock:
         client = _client_cache.get(cache_key)
         if client is None:
-            kwargs: dict = {"api_key": api_key}
+            import httpx
+            timeout_sec = float(os.getenv("AVA_LLM_TIMEOUT", "90.0"))
+            kwargs: dict = {
+                "api_key": api_key,
+                "timeout": httpx.Timeout(timeout_sec, connect=10.0),
+                "max_retries": 1,
+            }
             if base:
                 kwargs["base_url"] = base
             client = OpenAI(**kwargs)
@@ -266,6 +272,19 @@ def chat_completions_create(
             return resp
         except Exception as e:
             last_err = e
+            # Auto-recovery for models (like o1, o3, gpt-5) that reject temperature or presence_penalty
+            if ("400" in str(e) or "BadRequest" in type(e).__name__) and any(k in kwargs for k in ("temperature", "presence_penalty")):
+                try:
+                    stripped = {k: v for k, v in kwargs.items() if k not in ("temperature", "presence_penalty")}
+                    resp = client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        **stripped,
+                    )
+                    return resp
+                except Exception as e_stripped:
+                    last_err = e_stripped
+
             if is_rate_limit_error(e) and i < len(key_order) - 1:
                 print(
                     f"[{label}] rate/quota on {rotator.mask(key)}; "
@@ -276,3 +295,138 @@ def chat_completions_create(
 
     assert last_err is not None
     raise last_err
+
+
+def chat_completions_stream(
+    *,
+    model: str,
+    messages: list,
+    base_url: Optional[str] = None,
+    api_keys: Optional[Sequence[str]] = None,
+    label: str = "LLM-Stream",
+    **kwargs: Any,
+):
+    """
+    Shared chat.completions.create(stream=True) generator with key rotation.
+
+    Yields events:
+      {"type": "content", "delta": token_str}
+      {"type": "finish", "content": full_text, "tool_calls": list_of_calls, "role": "assistant"}
+    """
+    rotator: Optional[KeyRotator] = None
+    if api_keys:
+        cleaned = collect_openai_keys(multi=api_keys, env=False)
+        if cleaned:
+            rotator = KeyRotator(cleaned)
+    if rotator is None:
+        rotator = get_openai_key_rotator()
+    if rotator is None:
+        keys = collect_openai_keys(env=True)
+        if not keys:
+            raise RuntimeError(
+                f"[{label}] No OPENAI_API_KEY(S) configured for OpenAI-compatible calls"
+            )
+        rotator = KeyRotator(keys)
+
+    key_order = rotator.peek_order()
+    base = normalize_openai_base_url(
+        base_url if base_url is not None else os.getenv("OPENAI_BASE_URL")
+    )
+
+    for i, key in enumerate(key_order):
+        client = get_openai_client_for_key(key, base)
+        try:
+            try:
+                stream_resp = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    stream=True,
+                    **kwargs,
+                )
+            except Exception as stream_create_err:
+                if ("400" in str(stream_create_err) or "BadRequest" in type(stream_create_err).__name__) and any(k in kwargs for k in ("temperature", "presence_penalty")):
+                    stripped = {k: v for k, v in kwargs.items() if k not in ("temperature", "presence_penalty")}
+                    stream_resp = client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        stream=True,
+                        **stripped,
+                    )
+                else:
+                    raise stream_create_err
+
+            accumulated_content = []
+            accumulated_tool_calls: dict[int, dict[str, Any]] = {}
+
+            for chunk in stream_resp:
+                if not getattr(chunk, "choices", None):
+                    continue
+                choice = chunk.choices[0]
+                delta = getattr(choice, "delta", None)
+                if not delta:
+                    continue
+
+                # Handle text delta
+                text_delta = getattr(delta, "content", None)
+                if text_delta:
+                    accumulated_content.append(text_delta)
+                    yield {"type": "content", "delta": text_delta}
+
+                # Handle tool calls delta
+                tc_deltas = getattr(delta, "tool_calls", None)
+                if tc_deltas:
+                    for tc in tc_deltas:
+                        idx = getattr(tc, "index", 0)
+                        if idx not in accumulated_tool_calls:
+                            accumulated_tool_calls[idx] = {
+                                "id": getattr(tc, "id", "") or "",
+                                "name": getattr(getattr(tc, "function", None), "name", "") or "",
+                                "arguments": [],
+                            }
+                        else:
+                            tc_id = getattr(tc, "id", None)
+                            if tc_id:
+                                accumulated_tool_calls[idx]["id"] = tc_id
+                            fn = getattr(tc, "function", None)
+                            if fn and getattr(fn, "name", None):
+                                accumulated_tool_calls[idx]["name"] = fn.name
+
+                        fn = getattr(tc, "function", None)
+                        if fn and getattr(fn, "arguments", None):
+                            accumulated_tool_calls[idx]["arguments"].append(fn.arguments)
+
+            full_text = "".join(accumulated_content) if accumulated_content else None
+            tool_calls_list = []
+            for idx in sorted(accumulated_tool_calls.keys()):
+                info = accumulated_tool_calls[idx]
+                tool_calls_list.append({
+                    "id": info.get("id") or f"call_{idx}",
+                    "type": "function",
+                    "function": {
+                        "name": info.get("name") or "",
+                        "arguments": "".join(info.get("arguments", [])),
+                    },
+                })
+
+            if i > 0:
+                print(
+                    f"[{label}] stream ok with rotated key {rotator.mask(key)} "
+                    f"after {i} fail(s)"
+                )
+
+            yield {
+                "type": "finish",
+                "role": "assistant",
+                "content": full_text,
+                "tool_calls": tool_calls_list,
+            }
+            return
+
+        except Exception as e:
+            if is_rate_limit_error(e) and i < len(key_order) - 1:
+                print(
+                    f"[{label}] rate/quota on {rotator.mask(key)}; "
+                    f"next key ({i + 1}/{len(key_order)})"
+                )
+                continue
+            raise

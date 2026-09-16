@@ -43,10 +43,12 @@ def _patch_terminal_cell_widths() -> None:
     widths, which generates phantom padding spaces and misaligns vertical borders and lines.
     """
     try:
+        import functools
         import rich.cells
 
         orig_get_cell_size = rich.cells.get_character_cell_size
 
+        @functools.lru_cache(maxsize=4096)
         def patched_get_character_cell_size(character: str, unicode_version: str = "auto") -> int:
             cp = ord(character)
             # Indic & complex script blocks where terminal monospace fonts render
@@ -200,6 +202,22 @@ EVERFOREST = Theme(
 
 # ── Monochromatic themes — single accent, restrained palette ───────────────
 
+CHATGPT = Theme(
+    name="chatgpt",
+    primary="#ececec",
+    secondary="#b4b4b4",
+    background="#000000",
+    surface="#171717",
+    panel="#212121",
+    boost="#2f2f2f",
+    foreground="#ececec",
+    success="#34d399",
+    warning="#b4b4b4",
+    error="#ef4444",
+    accent="#ececec",
+    dark=True,
+)
+
 SLATE = Theme(
     name="slate",
     primary="#7e99b8",
@@ -314,6 +332,7 @@ STONE = Theme(
 
 # Only register themes whose names are NOT already in Textual's builtins.
 _ALL_CUSTOM_THEMES: list[Theme] = [
+    CHATGPT,
     AVA_THEME,
     EVERFOREST,
     SLATE,
@@ -353,6 +372,8 @@ AVAILABLE_THEMES: list[str] = sorted(
 
 # Old settings keys → current canonical theme names
 THEME_ALIASES: dict[str, str] = {
+    "minimal": "chatgpt",
+    "monochrome": "chatgpt",
     "flexoki-dark": "flexoki",
     "gruvbox-dark": "gruvbox",
     # Retired custom themes → nearest replacement
@@ -366,6 +387,7 @@ THEME_ALIASES: dict[str, str] = {
 # Descriptions for every built-in + custom (picker shows these)
 THEME_DESCRIPTIONS: dict[str, str] = {
     # Custom
+    "chatgpt": "pure monochromatic dark (ChatGPT minimal)",
     "ava": "violet + cyan on deep navy",
     "everforest": "moss greens, soft contrast",
     "slate": "cool grays, steel blue accent",
@@ -393,14 +415,14 @@ THEME_DESCRIPTIONS: dict[str, str] = {
 
 
 def _resolve_theme_name(name: str | None) -> str:
-    """Map alias / missing names to a valid theme; default ava."""
+    """Map alias / missing names to a valid theme; default chatgpt."""
     if not name:
-        return "ava"
+        return "chatgpt"
     key = str(name).strip().lower()
     key = THEME_ALIASES.get(key, key)
     if key in AVAILABLE_THEMES:
         return key
-    return "ava"
+    return "chatgpt"
 
 
 def _theme_description(name: str) -> str:
@@ -446,9 +468,9 @@ MODE_LABELS = {
     "wakeword": "Wakeword",
 }
 MODE_ICONS = {
-    "text": "💬",
+    "text": "",
     "continuous": "∞",
-    "wakeword": "🎧",
+    "wakeword": "",
 }
 MODE_DESCRIPTIONS = {
     "text": "keyboard",
@@ -846,7 +868,7 @@ class ModeDropdown(Static):
         yield Static(self._label(), id="mode-current")
 
     def _label(self) -> str:
-        icon = MODE_ICONS.get(self.current_mode, "⌨")
+        icon = MODE_ICONS.get(self.current_mode, "")
         label = MODE_LABELS.get(self.current_mode, "TEXT")
         return f"{icon} {label}"
 
@@ -940,7 +962,7 @@ class ModeSelectorPopup(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="mode-popup"):
-            yield Static("⚡  select mode", classes="popup-title")
+            yield Static("select mode", classes="popup-title")
             yield Static("click to select  ·  esc cancel", classes="popup-hint")
             for mode in MODES:
                 icon = MODE_ICONS[mode]
@@ -966,7 +988,7 @@ class ModeSelectorPopup(ModalScreen[str | None]):
 
 
 class StatusBar(Static):
-    """Bottom status bar showing current state (+ optional live mic meter)."""
+    """Bottom status bar showing current state (+ optional live mic meter) and Hub connection status."""
 
     DEFAULT_CSS = """
     StatusBar {
@@ -978,35 +1000,51 @@ class StatusBar(Static):
         background: $panel;
         color: $secondary;
     }
-    StatusBar.hidden {
-        display: none;
-    }
     """
 
     status_text: reactive[str] = reactive("")
+    conn_status: reactive[str] = reactive("connecting")
     # Recent RMS samples from the mic (status bar meter only)
     level_samples: reactive[list] = reactive(list, always_update=True)
     mic_active: reactive[bool] = reactive(False)
 
-    def render(self) -> str:
+    def render(self):
+        from rich.table import Table
+        from rich.text import Text
+
         text = self.status_text or ""
         low = text.lower()
         meter = ""
         if self.mic_active and self.level_samples:
             meter = f"  [bold cyan]{_level_bar(list(self.level_samples))}[/]"
         if "hearing" in low or (self.mic_active and "record" in low):
-            return f"[bold green]●[/]  {text}{meter}"
-        if "transcrib" in low:
-            return f"[bold yellow]●[/]  {text}"
-        if "thinking" in low or "generat" in low:
-            return f"[bold magenta]●[/]  {text}"
-        if "wake" in low:
-            return f"[bold cyan]○[/]  {text}"
-        if "ready" in low:
-            return f"[dim]○[/]  {text}"
-        if self.mic_active:
-            return f"[bold green]●[/]  {text}{meter}"
-        return text
+            left_str = f"[bold green]●[/]  {text}{meter}"
+        elif "transcrib" in low:
+            left_str = f"[bold yellow]●[/]  {text}"
+        elif "thinking" in low or "generat" in low:
+            left_str = f"[bold magenta]●[/]  {text}"
+        elif "wake" in low:
+            left_str = f"[bold cyan]○[/]  {text}"
+        elif "ready" in low:
+            left_str = f"[dim]○[/]  {text}"
+        elif self.mic_active:
+            left_str = f"[bold green]●[/]  {text}{meter}"
+        else:
+            left_str = text or "[dim]○  ready[/]"
+
+        conn = (self.conn_status or "").lower()
+        if conn == "connected":
+            right_str = "[bold green]●[/] [dim]HUB ONLINE[/]"
+        elif conn in ("connecting", "reconnecting"):
+            right_str = "[bold yellow]○[/] [yellow]HUB RECONNECTING...[/]"
+        else:
+            right_str = "[bold red]●[/] [dim red]HUB OFFLINE[/]"
+
+        grid = Table.grid(expand=True)
+        grid.add_column(justify="left", ratio=1)
+        grid.add_column(justify="right")
+        grid.add_row(Text.from_markup(left_str), Text.from_markup(right_str))
+        return grid
 
 
 class MicStrip(Static):
@@ -1314,7 +1352,7 @@ class ThemePickerModal(ModalScreen[str | None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="theme-dialog"):
             yield Static(
-                f"🎨  themes  ({len(AVAILABLE_THEMES)})  ·  A–Z",
+                f"themes  ({len(AVAILABLE_THEMES)})  ·  A–Z",
                 classes="dialog-title",
             )
             yield Static(
@@ -1632,7 +1670,7 @@ class SettingsModal(ModalScreen[dict | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-dialog"):
-            yield Static("⚙  settings", classes="dialog-title")
+            yield Static("settings", classes="dialog-title")
             yield Static(
                 "Esc cancel  -  Ctrl+S save  -  theme button opens list",
                 classes="dialog-hint",
@@ -1894,7 +1932,7 @@ class HelpOverlay(Static):
     ]
 
     def compose(self) -> ComposeResult:
-        yield Static("[bold]⌨  keyboard shortcuts[/]", classes="help-title")
+        yield Static("[bold]keyboard shortcuts[/]", classes="help-title")
         yield Static("General:", classes="help-section")
         yield Static("[bold]?[/]  Show this help", classes="help-row")
         yield Static("[bold]ctrl+q[/]  Quit", classes="help-row")
@@ -2147,15 +2185,29 @@ class ChatInput(Input):
             self.app.action_focus_input()  # type: ignore[attr-defined]
 
     def on_paste(self, event: events.Paste) -> None:
-        """If clipboard contains an image (or copied image file), paste its path."""
+        """If clipboard contains a file or image/screenshot, upload it to the server and paste its server path."""
         try:
-            from utils.clipboard_image import get_clipboard_image_path
+            from utils.clipboard_image import upload_clipboard_files_to_server
 
-            img_path = get_clipboard_image_path()
-            if img_path:
+            records = upload_clipboard_files_to_server()
+            if records:
                 event.stop()
                 event.prevent_default()
-                self.insert_text_at_cursor(img_path)
+                parts = []
+                for rec in records:
+                    sp = rec.get("server_path") or rec.get("filename")
+                    parts.append(f"[Attached: {sp}]")
+                inserted = " ".join(parts) + " "
+                self.insert_text_at_cursor(inserted)
+                try:
+                    if hasattr(self.app, "notify"):
+                        self.app.notify(
+                            f"Attached {len(records)} file(s) to server",
+                            title="File Uploaded",
+                            severity="information",
+                        )
+                except Exception:
+                    pass
                 return
         except Exception:
             pass
@@ -2432,7 +2484,8 @@ class HistorySidebar(Static):
 
     def on_mount(self) -> None:
         self.refresh_list()
-        self._refresh_timer = self.set_interval(12.0, self.refresh_list)
+        self._trigger_background_sync()
+        self._refresh_timer = self.set_interval(30.0, self.refresh_list)
 
     def on_unmount(self) -> None:
         if self._refresh_timer is not None:
@@ -2441,16 +2494,25 @@ class HistorySidebar(Static):
             except Exception:
                 pass
 
+    def _trigger_background_sync(self) -> None:
+        def _bg():
+            try:
+                from knowledge.ConversationManager import get_manager
+                mgr = get_manager()
+                count = mgr.sync_with_server()
+                if count > 0:
+                    self.app.call_from_thread(self.refresh_list)
+            except Exception:
+                pass
+        threading.Thread(target=_bg, daemon=True).start()
+
     def _load_recent(self) -> list[dict]:
         try:
             from knowledge.ConversationManager import get_manager
 
             mgr = get_manager()
-            try:
-                mgr._load_index()
-            except Exception:
-                pass
-            recent = mgr.get_recent_conversations(limit=50)
+            # In-memory fast fetch — never block UI with synchronous HTTP or disk scans
+            recent = mgr.get_recent_conversations(limit=40)
             if not recent and mgr.conversations_index:
                 recent = [
                     {
@@ -2465,11 +2527,10 @@ class HistorySidebar(Static):
                             "updated_at", x[1].get("created_at", "")
                         ),
                         reverse=True,
-                    )[:50]
+                    )[:40]
                 ]
             return recent
         except Exception as e:
-            print(f"[HistorySidebar] load failed: {e}")
             return []
 
     def refresh_list(self) -> None:
@@ -2838,12 +2899,13 @@ class TasksSidebar(Static):
         return "".join(parts)
 
 
-class ConversationViewerModal(ModalScreen[None]):
-    """Read-only modal to preview an old conversation (does not switch active chat)."""
+class ConversationViewerModal(ModalScreen[str | None]):
+    """Modal to preview and optionally resume an old conversation."""
 
     BINDINGS = [
         Binding("escape", "close_viewer", "Close", show=True),
         Binding("q", "close_viewer", "Close", show=False),
+        Binding("r", "resume_viewer", "Resume", show=True),
     ]
 
     CSS = """
@@ -2917,12 +2979,18 @@ class ConversationViewerModal(ModalScreen[None]):
         height: 1;
         min-height: 1;
         max-height: 1;
-        margin: 0;
+        margin: 0 0 0 1;
         padding: 0 2;
         border: none;
+        text-style: bold;
+    }
+    #viewer-dialog #viewer-actions #btn-viewer-resume {
         background: $primary;
         color: $background;
-        text-style: bold;
+    }
+    #viewer-dialog #viewer-actions #btn-viewer-close {
+        background: $panel;
+        color: $foreground;
     }
     """
 
@@ -2934,11 +3002,11 @@ class ConversationViewerModal(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="viewer-dialog"):
             yield Static(
-                f"📖  {escape(self._name)}",
+                f"{escape(self._name)}",
                 classes="viewer-title",
             )
             yield Static(
-                f"Read only  -  {escape(self._conversation_id)}  -  Esc closes",
+                f"{escape(self._conversation_id)}  ·  [r] or 'continue chat' to resume  ·  Esc closes",
                 classes="viewer-hint",
             )
             with VerticalScroll(id="viewer-scroll"):
@@ -2947,7 +3015,10 @@ class ConversationViewerModal(ModalScreen[None]):
                     yield Static(text, classes=f"viewer-msg {role}", markup=False)
             with Horizontal(id="viewer-actions"):
                 yield Button(
-                    "close", id="btn-viewer-close", variant="primary", flat=True
+                    "continue chat (r)", id="btn-viewer-resume", variant="primary", flat=True
+                )
+                yield Button(
+                    "close", id="btn-viewer-close", variant="default", flat=True
                 )
 
     def on_mount(self) -> None:
@@ -2991,9 +3062,16 @@ class ConversationViewerModal(ModalScreen[None]):
             out.append(("system", "empty conversation"))
         return out
 
+    @on(Button.Pressed, "#btn-viewer-resume")
+    def on_resume_pressed(self) -> None:
+        self.action_resume_viewer()
+
     @on(Button.Pressed, "#btn-viewer-close")
     def on_close_pressed(self) -> None:
         self.action_close_viewer()
+
+    def action_resume_viewer(self) -> None:
+        self.dismiss(self._conversation_id)
 
     def action_close_viewer(self) -> None:
         self.dismiss(None)
@@ -3376,7 +3454,7 @@ class TaskWatcherModal(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="watcher-dialog"):
             with Horizontal(classes="watcher-header"):
-                yield Static(f"⚡  WATCHING: {self.task_id}", id="watcher-title-text", classes="watcher-title", markup=False)
+                yield Static(f"WATCHING: {self.task_id}", id="watcher-title-text", classes="watcher-title", markup=False)
                 yield Static("RUNNING", id="watcher-status-tag", classes="watcher-badge running", markup=False)
             yield Static("Live process stream  ·  Esc / Q closes  ·  R refreshes", classes="watcher-hint", markup=False)
             yield VerticalScroll(id="watcher-scroll")
@@ -3455,7 +3533,7 @@ class TaskWatcherModal(ModalScreen[None]):
             try:
                 title_widget = self.query_one("#watcher-title-text", Static)
                 spec_label = f" [{specialist}]" if specialist else ""
-                title_widget.update(f"⚡  {task.name or self.task_id}{spec_label}")
+                title_widget.update(f"{task.name or self.task_id}{spec_label}")
 
                 tag_widget = self.query_one("#watcher-status-tag", Static)
                 spin = _BRAILLE_SPINNER[self._spin_idx] if is_running else ""
@@ -3638,9 +3716,9 @@ class RemoteAccessModal(ModalScreen[None]):
             qr_text = f"(QR Code generation error: {e})"
 
         with Vertical(id="remote-dialog"):
-            yield Static("📱 A.V.A Remote Mobile & Web Access", classes="remote-title")
+            yield Static("A.V.A Remote Mobile & Web Access", classes="remote-title")
             yield Static(qr_text, classes="remote-qr-box")
-            yield Static(f"🔗 [b]{url}[/b]", classes="remote-url")
+            yield Static(f"[b]{url}[/b]", classes="remote-url")
             yield Static("Scan with your phone's camera\nor open link in any browser on your Wi-Fi", classes="remote-hint")
             with Horizontal(id="remote-actions"):
                 yield Button("close (Esc)", id="btn-remote-close", variant="primary")
@@ -3916,6 +3994,10 @@ class _TUIResponseLoopHandler(ResponseLoopHandler):
         except Exception:
             pass
 
+    def on_response_chunk(self, delta: str):
+        super().on_response_chunk(delta)
+        self.app.call_from_thread(self.app._on_stream_chunk, delta)
+
     def on_processing_start(self):
         super().on_processing_start()
         self.app.call_from_thread(self.app._set_processing, True)
@@ -4016,6 +4098,9 @@ class AVAApp(App):
         self._last_local_dispatched_text: str | None = None
         self._last_mounted_user_text: str | None = None
         self._last_mounted_user_time: float = 0.0
+        self._streaming_widget: "ChatMessage | None" = None
+        self._streaming_text: str = ""
+        self._streaming_ts: str = ""
 
     # ── Theme management ──────────────────────────────────────────────────────
 
@@ -4368,12 +4453,15 @@ class AVAApp(App):
             return
         self.viewer_open = True
 
-        def _on_close(_result: None) -> None:
+        def _on_close(result: str | None = None) -> None:
             self.viewer_open = False
-            try:
-                self.query_one("#user-input", Input).focus()
-            except NoMatches:
-                pass
+            if result:
+                self.action_resume_conversation(result)
+            else:
+                try:
+                    self.query_one("#user-input", Input).focus()
+                except NoMatches:
+                    pass
 
         self.push_screen(
             ConversationViewerModal(conversation_id, name),
@@ -4482,11 +4570,28 @@ class AVAApp(App):
         self._apply_system_log_visibility()
         self._apply_sidebar_visibility()
 
-        # Start with status bar hidden
+        # Hub Device Client connection & status tracking
         try:
-            self.query_one("#status-bar", StatusBar).add_class("hidden")
-        except NoMatches:
-            pass
+            from core.device_client import (
+                get_connection_status,
+                add_status_listener,
+                start_device_client,
+            )
+            start_device_client(device_id="pc_main")
+
+            def _on_hub_conn_change(new_status: str) -> None:
+                try:
+                    bar = self.query_one("#status-bar", StatusBar)
+                    bar.conn_status = new_status
+                except Exception:
+                    pass
+
+            add_status_listener(_on_hub_conn_change)
+            bar = self.query_one("#status-bar", StatusBar)
+            bar.conn_status = get_connection_status()
+            self.set_interval(3.0, self._sync_hub_connection)
+        except Exception as e:
+            logger.debug(f"[TUI] Hub status setup: {e}")
 
         # Always-on services (idempotent if CLI already started them)
         try:
@@ -4643,6 +4748,11 @@ class AVAApp(App):
         if new_mode == old_mode:
             return
         self.current_mode = new_mode
+        try:
+            from core.TaskManager import set_mode
+            set_mode(new_mode)
+        except Exception:
+            pass
         # Update the mode dropdown button
         try:
             dropdown = self.query_one(ModeDropdown)
@@ -4954,6 +5064,28 @@ class AVAApp(App):
             self.action_new_conversation()
             return
 
+        if text.lower().startswith("/resume ") or text.lower().startswith("/switch "):
+            conv_id = text.split(" ", 1)[1].strip()
+            if conv_id:
+                self.action_resume_conversation(conv_id)
+            else:
+                self._add_system_message("Usage: /resume <conversation_id>")
+            return
+
+        if text.lower() == "/sync":
+            try:
+                from knowledge.ConversationManager import get_manager
+                count = get_manager().sync_with_server()
+                self._add_system_message(f"conversations synced with server ({count} updated)")
+                try:
+                    hist = self.query_one("#history-sidebar", HistorySidebar)
+                    hist.refresh_list()
+                except NoMatches:
+                    pass
+            except Exception as e:
+                self._add_system_message(f"sync error: {e}")
+            return
+
         # Quit command
         if text.lower() == "/quit":
             self.action_quit()
@@ -5027,6 +5159,72 @@ class AVAApp(App):
             from core.gateway import get_broadcaster, broadcast_system_message
             get_broadcaster().broadcast_sync("event:new_conversation", {})
             broadcast_system_message("New conversation started on PC")
+        except Exception:
+            pass
+
+    def action_resume_conversation(self, conversation_id: str) -> None:
+        """Switch active session and LLM context to an existing conversation thread."""
+        had_dialogue = self._has_saveable_dialogue()
+        if had_dialogue or self.conversation_active:
+            save_current_conversation()
+
+        from knowledge.ConversationManager import get_manager
+        from core.messageHandler import load_conversation_messages
+
+        mgr = get_manager()
+        conv = mgr.switch_to_conversation(conversation_id)
+        if not conv:
+            self._add_system_message(f"could not resume conversation {conversation_id}")
+            return
+
+        # Reload live LLM message history
+        load_conversation_messages(conv.messages)
+
+        # Clear UI chat log and mount historical messages
+        try:
+            log = self.query_one("#chat-log", Vertical)
+            for child in list(log.children):
+                child.remove()
+        except NoMatches:
+            pass
+
+        self._add_system_message(f"resumed: {conv.name} ({conv.id})")
+        for msg in conv.messages:
+            role = msg.get("role") or ""
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                continue
+            if role == "user":
+                clean = content
+                user_prefix = f"{USER_NAME}: "
+                if clean.startswith(user_prefix):
+                    clean = clean[len(user_prefix):]
+                self._add_user_message(clean)
+            elif role == "assistant":
+                self._add_assistant_message(content)
+            elif role == "tool":
+                short = content if len(content) <= 140 else content[:137] + "…"
+                self._add_system_message(f"[tool] {short}")
+            elif role == "system":
+                self._add_system_message(content)
+
+        self.conversation_active = True
+        self._update_status(f"ready  ·  {conv.name}")
+        try:
+            hist = self.query_one("#history-sidebar", HistorySidebar)
+            hist.refresh_list()
+        except NoMatches:
+            pass
+        try:
+            self.query_one("#user-input", Input).focus()
+        except NoMatches:
+            pass
+
+        # Notify remote clients
+        try:
+            from core.gateway import get_broadcaster, broadcast_system_message
+            get_broadcaster().broadcast_sync("event:resume_conversation", {"conversation_id": conv.id, "name": conv.name})
+            broadcast_system_message(f"Switched conversation to {conv.name}")
         except Exception:
             pass
 
@@ -5393,6 +5591,34 @@ class AVAApp(App):
 
     # ── UI helpers ────────────────────────────────────────────────────────────
 
+    def _on_stream_chunk(self, delta: str) -> None:
+        if not delta:
+            return
+        if self._streaming_widget is None:
+            self._hide_generating_indicator()
+            self._streaming_text = ""
+            self._streaming_ts = datetime.now().strftime("%H:%M")
+            self._streaming_widget = ChatMessage(
+                f"[bold]{ASSISTANT_NAME}[/]  [dim]{self._streaming_ts}[/]\n",
+                classes="assistant-msg",
+            )
+            self._mount_chat_child(self._streaming_widget)
+
+        self._streaming_text += delta
+        body = escape(self._streaming_text)
+        try:
+            self._streaming_widget.update(
+                f"[bold]{ASSISTANT_NAME}[/]  [dim]{self._streaming_ts}[/]\n{body}"
+            )
+        except Exception:
+            pass
+        self._scroll_to_bottom()
+
+    def _finalize_streaming(self) -> None:
+        self._streaming_widget = None
+        self._streaming_text = ""
+        self._streaming_ts = ""
+
     def _speak_to_ui(self, text: str, gen: int | None = None) -> None:
         # Interrupt any currently playing utterance. stop_event alone can race
         # with clear(); force the audio device stop as well.
@@ -5415,7 +5641,20 @@ class AVAApp(App):
                 time.sleep(0.05)
         except Exception:
             pass
-        self._add_assistant_message(text)
+
+        if self._streaming_widget is not None:
+            ts = self._streaming_ts or datetime.now().strftime("%H:%M")
+            body = escape(text or "")
+            try:
+                self._streaming_widget.update(
+                    f"[bold]{ASSISTANT_NAME}[/]  [dim]{ts}[/]\n{body}"
+                )
+            except Exception:
+                pass
+            self._finalize_streaming()
+            self._scroll_to_bottom()
+        else:
+            self._add_assistant_message(text)
         stop_event.clear()
 
         if self.current_mode != "text":
@@ -5439,7 +5678,17 @@ class AVAApp(App):
         except NoMatches:
             log.mount(widget)
 
+        # Cap chat widgets in active DOM to prevent unbounded layout lag
+        children = [c for c in log.children if not isinstance(c, GeneratingIndicator)]
+        if len(children) > 100:
+            for old in children[:15]:
+                try:
+                    old.remove()
+                except Exception:
+                    pass
+
     def _add_user_message(self, text: str) -> None:
+        self._finalize_streaming()
         self._last_mounted_user_text = (text or "").strip()
         self._last_mounted_user_time = time.time()
         self._clear_mic_status()
@@ -5467,6 +5716,7 @@ class AVAApp(App):
 
     def _on_tool_running(self, func_name: str, args: dict | str) -> None:
         """UI hook when a tool starts: spinner panel + generating label."""
+        self._finalize_streaming()
         # Keep the generating strip but retarget it to the tool name
         self._show_generating_indicator(f"tool · {func_name}")
         self._add_tool_call(func_name, args, "")
@@ -5483,11 +5733,12 @@ class AVAApp(App):
         panels = log.query(ToolCallPanel)
         if panels:
             last_panel = list(panels)[-1]
+            res_str = str(result or "").strip().lower()
             err = bool(
-                result
+                res_str
                 and (
-                    str(result).lower().startswith("error")
-                    or "traceback" in str(result).lower()
+                    res_str.startswith(("error", "[error]", "failed", "[failed]"))
+                    or "traceback" in res_str
                 )
             )
             if hasattr(last_panel, "set_result"):
@@ -5631,13 +5882,15 @@ class AVAApp(App):
         try:
             bar = self.query_one("#status-bar", StatusBar)
             bar.status_text = text
-            low = (text or "").lower()
-            # Hide bar when idle; show for active states
-            if low.startswith("ready") or not text or low.startswith("sidebars"):
-                bar.add_class("hidden")
-            else:
-                bar.remove_class("hidden")
         except NoMatches:
+            pass
+
+    def _sync_hub_connection(self) -> None:
+        try:
+            from core.device_client import get_connection_status
+            bar = self.query_one("#status-bar", StatusBar)
+            bar.conn_status = get_connection_status()
+        except Exception:
             pass
 
     def _scroll_to_bottom(self) -> None:
@@ -5653,7 +5906,7 @@ class AVAApp(App):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def run_tui(start_mode: str = "text", start_theme: str = "ava") -> None:
+def run_tui(start_mode: str = "text", start_theme: str = "chatgpt") -> None:
     """Launch the AVA TUI."""
     try:
         from core.server_manager import ensure_server_running
@@ -5664,3 +5917,8 @@ def run_tui(start_mode: str = "text", start_theme: str = "ava") -> None:
 
     app = AVAApp(start_mode=start_mode, start_theme=start_theme)
     app.run()
+
+
+if __name__ == "__main__":
+    run_tui()
+

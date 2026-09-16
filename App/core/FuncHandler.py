@@ -117,8 +117,11 @@ TOOL_CONFIGS = {
     "send_notification": functions.send_notification,
     "make_phone_call": functions.make_phone_call,
     "screenshot": functions.screenshot,
+    "view_image": getattr(functions, "view_image", None),
     # Web (unified)
     "web": web,
+    "google_ai": lambda query=None, **kw: web(operation="ai_search", query=query or kw.get("question", ""), **{k: v for k, v in kw.items() if k not in ("operation", "query")}),
+    "research": lambda question=None, query=None, **kw: web(operation="ai_search", query=question or query or "", mode="research", **{k: v for k, v in kw.items() if k not in ("operation", "query", "mode")}),
     # File operations
     "save_text": functions.save_text,
     "create_file": functions.create_file,
@@ -126,8 +129,17 @@ TOOL_CONFIGS = {
     "delete_file": functions.delete_file,
     "list_files": functions.list_files,
     "create_pdf": functions.create_pdf,
-    # Code execution
+    # Precision coding tools
+    "read_file": getattr(functions, "read_file", None),
+    "edit_file": getattr(functions, "edit_file", None),
+    "write_file": getattr(functions, "write_file", None),
+    "search_code": getattr(functions, "search_code", None),
+    "list_dir": getattr(functions, "list_dir", None),
+    # Code execution & aliases
     "code_executor": functions.run_code_in_sandbox,
+    "code_execute": functions.run_code_in_sandbox,
+    "execute_code": functions.run_code_in_sandbox,
+    "sandbox": functions.run_code_in_sandbox,
     # Calendar
     "calendar": calendar,
     # Bash

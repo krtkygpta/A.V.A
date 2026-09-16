@@ -130,6 +130,17 @@ def broadcast_user_message(text: str, user: str = "User", attachments: Optional[
     )
 
 
+def broadcast_assistant_chunk(delta: str) -> None:
+    if not delta:
+        return
+    get_broadcaster().broadcast_sync(
+        "msg:assistant_chunk",
+        {
+            "delta": delta,
+        },
+    )
+
+
 def broadcast_assistant_message(text: str, assistant: str = "AVA") -> None:
     global _last_broadcast_assistant_msg
     clean = (text or "").strip()

@@ -1,293 +1,402 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#000000">
-  <meta name="description" content="Always Voiced Ally — Minimalist AI Assistant & Command Portal">
+  <meta name="theme-color" content="#131315">
+  <meta name="description" content="A.V.A — Distributed AI Ecosystem">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="A.V.A">
-  <meta name="application-name" content="A.V.A">
-  
-  <title>A.V.A</title>
-  
-  <!-- PWA Manifest & Icons -->
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" type="image/png" sizes="192x192" href="/static/icon-192.png">
-  <link rel="icon" type="image/png" sizes="512x512" href="/static/icon-512.png">
-  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" sizes="192x192" href="/static/icon-192.png">
-  
-  <!-- Fonts -->
+  <title>AVA // Agentic Workspace</title>
+
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  
-  <!-- Markdown & Code Highlighting -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
-  
-  <link rel="stylesheet" href="/static/style.css?v=5">
+
+  <link rel="stylesheet" href="/static/style.css?v=103">
 </head>
 <body>
-  <div id="codex-app">
-    <!-- Desktop Left Sidebar -->
-    <aside class="desktop-sidebar" id="desktop-sidebar">
-      <div class="sidebar-header">
-        <div class="brand">
-          <img src="/static/logo.png" alt="AVA" class="brand-wordmark">
+  <!-- App Layout Container -->
+  <div class="stitch-app" id="stitch-app">
+
+    <!-- Top Navigation Bar -->
+    <header class="stitch-topbar" id="stitch-topbar">
+      <div class="topbar-left">
+        <button class="icon-button mobile-only" id="btn-mobile-sidebar" title="Toggle Directory">
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <div class="brand-badge">
+          <div class="brand-logo-circle">
+            <span class="brand-initial">A</span>
+          </div>
+          <div class="brand-text-col">
+            <span class="brand-title">AVA</span>
+            <span class="brand-version">v2.4.0 // Local</span>
+          </div>
         </div>
-        <button class="icon-btn" id="btn-sidebar-new" title="New Conversation (Ctrl+N)">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
+      </div>
+
+      <div class="topbar-center">
+        <div class="connection-status-pill" id="header-conn-pill">
+          <span class="status-pulse-dot" id="system-status-dot"></span>
+          <span class="status-pill-text" id="header-conn-badge">CONNECTING...</span>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <a href="/devices" class="icon-button" id="btn-open-devices" title="Device Manager" style="text-decoration: none; color: inherit; display: inline-flex; align-items: center; justify-content: center;">
+          <span class="material-symbols-outlined">devices</span>
+        </a>
+        <div class="node-id-chip desktop-only" id="header-node-chip">
+          <span class="material-symbols-outlined icon-small">hub</span>
+          <span id="header-client-id">client1_pc</span>
+        </div>
+        <button class="icon-button" id="btn-open-settings" title="Server &amp; Theme Settings">
+          <span class="material-symbols-outlined">settings</span>
         </button>
       </div>
+    </header>
 
-      <div class="sidebar-section">
-        <div class="section-label">Quick Commands</div>
-        <div class="nav-list">
-          <button class="nav-item" data-cmd="/new">
-            <span class="nav-icon">+</span>
-            <span class="nav-label">New Conversation</span>
-          </button>
-          <button class="nav-item" data-cmd="/tasks">
-            <span class="nav-icon">⏱</span>
-            <span class="nav-label">Background Tasks</span>
-          </button>
-          <button class="nav-item" data-cmd="What time is it?">
-            <span class="nav-icon">🕒</span>
-            <span class="nav-label">Check Time & Date</span>
-          </button>
-          <button class="nav-item" data-cmd="Set a timer for 5 minutes">
-            <span class="nav-icon">⏳</span>
-            <span class="nav-label">Set 5-Min Timer</span>
-          </button>
-          <button class="nav-item" data-cmd="/clear">
-            <span class="nav-icon">🧹</span>
-            <span class="nav-label">Clear Chat View</span>
-          </button>
-          <button class="nav-item" data-cmd="/help">
-            <span class="nav-icon">❓</span>
-            <span class="nav-label">Help Reference</span>
-          </button>
-        </div>
-      </div>
+    <!-- Main Body: Sidebar + Chat Feed -->
+    <div class="stitch-body">
 
-      <div class="sidebar-section conversations-section">
-        <div class="section-label">Recent Chats</div>
-        <div class="conversations-list" id="conversations-list">
-          <div class="conv-empty-hint">Loading chats...</div>
-        </div>
-      </div>
+      <!-- Collapsible Sidebar / Drawer -->
+      <aside class="stitch-sidebar" id="stitch-sidebar">
+        <div class="sidebar-inner">
 
-      <div class="sidebar-footer">
-        <div class="system-status-card">
-          <div class="status-row">
-            <span class="status-dot"></span>
-            <span class="status-label" id="desktop-status-text">Ready</span>
-          </div>
-          <div class="status-sub">Gateway Port 8766 · Terminal Synced</div>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Main Workspace Column -->
-    <main class="main-workspace">
-      <!-- Top Navigation Bar -->
-      <header class="workspace-header">
-        <div class="header-left">
-          <button class="icon-btn mobile-only" id="btn-mobile-menu" aria-label="Open Menu">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <line x1="3" y1="12" x2="21" y2="12"></line>
-              <line x1="3" y1="18" x2="21" y2="18"></line>
-            </svg>
-          </button>
-          <div class="header-title" id="header-title">A.V.A Portal</div>
-        </div>
-
-        <div class="header-right">
-          <!-- PWA Install Button (Dynamic) -->
-          <button class="pwa-install-btn hidden" id="btn-pwa-install">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="7 10 12 15 17 10"></polyline>
-              <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-            <span>Install App</span>
-          </button>
-
-          <div class="conn-badge" id="conn-badge">
-            <span class="conn-dot"></span>
-            <span class="conn-label" id="conn-label">online</span>
-          </div>
-
-          <button class="icon-btn" id="btn-toggle-tasks-panel" title="Toggle Tasks Dashboard">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-            <span class="badge-count hidden" id="task-badge">0</span>
-          </button>
-
-          <button class="icon-btn mobile-only" id="btn-mobile-new" title="New Conversation">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"></line>
-              <line x1="5" y1="12" x2="19" y2="12"></line>
-            </svg>
-          </button>
-        </div>
-      </header>
-
-      <!-- Message Viewport -->
-      <section class="messages-container" id="chat-viewport">
-        <div class="messages-wrapper" id="message-feed">
-          <div class="session-divider">
-            <span>Terminal Synchronized</span>
-          </div>
-        </div>
-
-        <!-- Inline Thinking Strip -->
-        <div class="thinking-strip hidden" id="thinking-row">
-          <div class="thinking-indicator">
-            <div class="pulse-point"></div>
-            <span id="thinking-text">thinking...</span>
-          </div>
-        </div>
-
-        <!-- Scroll To Bottom Button -->
-        <button class="scroll-down-btn hidden" id="btn-scroll-bottom" aria-label="Scroll to bottom">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <polyline points="19 12 12 19 5 12"></polyline>
-          </svg>
-        </button>
-      </section>
-
-      <!-- Slash Commands Quick Row -->
-      <div class="slash-quick-row">
-        <button class="slash-chip" data-cmd="/new">/new</button>
-        <button class="slash-chip" data-cmd="/tasks">/tasks</button>
-        <button class="slash-chip" data-cmd="What time is it?">Time</button>
-        <button class="slash-chip" data-cmd="Set a timer for 5 minutes">Timer 5m</button>
-        <button class="slash-chip" data-cmd="/clear">/clear</button>
-        <button class="slash-chip" data-cmd="/help">/help</button>
-      </div>
-
-      <!-- Bottom Composer -->
-      <footer class="composer-container">
-        <div class="composer-card" id="composer-card">
-          <!-- Attachment Preview Strip (Top of Composer) -->
-          <div class="composer-attachments hidden" id="composer-attachments"></div>
-
-          <div class="composer-main-row">
-            <!-- Attach File Button (+) -->
-            <button class="composer-attach-btn" id="btn-attach-file" title="Attach image or document (+)">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-                <line x1="12" y1="5" x2="12" y2="19"></line>
-                <line x1="5" y1="12" x2="19" y2="12"></line>
-              </svg>
-            </button>
-            <input type="file" id="file-picker" multiple accept="image/*,.pdf,.txt,.md,.doc,.docx,.csv,.json,.py,.js,.html,.css" style="display:none">
-
-            <textarea id="composer-input" placeholder="Message AVA, paste or drag files..." rows="1"></textarea>
-            
-            <button class="composer-send-btn" id="btn-submit" aria-label="Send Message">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="12" y1="19" x2="12" y2="5"></line>
-                <polyline points="5 12 12 5 19 12"></polyline>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </footer>
-    </main>
-
-    <!-- Right Side Tasks Panel (Desktop Docked / Mobile Slide-over) -->
-    <aside class="tasks-panel" id="tasks-panel">
-      <div class="tasks-panel-header">
-        <h3>Background Tasks</h3>
-        <button class="icon-btn" id="btn-close-tasks-panel" aria-label="Close Tasks Panel">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-      <div class="tasks-panel-body" id="tasks-panel-body">
-        <div class="tasks-empty-state">
-          <p>No active background tasks</p>
-          <span>Spawn timers, deep research, or coding missions on AVA to monitor them live.</span>
-        </div>
-      </div>
-    </aside>
-
-    <!-- Mobile Drawer Overlay -->
-    <div class="drawer-overlay hidden" id="drawer-overlay"></div>
-
-    <!-- Drag & Drop Overlay -->
-    <div class="dropzone-overlay hidden" id="dropzone-overlay">
-      <div class="dropzone-box">
-        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="17 8 12 3 7 8"></polyline>
-          <line x1="12" y1="3" x2="12" y2="15"></line>
-        </svg>
-        <span>Drop images or documents here to attach</span>
-      </div>
-    </div>
-
-    <!-- Image Modal Viewer -->
-    <div class="image-viewer-modal hidden" id="image-viewer-modal">
-      <button class="modal-close-btn" id="btn-close-modal">×</button>
-      <img id="modal-img-target" src="" alt="Full preview">
-    </div>
-
-    <!-- Task Live Watcher Modal (Live process popup) -->
-    <div class="task-watcher-modal hidden" id="task-watcher-modal">
-      <div class="task-watcher-dialog">
-        <div class="task-watcher-header">
-          <div class="watcher-title-area">
-            <div class="watcher-badges">
-              <span class="watcher-badge status running" id="watcher-badge-status">RUNNING</span>
-              <span class="watcher-badge spec" id="watcher-badge-spec">specialist</span>
-              <span class="watcher-badge session" id="watcher-badge-session">session</span>
+          <!-- Directory Header & New Conversation -->
+          <div class="sidebar-section sidebar-header-block">
+            <div class="sidebar-header-row">
+              <span class="sidebar-dir-label">NAV // DIRECTORY</span>
+              <span class="sidebar-dir-tag">SYS.01</span>
             </div>
-            <h3 class="watcher-title" id="watcher-title">Task Name</h3>
+            <button class="btn-new-conversation" id="btn-new-chat">
+              <span class="material-symbols-outlined">add</span>
+              <span>NEW CONVERSATION</span>
+            </button>
           </div>
-          <button class="icon-btn watcher-close-btn" id="btn-close-watcher" title="Close Watcher (Esc)">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
+
+          <!-- Filter / Search Input -->
+          <div class="sidebar-section search-section">
+            <div class="search-input-box">
+              <span class="material-symbols-outlined search-icon">search</span>
+              <input type="text" id="search-threads-input" placeholder="FILTER THREADS..." autocomplete="off" spellcheck="false">
+              <span class="search-kbd-badge">⌘K</span>
+            </div>
+          </div>
+
+          <!-- Active Tasks Section -->
+          <div class="sidebar-section tasks-section">
+            <div class="tasks-header-row">
+              <span class="section-label">BACKGROUND TASKS</span>
+              <span class="tasks-count-badge" id="tasks-count-badge">[0]</span>
+            </div>
+            <div class="tasks-card" id="sidebar-tasks-card">
+              <div class="tasks-content" id="tasks-list-container">
+                <div class="task-empty-state" id="tasks-empty-state">
+                  <span class="material-symbols-outlined" style="font-size: 22px; color: var(--text-dim); margin-bottom: 4px;">task_alt</span>
+                  <span class="task-empty-title">No active background tasks</span>
+                  <span class="task-empty-sub">Queue idle. Ready for instruction dispatch.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chronological Conversation List -->
+          <div class="sidebar-section conv-history-section">
+            <div class="conversations-feed" id="conversations-feed">
+              
+              <!-- Today Group -->
+              <div class="conv-group" id="group-today">
+                <div class="group-header">TODAY</div>
+                <div class="group-list" id="list-today"></div>
+              </div>
+
+              <!-- Yesterday Group -->
+              <div class="conv-group" id="group-yesterday">
+                <div class="group-header">YESTERDAY</div>
+                <div class="group-list" id="list-yesterday"></div>
+              </div>
+
+              <!-- Previous 7 Days Group -->
+              <div class="conv-group" id="group-older">
+                <div class="group-header">PREVIOUS 7 DAYS</div>
+                <div class="group-list" id="list-older"></div>
+              </div>
+
+              <div class="conv-empty-hint hidden" id="conv-empty-hint">No conversations found</div>
+            </div>
+          </div>
+
+          <!-- Host & Devices Footer Links -->
+          <div class="sidebar-footer">
+            <a href="/devices" class="footer-host-card" id="sidebar-devices-link" style="text-decoration: none; margin-bottom: 8px;">
+              <div class="host-info-col">
+                <span class="host-title" style="display: flex; align-items: center; gap: 6px;">
+                  <span class="material-symbols-outlined" style="font-size: 15px;">devices</span>
+                  DEVICES // NODES
+                </span>
+                <span class="host-sub">Manage connected ecosystem</span>
+              </div>
+              <span class="material-symbols-outlined host-arrow-icon">arrow_forward</span>
+            </a>
+            <button class="footer-host-card" id="sidebar-host-link">
+              <div class="host-info-col">
+                <span class="host-title" id="footer-host-label">HOST: 127.0.0.1:8765</span>
+                <span class="host-sub">HTTP &amp; WS // SECURE</span>
+              </div>
+              <span class="material-symbols-outlined host-arrow-icon">north_east</span>
+            </button>
+          </div>
+
+        </div>
+      </aside>
+
+      <!-- Main Chat Viewport -->
+      <main class="stitch-chat-viewport" id="chat-viewport">
+        
+        <!-- Active Session Header Strip -->
+        <div class="session-banner" id="session-banner">
+          <div class="session-banner-left">
+            <button class="icon-button-small desktop-sidebar-toggle" id="btn-desktop-sidebar-toggle" title="Toggle Sidebar">
+              <span class="material-symbols-outlined">view_sidebar</span>
+            </button>
+            <span class="session-pulse-dot"></span>
+            <span class="session-hash-label" id="session-hash-label">SESSION #NEW // ACTIVE STREAM</span>
+          </div>
+          <div class="session-banner-right">
+            <span class="model-pill-badge" id="session-model-pill">AVA 4.12</span>
+          </div>
+        </div>
+
+        <!-- Scrollable Message Feed -->
+        <div class="message-feed-scroll" id="message-feed-scroll">
+          <div class="message-feed" id="message-feed">
+
+            <!-- Empty State Hero -->
+            <div class="empty-state-hero" id="empty-state-hero">
+              <div class="hero-brand-mark">AVA</div>
+              <h1 class="hero-title">INTELLIGENT RUNTIME</h1>
+              <p class="hero-sub">Autonomous multi-device agentic framework. Select a thread or enter a command below.</p>
+              
+              <div class="hero-actions-grid">
+                <button class="hero-action-card" data-prompt="Summarize system health and connected devices">
+                  <span class="material-symbols-outlined hero-card-icon">health_and_safety</span>
+                  <div class="hero-card-col">
+                    <span class="hero-card-title">Cluster Health Check</span>
+                    <span class="hero-card-desc">Verify local device sensors, server memory, and daemon status.</span>
+                  </div>
+                </button>
+                <button class="hero-action-card" data-prompt="Inspect running background tasks and active subagents">
+                  <span class="material-symbols-outlined hero-card-icon">terminal</span>
+                  <div class="hero-card-col">
+                    <span class="hero-card-title">Inspect PC Tasks</span>
+                    <span class="hero-card-desc">Check active jobs, running subagents, and background terminal pings.</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Thinking / Streaming Status Bar -->
+          <div class="thinking-strip hidden" id="thinking-strip">
+            <div class="thinking-pulse-indicator">
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+            </div>
+            <span class="thinking-label" id="thinking-label">AVA is reasoning...</span>
+          </div>
+        </div>
+
+        <!-- Action Suggestion Chips -->
+        <div class="suggestion-chips-row" id="suggestion-chips-row">
+          <button class="suggestion-chip" data-prompt="Summarize warnings and anomalies">
+            <span class="material-symbols-outlined chip-icon">warning</span>
+            <span>Summarize warnings</span>
+          </button>
+          <button class="suggestion-chip" data-prompt="Inspect PC background tasks">
+            <span class="material-symbols-outlined chip-icon">terminal</span>
+            <span>Inspect PC background tasks</span>
+          </button>
+          <button class="suggestion-chip" data-prompt="Run cluster health check">
+            <span class="material-symbols-outlined chip-icon">monitor_heart</span>
+            <span>Run cluster health check</span>
+          </button>
+          <button class="suggestion-chip" data-prompt="Export telemetry logs">
+            <span class="material-symbols-outlined chip-icon">download</span>
+            <span>Export telemetry logs</span>
           </button>
         </div>
 
-        <div class="task-watcher-body" id="task-watcher-body">
-          <div class="watcher-feed" id="watcher-feed">
-            <!-- Rendered live conversation-style turns -->
+        <!-- Command Composer -->
+        <footer class="composer-container" id="composer-container">
+          <div class="composer-card" id="composer-card">
+            
+            <!-- Running Tasks Dock (Unified Top Section) -->
+            <div class="running-tasks-dock hidden" id="running-tasks-dock">
+              <div class="tasks-dock-header" id="tasks-dock-toggle">
+                <div class="tasks-dock-header-left">
+                  <span class="tasks-dock-title" id="tasks-dock-title">1 task running</span>
+                </div>
+                <button class="tasks-dock-toggle-btn" id="tasks-dock-chevron" type="button" title="Toggle tasks">
+                  <span class="material-symbols-outlined" id="tasks-dock-chevron-icon">expand_more</span>
+                </button>
+              </div>
+              <div class="tasks-dock-list" id="tasks-dock-list">
+                <!-- Dynamically rendered task items -->
+              </div>
+            </div>
+
+            <!-- Attachments Preview Tray -->
+            <div class="composer-attachments-bar hidden" id="composer-attachments-bar"></div>
+
+            <div class="composer-inner">
+              <button class="composer-icon-button" id="btn-attach" title="Attach file or code">
+                <span class="material-symbols-outlined">add</span>
+              </button>
+              <input type="file" id="file-input" multiple accept="image/*,.pdf,.txt,.md,.json,.py,.js,.html" style="display:none">
+
+              <textarea 
+                id="composer-input" 
+                class="composer-textarea" 
+                placeholder="ENTER COMMAND OR QUERY..." 
+                rows="1" 
+                autocomplete="off" 
+                spellcheck="false"
+              ></textarea>
+
+              <div class="composer-actions">
+                <span class="composer-model-tag desktop-only">AVA 4.12</span>
+                <button class="composer-icon-button" id="btn-mic" title="Voice Input">
+                  <span class="material-symbols-outlined">mic</span>
+                </button>
+                <button class="composer-send-button" id="btn-send" title="Send Message (Enter)">
+                  <span class="material-symbols-outlined">arrow_upward</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Listening Banner -->
+            <div class="voice-listening-strip hidden" id="voice-listening-strip">
+              <span class="listening-pulse"></span>
+              <span class="listening-text">Listening to voice command...</span>
+              <button class="btn-voice-cancel" id="btn-voice-cancel">Cancel</button>
+            </div>
+
           </div>
+        </footer>
+
+      </main>
+
+    </div>
+
+    <!-- Mobile Drawer Backdrop -->
+    <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay hidden" id="settings-modal-overlay">
+      <div class="modal-card" id="settings-modal-card">
+        
+        <div class="modal-header">
+          <div class="modal-title-col">
+            <span class="modal-title">SERVER &amp; SYSTEM SETTINGS</span>
+            <span class="modal-sub">Node Configuration &amp; Appearance</span>
+          </div>
+          <button class="icon-button" id="btn-close-settings">
+            <span class="material-symbols-outlined">close</span>
+          </button>
         </div>
 
-        <div class="task-watcher-footer">
-          <div class="watcher-footer-left">
-            <span class="watcher-pulse-dot running" id="watcher-pulse-dot"></span>
-            <span class="watcher-activity-label" id="watcher-activity-label">Initializing...</span>
+        <div class="modal-scrollable-body">
+          
+          <!-- Server Connection -->
+          <div class="settings-card">
+            <div class="card-section-title">SERVER CONNECTION</div>
+            <div class="form-grid">
+              
+              <div class="form-field">
+                <label for="settings-protocol">Protocol</label>
+                <select id="settings-protocol" class="form-select">
+                  <option value="ws://" selected>ws:// (Local / Plain)</option>
+                  <option value="wss://">wss:// (Secure TLS)</option>
+                </select>
+              </div>
+
+              <div class="form-field">
+                <label for="settings-host">Host Address</label>
+                <input type="text" id="settings-host" class="form-input" value="127.0.0.1" placeholder="127.0.0.1">
+              </div>
+
+              <div class="form-field">
+                <label for="settings-port">Port</label>
+                <div class="port-input-wrapper">
+                  <button class="port-step-btn" id="btn-port-dec" aria-label="Decrease port">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">remove</span>
+                  </button>
+                  <input type="number" id="settings-port" class="form-input text-center" value="8765">
+                  <button class="port-step-btn" id="btn-port-inc" aria-label="Increase port">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">add</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-field">
+                <label for="settings-client-id">Hardware Client ID</label>
+                <input type="text" id="settings-client-id" class="form-input" value="web_workspace" placeholder="web_workspace">
+              </div>
+
+            </div>
           </div>
-          <div class="watcher-footer-right">
-            <button class="watcher-action-btn secondary" id="btn-watcher-refresh">Refresh</button>
-            <button class="watcher-action-btn primary" id="btn-watcher-done">Close</button>
+
+          <!-- Diagnostics -->
+          <div class="settings-card">
+            <div class="card-section-title">NODE DIAGNOSTICS</div>
+            <div class="diagnostics-row">
+              <div class="diag-col">
+                <span class="diag-label">ROUND-TRIP LATENCY</span>
+                <span class="diag-val" id="diag-latency-val">-- ms</span>
+              </div>
+              <div class="diag-col">
+                <span class="diag-label">CONNECTION STATE</span>
+                <span class="diag-val text-green" id="diag-status-val">ONLINE</span>
+              </div>
+              <button class="btn-secondary" id="btn-test-ping">TEST CONNECTION</button>
+            </div>
           </div>
+
+          <!-- Accent Color Customization -->
+          <div class="settings-card">
+            <div class="card-section-title">ACCENT COLOR</div>
+            <p class="card-subtext">Choose your accent highlight color across bubbles, buttons, and badges.</p>
+            <div class="accent-swatches-grid" id="accent-swatches-grid">
+              <!-- Swatches generated in JS -->
+            </div>
+          </div>
+
         </div>
+
+        <div class="modal-footer">
+          <button class="btn-secondary" id="btn-discard-settings">DISCARD</button>
+          <button class="btn-primary" id="btn-save-settings">APPLY &amp; RECONNECT</button>
+        </div>
+
       </div>
     </div>
+
   </div>
 
-  <script src="/static/app.js?v=6"></script>
+  <script src="/static/client.js?v=102"></script>
 </body>
 </html>

@@ -19,6 +19,14 @@ from .system.opencode_client import (
     sessions_prompt_block,
     list_native_sessions,
 )
+from .system.coding_tools import (
+    edit_file,
+    list_dir,
+    read_file,
+    search_code,
+    write_file,
+)
+from .system.view_image import view_image
 from .system.screenshot import screenshot
 from .system.system_control import *
 from .system.time_tools import *

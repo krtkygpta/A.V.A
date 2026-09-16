@@ -518,6 +518,29 @@ def reset_messages():
             messages.append(promptFinal)
 
 
+def load_conversation_messages(conv_messages: list[dict]):
+    """Reset messages and populate with the given conversation history."""
+    reset_messages()
+    with messages_lock:
+        for msg in conv_messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if not role or role not in ("user", "assistant", "tool"):
+                continue
+            entry = {"role": role, "content": content}
+            if role == "tool":
+                tool_id = msg.get("tool_call_id") or msg.get("tool_id") or ""
+                if tool_id:
+                    entry["tool_call_id"] = tool_id
+            elif role == "user":
+                if msg.get("attachments"):
+                    entry["attachments"] = msg["attachments"]
+            elif role == "assistant":
+                if msg.get("tool_calls"):
+                    entry["tool_calls"] = msg["tool_calls"]
+            messages.append(entry)
+
+
 def _normalize_memory_line(line: str) -> str:
     """Strip bullets/tsv confidence for rough dedupe."""
     s = (line or "").strip()

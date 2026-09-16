@@ -181,9 +181,35 @@ def speak(text):
 class CLIResponseLoopHandler(ResponseLoopHandler):
     """Response loop handler for CLI mode."""
 
+    def __init__(self):
+        super().__init__()
+        self._streamed = False
+
+    def on_response_chunk(self, delta: str):
+        super().on_response_chunk(delta)
+        if not delta:
+            return
+        if not self._streamed:
+            self._streamed = True
+            print(f"\n{COLOR_CYAN}{'=' * 65}{COLOR_RESET}")
+            print(f"{COLOR_YELLOW}{ASSISTANT_NAME.upper()}: ", end="", flush=True)
+        print(f"{COLOR_YELLOW}{delta}{COLOR_RESET}", end="", flush=True)
+
     def speak(self, text: str):
         """Speak text to the user via the CLI speak() function."""
-        speak(text)
+        if self._streamed:
+            self._streamed = False
+            print(f"\n{COLOR_CYAN}{'=' * 65}{COLOR_RESET}\n")
+            if "text" not in START_MODE:
+                gen = tts_piper.note_speech_started()
+                speak_thread = threading.Thread(
+                    target=tts_piper.speak,
+                    args=(text, stop_event, gen),
+                    daemon=True,
+                )
+                speak_thread.start()
+        else:
+            speak(text)
 
 
 # ── Wake / Input Modes ───────────────────────────────────────────────────────
@@ -600,6 +626,13 @@ def start():
             print(f"[{ASSISTANT_NAME.upper()}] Services started: {', '.join(started)}")
     except Exception as e:
         print(f"[Services] Startup failed: {e}")
+
+    # Start background device client node connecting to AVA Server Hub
+    try:
+        from core.device_client import start_device_client
+        start_device_client(device_id="pc_main")
+    except Exception as e:
+        print(f"[DeviceClient] Note: {e}")
 
     if "tui" in START_MODE:
         # TUI mode handles its own main loop — don't start the classic one

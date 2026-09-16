@@ -5,7 +5,7 @@ from core.messageHandler import (
     messages_for_llm,
     tools,
 )
-from core.server_api import generate_remote_response
+from core.server_api import generate_remote_response, generate_remote_response_stream
 from core.tool_registry import init_plugins, registry
 
 
@@ -93,16 +93,34 @@ def _fallback_from_done_inject() -> str | None:
     return None
 
 
-def generate_response():
+def generate_response(on_chunk=None):
     try:
         open_action = _open_main_action_text()
-        # Prior chats as their own message (not system-prompt blob); skip server
-        # hour-context so we don't double-inject.
-        server_message = generate_remote_response(
-            messages_for_llm(),
-            get_all_tools(),
-            include_server_context=False,
-        )
+
+        if on_chunk is not None:
+            server_message = None
+            for event_type, data in generate_remote_response_stream(
+                messages_for_llm(),
+                get_all_tools(),
+                include_server_context=False,
+            ):
+                if event_type == "chunk":
+                    try:
+                        on_chunk(data)
+                    except Exception:
+                        pass
+                elif event_type == "final":
+                    server_message = data
+
+            if not server_message:
+                server_message = {"role": "assistant", "content": None, "tool_calls": []}
+        else:
+            server_message = generate_remote_response(
+                messages_for_llm(),
+                get_all_tools(),
+                include_server_context=False,
+            )
+
         message = {
             "role": server_message.get("role", "assistant"),
             "content": server_message.get("content"),

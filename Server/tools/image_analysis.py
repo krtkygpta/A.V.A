@@ -27,23 +27,51 @@ class ImageAnalysis:
 
     def execute(
         self,
-        image_base64: str,
+        image_base64: Optional[str] = None,
         query: str = "Describe what is shown in this image in detail and transcribe all visible text accurately.",
+        image_path: Optional[str] = None,
     ) -> dict[str, Any]:
-        raw = (image_base64 or "").strip()
-        if not raw:
-            return {"status": "error", "content": "Missing image data"}
-
+        data = None
         mime = "image/png"
-        if raw.startswith("data:") and "," in raw:
-            header, raw = raw.split(",", 1)
-            if ";base64" in header:
-                mime = header.split(";", 1)[0].removeprefix("data:") or "image/png"
 
-        try:
-            data = base64.b64decode(raw, validate=False)
-        except Exception as e:
-            return {"status": "error", "content": f"Invalid base64: {e}"}
+        # 1. Try reading from image_path if provided
+        if image_path:
+            p = str(image_path).strip().strip('"').strip("'")
+            cand_paths = [
+                Path(p),
+                Path(__file__).resolve().parent.parent / "data" / "uploads" / Path(p).name,
+                Path(__file__).resolve().parent.parent / p,
+            ]
+            for cand in cand_paths:
+                try:
+                    if cand.is_file():
+                        data = cand.read_bytes()
+                        ext = cand.suffix.lower()
+                        if ext in (".jpg", ".jpeg"):
+                            mime = "image/jpeg"
+                        elif ext == ".webp":
+                            mime = "image/webp"
+                        elif ext == ".gif":
+                            mime = "image/gif"
+                        break
+                except Exception:
+                    continue
+
+        # 2. If no path or path reading failed, use image_base64
+        if data is None:
+            raw = (image_base64 or "").strip()
+            if not raw:
+                return {"status": "error", "content": "Missing image data or path"}
+
+            if raw.startswith("data:") and "," in raw:
+                header, raw = raw.split(",", 1)
+                if ";base64" in header:
+                    mime = header.split(";", 1)[0].removeprefix("data:") or "image/png"
+
+            try:
+                data = base64.b64decode(raw, validate=False)
+            except Exception as e:
+                return {"status": "error", "content": f"Invalid base64: {e}"}
 
         # 1. Try Google Gemini Vision (Best quality OCR & visual understanding)
         if self.google_client:

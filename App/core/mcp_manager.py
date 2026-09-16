@@ -413,6 +413,8 @@ class MCPManager:
         """Find standard MCP configuration files (Claude Code, root mcps.json, mcp.json)."""
         root_dir = Path(__file__).resolve().parent.parent.parent
         candidates = [
+            root_dir / "Server" / "mcps.json",
+            root_dir / "Server" / "mcp.json",
             root_dir / "mcps.json",
             root_dir / "mcp.json",
             root_dir / ".claude" / "mcp.json",
@@ -426,10 +428,17 @@ class MCPManager:
                 found.append(p)
         return found
 
-    def load_configs(self) -> dict:
-        """Merge server configurations from all found config files."""
+    def load_configs(self, target: str = "all") -> dict:
+        """Merge server configurations from found config files, respecting target filters."""
         all_servers = {}
         for config_path in self.find_config_files():
+            path_str = str(config_path).replace("\\", "/").lower()
+            # File-level scope isolation
+            if target in ("tui", "client") and "/server/mcp" in path_str:
+                continue
+            if target == "server" and "/app/mcp" in path_str:
+                continue
+
             try:
                 if config_path.stat().st_size == 0:
                     continue
@@ -442,19 +451,28 @@ class MCPManager:
                 servers = data.get("mcpServers") if isinstance(data, dict) and "mcpServers" in data else data
                 if isinstance(servers, dict):
                     for name, cfg in servers.items():
-                        if isinstance(cfg, dict) and name not in all_servers:
+                        if not isinstance(cfg, dict):
+                            continue
+                        # Item-level scope filter
+                        cfg_target = str(cfg.get("target", "all")).lower().strip()
+                        if target == "server" and cfg_target in ("client", "tui"):
+                            continue
+                        if target in ("tui", "client") and cfg_target == "server":
+                            continue
+
+                        if name not in all_servers:
                             all_servers[name] = cfg
             except Exception as e:
                 print(f"[MCPManager] Warning: could not parse {config_path}: {e}")
         return all_servers
 
-    def init_servers(self, tool_registry=None):
+    def init_servers(self, tool_registry=None, target: str = "all"):
         """Start all configured MCP servers and register their tools dynamically."""
         with self._lock:
             if self._initialized:
                 return
 
-            server_configs = self.load_configs()
+            server_configs = self.load_configs(target=target)
             if not server_configs:
                 self._initialized = True
                 return
@@ -526,9 +544,9 @@ mcp_manager = MCPManager()
 atexit.register(mcp_manager.stop_all)
 
 
-def init_mcp_servers(tool_registry=None):
+def init_mcp_servers(tool_registry=None, target: str = "all"):
     """Entry point to initialize MCP servers."""
-    mcp_manager.init_servers(tool_registry=tool_registry)
+    mcp_manager.init_servers(tool_registry=tool_registry, target=target)
 
 
 def get_mcp_manager() -> MCPManager:

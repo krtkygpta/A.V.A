@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(ROOT_DIR / ".env")
 _settings_path = ROOT_DIR / "Server" / "settings.json"
 
 # Keys that may be JSON arrays in settings.json (joined for env).

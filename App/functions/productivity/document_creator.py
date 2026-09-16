@@ -14,16 +14,28 @@ except ImportError:
     from App.utils.paths import resolve_file_path, resolve_location
 
 
-def create_file(data, filename, location, extension):
+def create_file(
+    data: Optional[str] = None,
+    filename: Optional[str] = None,
+    location: Optional[str] = None,
+    extension: Optional[str] = "txt",
+    content: Optional[str] = None,
+    text: Optional[str] = None,
+    path: Optional[str] = None,
+    file_path: Optional[str] = None,
+    **kwargs,
+):
     """Create a file with the given data, filename, location, and extension."""
+    payload = data if data is not None else (content if content is not None else text)
+    fname = filename or file_path or path or "untitled"
     ext = (extension or "txt").lstrip(".")
-    name = filename or "untitled"
+    name = str(fname)
     if not name.lower().endswith("." + ext.lower()):
         name = f"{name}.{ext}"
     full_path = resolve_file_path(name, location)
     try:
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(data if data is not None else "", encoding="utf-8")
+        full_path.write_text(payload if payload is not None else "", encoding="utf-8")
         return json.dumps(
             {
                 "status": "success",
@@ -35,15 +47,26 @@ def create_file(data, filename, location, extension):
         return json.dumps({"status": "error", "content": f"Cannot save file: {str(e)}"})
 
 
-def save_text(text, filename, location):
+def save_text(
+    text: Optional[str] = None,
+    filename: Optional[str] = None,
+    location: Optional[str] = None,
+    content: Optional[str] = None,
+    path: Optional[str] = None,
+    file_path: Optional[str] = None,
+    data: Optional[str] = None,
+    **kwargs,
+):
     """Save text content to a file with a custom name (appends .txt if needed)."""
-    name = filename or "notes"
-    if not str(name).lower().endswith(".txt"):
+    payload = text if text is not None else (content if content is not None else data)
+    fname = filename or file_path or path or "notes"
+    name = str(fname)
+    if not name.lower().endswith(".txt"):
         name = f"{name}.txt"
     full_path = resolve_file_path(name, location)
     try:
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(text if text is not None else "", encoding="utf-8")
+        full_path.write_text(payload if payload is not None else "", encoding="utf-8")
         return json.dumps(
             {
                 "status": "success",
@@ -55,9 +78,16 @@ def save_text(text, filename, location):
         return json.dumps({"status": "error", "content": f"Cannot save text: {str(e)}"})
 
 
-def open_file(filename, location):
+def open_file(
+    filename: Optional[str] = None,
+    location: Optional[str] = None,
+    path: Optional[str] = None,
+    file_path: Optional[str] = None,
+    **kwargs,
+):
     """Open a file using the default system application."""
-    name = (filename or "").strip().strip('"').strip("'")
+    fname = filename or file_path or path or ""
+    name = str(fname).strip().strip('"').strip("'")
     loc = (location or "").strip()
     if not loc:
         # Full path in filename, or relative to cwd — do not force Desktop
@@ -98,9 +128,16 @@ def sys_platform_is_darwin() -> bool:
     return sys.platform == "darwin"
 
 
-def delete_file(filename, location):
+def delete_file(
+    filename: Optional[str] = None,
+    location: Optional[str] = None,
+    path: Optional[str] = None,
+    file_path: Optional[str] = None,
+    **kwargs,
+):
     """Delete a file at the given location."""
-    full_path = resolve_file_path(filename, location)
+    fname = filename or file_path or path or ""
+    full_path = resolve_file_path(fname, location)
     try:
         full_path.unlink()
         return json.dumps(
@@ -116,16 +153,23 @@ def delete_file(filename, location):
         )
 
 
-def list_files(location):
+def list_files(
+    location: Optional[str] = None,
+    path: Optional[str] = None,
+    dir_path: Optional[str] = None,
+    directory: Optional[str] = None,
+    **kwargs,
+):
     """List all files in a directory."""
+    target_loc = location or dir_path or directory or path
     try:
-        directory = resolve_location(location, create=False)
-        files = os.listdir(directory)
+        directory_path = resolve_location(target_loc, create=False)
+        files = os.listdir(directory_path)
         return json.dumps(
             {
                 "status": "success",
                 "content": files,
-                "path": str(directory),
+                "path": str(directory_path),
             }
         )
     except Exception as e:

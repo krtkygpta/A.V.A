@@ -103,6 +103,37 @@ def alert_mode_wants_toast(mode: Optional[str]) -> bool:
     return normalize_alert_mode(mode) in ("notify", "short", "continuous")
 
 
+# Global callbacks for background task events (used by Server and other subscribers)
+_TASK_STATUS_CALLBACKS: list = []
+_TASK_COMPLETION_CALLBACKS: list = []
+
+
+def add_task_status_callback(cb) -> None:
+    if cb not in _TASK_STATUS_CALLBACKS:
+        _TASK_STATUS_CALLBACKS.append(cb)
+
+
+def add_task_completion_callback(cb) -> None:
+    if cb not in _TASK_COMPLETION_CALLBACKS:
+        _TASK_COMPLETION_CALLBACKS.append(cb)
+
+
+def notify_task_status_callbacks(task: Any) -> None:
+    for cb in list(_TASK_STATUS_CALLBACKS):
+        try:
+            cb(task)
+        except Exception as ex:
+            print(f"[TaskManager] Status callback exception: {ex}", flush=True)
+
+
+def notify_task_completion_callbacks(task: Any) -> None:
+    for cb in list(_TASK_COMPLETION_CALLBACKS):
+        try:
+            cb(task)
+        except Exception as ex:
+            print(f"[TaskManager] Completion callback exception: {ex}", flush=True)
+
+
 # Max nested follow-up depth (timer → research → …). Prevents infinite chains.
 try:
     MAX_FOLLOW_UP_DEPTH = max(1, int(os.getenv("AVA_MAX_FOLLOW_UP_DEPTH", "5")))
@@ -747,20 +778,22 @@ class TaskRegistry:
                 "tasks": [task.to_dict() for task in self._tasks.values()],
             }
             content = json.dumps(payload, indent=2, ensure_ascii=False)
-            tmp_path = TASK_STORE_PATH.with_suffix(".tmp")
-            tmp_path.write_text(content, encoding="utf-8")
+            tmp_path = TASK_STORE_PATH.with_name(f"tasks_{os.getpid()}_{uuid.uuid4().hex[:6]}.tmp")
             try:
-                tmp_path.replace(TASK_STORE_PATH)
-            except (PermissionError, OSError):
-                time.sleep(0.05)
+                tmp_path.write_text(content, encoding="utf-8")
                 try:
                     tmp_path.replace(TASK_STORE_PATH)
                 except (PermissionError, OSError):
-                    TASK_STORE_PATH.write_text(content, encoding="utf-8")
+                    time.sleep(0.05)
                     try:
-                        tmp_path.unlink(missing_ok=True)
-                    except Exception:
-                        pass
+                        tmp_path.replace(TASK_STORE_PATH)
+                    except (PermissionError, OSError):
+                        TASK_STORE_PATH.write_text(content, encoding="utf-8")
+            finally:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
         except Exception as e:
             print(f"[TaskRegistry] Could not save task store: {e}")
 
@@ -799,10 +832,12 @@ class TaskRegistry:
             if conversation_id:
                 self._conversation_tasks[conversation_id].append(task_id)
             self._persist_locked()
+        notify_task_status_callbacks(task)
         return task
 
     def update_task(self, task_id: str, status: TaskStatus,
                     result: Any = None, error: str = None):
+        target_task = None
         with self._tasks_lock:
             if task_id in self._tasks:
                 task = self._tasks[task_id]
@@ -814,6 +849,9 @@ class TaskRegistry:
                 if status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
                     task.completed_at = datetime.now()
                 self._persist_locked()
+                target_task = task
+        if target_task is not None:
+            notify_task_status_callbacks(target_task)
 
     def bind_conversation(
         self, task_id: str, conversation_id: str, conversation_name: str = ""
@@ -1204,6 +1242,23 @@ class NotificationDecisionEngine:
         if mode_name in ("continuous", "wakeword", "vosk"):
             voice_present = True
 
+        # Interactive UI / terminal modes count as "present"
+        ui_present = mode_name in ("tui", "text", "tui_text", "interactive")
+
+        current_conv_id = self.state_manager.current_conversation_id
+        is_current_conversation = (
+            not task.conversation_id
+            or (current_conv_id and task.conversation_id == current_conv_id)
+        )
+
+        announce_policy = meta.get("announce_policy") or ""
+        if not announce_policy:
+            try:
+                from core.jobs.dossier import infer_announce_policy
+                announce_policy = infer_announce_policy(task)
+            except Exception:
+                announce_policy = ""
+
         # Urgent interrupt only for real alarms — not every timer (default silent).
         mode = normalize_alert_mode(getattr(task, "alert_mode", None))
         is_urgent = task.priority in (TaskPriority.HIGH, TaskPriority.URGENT) or (
@@ -1221,8 +1276,17 @@ class NotificationDecisionEngine:
                 task_id=task.id,
             )
 
-        # User is present (text chat open OR voice mode running) → one-shot wake.
-        if is_active or voice_present:
+        # User is present (text chat open, voice mode running, TUI active)
+        # OR task belongs to the current conversation and is not silent
+        # OR announce_policy is "always" (delegate agent, coding agent, research) → one-shot wake.
+        user_present = is_active or voice_present or ui_present
+        should_announce_now = (
+            user_present
+            or (is_current_conversation and announce_policy in ("always", "auto"))
+            or announce_policy == "always"
+        )
+
+        if should_announce_now:
             return NotificationStrategy(
                 delivery_method=DeliveryMethod.NEXT_RESPONSE,
                 notification_text=task.to_compact_done(),
@@ -1681,6 +1745,7 @@ class SubAgent:
                 print(f"[TaskManager] Could not create inbox item: {e}")
 
         self.completion_queue.push(task)
+        notify_task_completion_callbacks(task)
 
     @staticmethod
     def _desktop_notify(*args, **kwargs):
@@ -2295,18 +2360,138 @@ class OpenCodeAgent(SubAgent):
 
 def _extract_thinking(text: str) -> Tuple[str, str]:
     """
-    Extract <thinking>...</thinking> content from text.
+    Extract Chain of Thought content from text (<thinking>, <thought>, <think>).
     Returns (thinking_text, clean_text).
     """
     if not text:
         return "", ""
     s = str(text)
-    match = re.search(r"<thinking>(.*?)(?:</thinking>|$)", s, flags=re.DOTALL)
+    match = re.search(r"<(?:thinking|thought|think)>(.*?)(?:</(?:thinking|thought|think)>|$)", s, flags=re.DOTALL | re.IGNORECASE)
     if not match:
         return "", s.strip()
     thinking_text = match.group(1).strip()
-    clean_text = re.sub(r"<thinking>.*?(?:</thinking>|$)", "", s, flags=re.DOTALL).strip()
+    clean_text = re.sub(r"<(?:thinking|thought|think)>.*?(?:</(?:thinking|thought|think)>|$)", "", s, flags=re.DOTALL | re.IGNORECASE).strip()
     return thinking_text, clean_text
+
+
+def _get_server_and_client_tool_schemas() -> Tuple[List[dict], Any]:
+    """
+    If running in a Server environment, retrieve all server tools, MCP tools,
+    and client tools from registered connected devices (e.g. PC client, mobile).
+    Returns (schemas, device_registry).
+    """
+    dev_reg = None
+    schemas = []
+    try:
+        from Server.services.device_registry import device_registry
+        from Server.app import get_all_server_tool_schemas
+        dev_reg = device_registry
+        schemas.extend(get_all_server_tool_schemas())
+    except Exception:
+        try:
+            from services.device_registry import device_registry
+            from app import get_all_server_tool_schemas
+            dev_reg = device_registry
+            schemas.extend(get_all_server_tool_schemas())
+        except Exception:
+            pass
+
+    client_schemas = [
+        {
+            "type": "function",
+            "function": {
+                "name": "bash",
+                "description": "Execute shell/terminal commands on the connected PC client.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {"type": "string", "description": "The command line string to execute."},
+                        "target_device": {"type": "string", "description": "Target PC device ID (default 'pc_main')."}
+                    },
+                    "required": ["command"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "screenshot",
+                "description": "Capture a screenshot from the connected PC client display.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target_device": {"type": "string", "description": "Target PC device ID (default 'pc_main')."}
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "save_file",
+                "description": "Save text or generated code/report directly to a file on the connected PC client Desktop or specified directory.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "filename": {"type": "string", "description": "Name of the file (e.g. output.py, report.md)."},
+                        "content": {"type": "string", "description": "Full text or code content to save."},
+                        "directory": {"type": "string", "description": "Destination folder: 'desktop', 'downloads', or custom folder."},
+                        "target_device": {"type": "string", "description": "Target PC device ID (default 'pc_main')."}
+                    },
+                    "required": ["filename", "content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_location",
+                "description": "Retrieve the geographic and network location of connected device (PC or Android).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target_device": {"type": "string", "description": "Device ID to check location for (default 'caller' or 'pc_main')."}
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_battery_status",
+                "description": "Retrieve the current battery percentage and power plugged state from connected device.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target_device": {"type": "string", "description": "Device ID (e.g. 'pc_main', Android phone)."}
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "ring_device",
+                "description": "Play an audible alert chime through the connected client device speakers.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "target_device": {"type": "string", "description": "Device ID to ring."}
+                    }
+                }
+            }
+        }
+    ]
+
+    existing_names = {((s.get("function") or {}).get("name") or s.get("name")) for s in schemas}
+    for cs in client_schemas:
+        c_name = cs["function"]["name"]
+        if c_name not in existing_names:
+            schemas.append(cs)
+            existing_names.add(c_name)
+
+    return schemas, dev_reg
+
 
 
 def _truncate_tool_output(output: Any, max_chars: int = 4000) -> str:
@@ -2418,6 +2603,17 @@ class DelegatedAIAgent(SubAgent):
 
         init_plugins()
         merged = list(tools) + list(registry.get_schema() or [])
+
+        # Merge server tools and connected client device tools if running in server context
+        server_and_client_schemas, dev_reg = _get_server_and_client_tool_schemas()
+        if server_and_client_schemas:
+            existing_merged_names = {((s.get("function") or {}).get("name") or s.get("name")) for s in merged}
+            for sc in server_and_client_schemas:
+                sc_name = (sc.get("function") or {}).get("name") or sc.get("name")
+                if sc_name and sc_name not in existing_merged_names:
+                    merged.append(sc)
+                    existing_merged_names.add(sc_name)
+
         available_names = []
         for tool in merged:
             name = (tool.get("function") or {}).get("name") or tool.get("name")
@@ -2426,12 +2622,15 @@ class DelegatedAIAgent(SubAgent):
         available_names.append("request_clarification")
         available_names.append("request_permission")
 
+        # Grant all available tools to the delegated worker (including client tools when on server)
+        grant_tools = self.worker_tool_override if self.worker_tool_override else available_names
+
         spec = compose_worker(
             self.specialist,
             objective=self.objective,
             context=self.context,
             expected_output=self.expected_output,
-            extra_tools=self.worker_tool_override,
+            extra_tools=grant_tools,
             available_tool_names=available_names,
             auto_infer=True,
         )
@@ -2605,8 +2804,11 @@ class DelegatedAIAgent(SubAgent):
                 content = response.get("content")
                 tool_calls = response.get("tool_calls") or []
 
-                # Chain of Thought extraction
+                # Chain of Thought extraction (supporting tag-based CoT and API native reasoning)
+                native_thinking = response.get("thinking") or response.get("reasoning_content") or response.get("reasoning") or ""
                 thinking_text, clean_text = _extract_thinking(content or "")
+                if not thinking_text and native_thinking:
+                    thinking_text = str(native_thinking).strip()
 
                 assistant_msg = {"role": "assistant"}
                 if content:
@@ -2725,8 +2927,44 @@ class DelegatedAIAgent(SubAgent):
                             final_content = "Delegated agent was cancelled."
                             break
                     else:
-                        raw_result, tool_id = handle_tool_call(tool_call)
-                        result = raw_result
+                        executed_remotely = False
+                        if dev_reg is not None:
+                            try:
+                                if func_name == "device_tool":
+                                    tgt = args.get("target_device", "pc_main")
+                                    st = args.get("tool_name")
+                                    s_args = args.get("arguments", {})
+                                    result = dev_reg.execute_tool_sync(tgt, st, s_args, caller_id="server_delegate")
+                                    executed_remotely = True
+                                elif func_name in ("bash", "screenshot", "save_file", "write_file", "coding_agent", "computer_use"):
+                                    tgt = args.get("target_device", "pc_main")
+                                    result = dev_reg.execute_tool_sync(tgt, func_name, args, caller_id="server_delegate")
+                                    executed_remotely = True
+                                elif func_name in ("get_location", "get_battery_status", "ring_device", "timedate", "device_time"):
+                                    tgt = args.get("target_device")
+                                    if not tgt or tgt == "caller":
+                                        online_devs = [d["device_id"] for d in dev_reg.list_devices(online_only=True)]
+                                        tgt = online_devs[0] if online_devs else "pc_main"
+                                    result = dev_reg.execute_tool_sync(tgt, func_name, args, caller_id="server_delegate")
+                                    executed_remotely = True
+                                elif func_name in ("conversation_history", "check_chat_history", "search_conversations"):
+                                    from Server.app import server_core
+                                    result = server_core.conversations.inspect_or_search(
+                                        action=args.get("action", "get"),
+                                        conv_id=args.get("conversation_id"),
+                                        query=args.get("query"),
+                                        limit=args.get("limit", 10),
+                                    )
+                                    executed_remotely = True
+                                elif func_name == "tool_search":
+                                    result = dev_reg.search_tools(args.get("query", ""), target_device=args.get("target_device"))
+                                    executed_remotely = True
+                            except Exception as ex:
+                                print(f"[DelegatedAIAgent] Server/Client tool execution error: {ex}")
+
+                        if not executed_remotely:
+                            raw_result, tool_id = handle_tool_call(tool_call)
+                            result = raw_result
                         last_call_result_snippet = str(result)[:200]
 
                     # Truncate output to guard context window limits
@@ -3195,6 +3433,8 @@ def dispatch_background_task(task_type: str, conversation_id: str = "",
             priority=priority,
             kind=kwargs.get("kind"),
             permissions=kwargs.get("permissions") or "auto",
+            origin=kwargs.get("origin"),
+            caller_id=kwargs.get("caller_id"),
         ),
     }
 
@@ -3211,6 +3451,13 @@ def dispatch_background_task(task_type: str, conversation_id: str = "",
     with registry._tasks_lock:
         live = registry._tasks.get(task_id)
         if live is not None:
+            live.metadata = dict(live.metadata or {})
+            if kwargs.get("origin"):
+                live.metadata["origin"] = kwargs.get("origin")
+            if kwargs.get("caller_id"):
+                live.metadata["caller_id"] = kwargs.get("caller_id")
+            if conversation_id:
+                live.conversation_id = conversation_id
             if fu_specs:
                 # Store as list for multi-step, or single dict
                 live.metadata["follow_up"] = (

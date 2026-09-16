@@ -4,7 +4,7 @@ import json
 import os
 import re
 import subprocess
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
@@ -270,34 +270,22 @@ def _scrape_urls(links: list) -> list:
     return results
 
 
-def web(operation: str, **kwargs):
+def web(operation: Optional[str] = None, **kwargs):
     """Unified web operations: search, fetch URLs, AI search, weather, GPS.
-
-    Args:
-        operation: 'search', 'fetch', 'ai_search', 'weather', 'gps'
-
-    For operation='search':
-        - query (str): What to search for (e.g. 'Python tutorial')
-        - num_results (int): Number of results (default 5)
-
-    For operation='fetch':
-        - url (str): URL to fetch content from
-
-    For operation='ai_search':
-        - query (str): Question to ask AI with web search
-
-    For operation='weather':
-        - location (str): City name, or 'current' for your location
-        - date (str, optional): Target date ('today', 'tomorrow', '2026-08-30', etc.)
-        - days (int, optional): Number of forecast days (1–14, default 1 or 3)
-        - hour (int/str, optional): Target hour (0–23, or '14:00', '2pm')
-
-    For operation='gps':
-        - (no args needed)
-
-    Returns:
-        JSON string with operation result
+    Auto-detects operation if not explicitly provided.
     """
+    op = (operation or kwargs.get("operation") or "").strip().lower()
+    if not op:
+        if kwargs.get("url"):
+            op = "fetch"
+        elif kwargs.get("location") and ("weather" in str(kwargs).lower() or kwargs.get("days") or kwargs.get("hour")):
+            op = "weather"
+        elif kwargs.get("mode") == "research" or kwargs.get("ai_search"):
+            op = "ai_search"
+        else:
+            op = "search"
+
+    operation = op
     try:
         if operation == "search":
             query = kwargs.get("query", "")
@@ -322,32 +310,26 @@ def web(operation: str, **kwargs):
             query = kwargs.get("query", "")
             if not query:
                 return json.dumps({"status": "error", "content": "Query required"})
-            if not SERVER_URL:
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "content": "SERVER_URL / AVA_SERVER_URL not configured",
-                    }
-                )
-            response = requests.post(
-                f"{SERVER_URL}/tools/google_ai",
-                json={"query": query},
-                timeout=DEFAULT_TIMEOUT,
-            )
-            response.raise_for_status()
-            result = response.json()
-            if result.get("status") == "success":
-                return json.dumps(
-                    {"status": "success", "content": result.get("content", "")},
-                    ensure_ascii=False,
-                )
-            return json.dumps(
-                {
-                    "status": "error",
-                    "content": result.get("content", "Unknown error"),
-                },
-                ensure_ascii=False,
-            )
+            if SERVER_URL:
+                try:
+                    response = requests.post(
+                        f"{SERVER_URL}/tools/google_ai",
+                        json={"query": query},
+                        timeout=min(DEFAULT_TIMEOUT, 8),
+                    )
+                    if response.ok:
+                        result = response.json()
+                        if result.get("status") == "success" and result.get("content"):
+                            return json.dumps(
+                                {"status": "success", "content": result.get("content", "")},
+                                ensure_ascii=False,
+                            )
+                except Exception:
+                    pass
+
+            # Graceful fallback to search results
+            payload = _web_search(query, kwargs.get("num_results", 5))
+            return json.dumps(payload, ensure_ascii=False)
 
         elif operation == "weather":
             location = kwargs.get("location", "current")

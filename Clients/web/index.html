@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#131315">
+  <meta name="description" content="A.V.A — Distributed AI Ecosystem">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>AVA // Agentic Workspace</title>
+
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+
+  <link rel="stylesheet" href="/static/style.css?v=103">
+</head>
+<body>
+  <!-- App Layout Container -->
+  <div class="stitch-app" id="stitch-app">
+
+    <!-- Top Navigation Bar -->
+    <header class="stitch-topbar" id="stitch-topbar">
+      <div class="topbar-left">
+        <button class="icon-button mobile-only" id="btn-mobile-sidebar" title="Toggle Directory">
+          <span class="material-symbols-outlined">menu</span>
+        </button>
+        <div class="brand-badge">
+          <div class="brand-logo-circle">
+            <span class="brand-initial">A</span>
+          </div>
+          <div class="brand-text-col">
+            <span class="brand-title">AVA</span>
+            <span class="brand-version">v2.4.0 // Local</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-center">
+        <div class="connection-status-pill" id="header-conn-pill">
+          <span class="status-pulse-dot" id="system-status-dot"></span>
+          <span class="status-pill-text" id="header-conn-badge">CONNECTING...</span>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <a href="/devices" class="icon-button" id="btn-open-devices" title="Device Manager" style="text-decoration: none; color: inherit; display: inline-flex; align-items: center; justify-content: center;">
+          <span class="material-symbols-outlined">devices</span>
+        </a>
+        <div class="node-id-chip desktop-only" id="header-node-chip">
+          <span class="material-symbols-outlined icon-small">hub</span>
+          <span id="header-client-id">client1_pc</span>
+        </div>
+        <button class="icon-button" id="btn-open-settings" title="Server &amp; Theme Settings">
+          <span class="material-symbols-outlined">settings</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Body: Sidebar + Chat Feed -->
+    <div class="stitch-body">
+
+      <!-- Collapsible Sidebar / Drawer -->
+      <aside class="stitch-sidebar" id="stitch-sidebar">
+        <div class="sidebar-inner">
+
+          <!-- Directory Header & New Conversation -->
+          <div class="sidebar-section sidebar-header-block">
+            <div class="sidebar-header-row">
+              <span class="sidebar-dir-label">NAV // DIRECTORY</span>
+              <span class="sidebar-dir-tag">SYS.01</span>
+            </div>
+            <button class="btn-new-conversation" id="btn-new-chat">
+              <span class="material-symbols-outlined">add</span>
+              <span>NEW CONVERSATION</span>
+            </button>
+          </div>
+
+          <!-- Filter / Search Input -->
+          <div class="sidebar-section search-section">
+            <div class="search-input-box">
+              <span class="material-symbols-outlined search-icon">search</span>
+              <input type="text" id="search-threads-input" placeholder="FILTER THREADS..." autocomplete="off" spellcheck="false">
+              <span class="search-kbd-badge">⌘K</span>
+            </div>
+          </div>
+
+          <!-- Active Tasks Section -->
+          <div class="sidebar-section tasks-section">
+            <div class="tasks-header-row">
+              <span class="section-label">BACKGROUND TASKS</span>
+              <span class="tasks-count-badge" id="tasks-count-badge">[0]</span>
+            </div>
+            <div class="tasks-card" id="sidebar-tasks-card">
+              <div class="tasks-content" id="tasks-list-container">
+                <div class="task-empty-state" id="tasks-empty-state">
+                  <span class="material-symbols-outlined" style="font-size: 22px; color: var(--text-dim); margin-bottom: 4px;">task_alt</span>
+                  <span class="task-empty-title">No active background tasks</span>
+                  <span class="task-empty-sub">Queue idle. Ready for instruction dispatch.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chronological Conversation List -->
+          <div class="sidebar-section conv-history-section">
+            <div class="conversations-feed" id="conversations-feed">
+              
+              <!-- Today Group -->
+              <div class="conv-group" id="group-today">
+                <div class="group-header">TODAY</div>
+                <div class="group-list" id="list-today"></div>
+              </div>
+
+              <!-- Yesterday Group -->
+              <div class="conv-group" id="group-yesterday">
+                <div class="group-header">YESTERDAY</div>
+                <div class="group-list" id="list-yesterday"></div>
+              </div>
+
+              <!-- Previous 7 Days Group -->
+              <div class="conv-group" id="group-older">
+                <div class="group-header">PREVIOUS 7 DAYS</div>
+                <div class="group-list" id="list-older"></div>
+              </div>
+
+              <div class="conv-empty-hint hidden" id="conv-empty-hint">No conversations found</div>
+            </div>
+          </div>
+
+          <!-- Host & Devices Footer Links -->
+          <div class="sidebar-footer">
+            <a href="/devices" class="footer-host-card" id="sidebar-devices-link" style="text-decoration: none; margin-bottom: 8px;">
+              <div class="host-info-col">
+                <span class="host-title" style="display: flex; align-items: center; gap: 6px;">
+                  <span class="material-symbols-outlined" style="font-size: 15px;">devices</span>
+                  DEVICES // NODES
+                </span>
+                <span class="host-sub">Manage connected ecosystem</span>
+              </div>
+              <span class="material-symbols-outlined host-arrow-icon">arrow_forward</span>
+            </a>
+            <button class="footer-host-card" id="sidebar-host-link">
+              <div class="host-info-col">
+                <span class="host-title" id="footer-host-label">HOST: 127.0.0.1:8765</span>
+                <span class="host-sub">HTTP &amp; WS // SECURE</span>
+              </div>
+              <span class="material-symbols-outlined host-arrow-icon">north_east</span>
+            </button>
+          </div>
+
+        </div>
+      </aside>
+
+      <!-- Main Chat Viewport -->
+      <main class="stitch-chat-viewport" id="chat-viewport">
+        
+        <!-- Active Session Header Strip -->
+        <div class="session-banner" id="session-banner">
+          <div class="session-banner-left">
+            <button class="icon-button-small desktop-sidebar-toggle" id="btn-desktop-sidebar-toggle" title="Toggle Sidebar">
+              <span class="material-symbols-outlined">view_sidebar</span>
+            </button>
+            <span class="session-pulse-dot"></span>
+            <span class="session-hash-label" id="session-hash-label">SESSION #NEW // ACTIVE STREAM</span>
+          </div>
+          <div class="session-banner-right">
+            <span class="model-pill-badge" id="session-model-pill">AVA 4.12</span>
+          </div>
+        </div>
+
+        <!-- Scrollable Message Feed -->
+        <div class="message-feed-scroll" id="message-feed-scroll">
+          <div class="message-feed" id="message-feed">
+
+            <!-- Empty State Hero -->
+            <div class="empty-state-hero" id="empty-state-hero">
+              <div class="hero-brand-mark">AVA</div>
+              <h1 class="hero-title">INTELLIGENT RUNTIME</h1>
+              <p class="hero-sub">Autonomous multi-device agentic framework. Select a thread or enter a command below.</p>
+              
+              <div class="hero-actions-grid">
+                <button class="hero-action-card" data-prompt="Summarize system health and connected devices">
+                  <span class="material-symbols-outlined hero-card-icon">health_and_safety</span>
+                  <div class="hero-card-col">
+                    <span class="hero-card-title">Cluster Health Check</span>
+                    <span class="hero-card-desc">Verify local device sensors, server memory, and daemon status.</span>
+                  </div>
+                </button>
+                <button class="hero-action-card" data-prompt="Inspect running background tasks and active subagents">
+                  <span class="material-symbols-outlined hero-card-icon">terminal</span>
+                  <div class="hero-card-col">
+                    <span class="hero-card-title">Inspect PC Tasks</span>
+                    <span class="hero-card-desc">Check active jobs, running subagents, and background terminal pings.</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Thinking / Streaming Status Bar -->
+          <div class="thinking-strip hidden" id="thinking-strip">
+            <div class="thinking-pulse-indicator">
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+              <span class="thinking-dot"></span>
+            </div>
+            <span class="thinking-label" id="thinking-label">AVA is reasoning...</span>
+          </div>
+        </div>
+
+        <!-- Action Suggestion Chips -->
+        <div class="suggestion-chips-row" id="suggestion-chips-row">
+          <button class="suggestion-chip" data-prompt="Summarize warnings and anomalies">
+            <span class="material-symbols-outlined chip-icon">warning</span>
+            <span>Summarize warnings</span>
+          </button>
+          <button class="suggestion-chip" data-prompt="Inspect PC background tasks">
+            <span class="material-symbols-outlined chip-icon">terminal</span>
+            <span>Inspect PC background tasks</span>
+          </button>
+          <button class="suggestion-chip" data-prompt="Run cluster health check">
+            <span class="material-symbols-outlined chip-icon">monitor_heart</span>
+            <span>Run cluster health check</span>
+          </button>
+          <button class="suggestion-chip" data-prompt="Export telemetry logs">
+            <span class="material-symbols-outlined chip-icon">download</span>
+            <span>Export telemetry logs</span>
+          </button>
+        </div>
+
+        <!-- Command Composer -->
+        <footer class="composer-container" id="composer-container">
+          <div class="composer-card" id="composer-card">
+            
+            <!-- Running Tasks Dock (Unified Top Section) -->
+            <div class="running-tasks-dock hidden" id="running-tasks-dock">
+              <div class="tasks-dock-header" id="tasks-dock-toggle">
+                <div class="tasks-dock-header-left">
+                  <span class="tasks-dock-title" id="tasks-dock-title">1 task running</span>
+                </div>
+                <button class="tasks-dock-toggle-btn" id="tasks-dock-chevron" type="button" title="Toggle tasks">
+                  <span class="material-symbols-outlined" id="tasks-dock-chevron-icon">expand_more</span>
+                </button>
+              </div>
+              <div class="tasks-dock-list" id="tasks-dock-list">
+                <!-- Dynamically rendered task items -->
+              </div>
+            </div>
+
+            <!-- Attachments Preview Tray -->
+            <div class="composer-attachments-bar hidden" id="composer-attachments-bar"></div>
+
+            <div class="composer-inner">
+              <button class="composer-icon-button" id="btn-attach" title="Attach file or code">
+                <span class="material-symbols-outlined">add</span>
+              </button>
+              <input type="file" id="file-input" multiple accept="image/*,.pdf,.txt,.md,.json,.py,.js,.html" style="display:none">
+
+              <textarea 
+                id="composer-input" 
+                class="composer-textarea" 
+                placeholder="ENTER COMMAND OR QUERY..." 
+                rows="1" 
+                autocomplete="off" 
+                spellcheck="false"
+              ></textarea>
+
+              <div class="composer-actions">
+                <span class="composer-model-tag desktop-only">AVA 4.12</span>
+                <button class="composer-icon-button" id="btn-mic" title="Voice Input">
+                  <span class="material-symbols-outlined">mic</span>
+                </button>
+                <button class="composer-send-button" id="btn-send" title="Send Message (Enter)">
+                  <span class="material-symbols-outlined">arrow_upward</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Listening Banner -->
+            <div class="voice-listening-strip hidden" id="voice-listening-strip">
+              <span class="listening-pulse"></span>
+              <span class="listening-text">Listening to voice command...</span>
+              <button class="btn-voice-cancel" id="btn-voice-cancel">Cancel</button>
+            </div>
+
+          </div>
+        </footer>
+
+      </main>
+
+    </div>
+
+    <!-- Mobile Drawer Backdrop -->
+    <div class="drawer-backdrop hidden" id="drawer-backdrop"></div>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay hidden" id="settings-modal-overlay">
+      <div class="modal-card" id="settings-modal-card">
+        
+        <div class="modal-header">
+          <div class="modal-title-col">
+            <span class="modal-title">SERVER &amp; SYSTEM SETTINGS</span>
+            <span class="modal-sub">Node Configuration &amp; Appearance</span>
+          </div>
+          <button class="icon-button" id="btn-close-settings">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        <div class="modal-scrollable-body">
+          
+          <!-- Server Connection -->
+          <div class="settings-card">
+            <div class="card-section-title">SERVER CONNECTION</div>
+            <div class="form-grid">
+              
+              <div class="form-field">
+                <label for="settings-protocol">Protocol</label>
+                <select id="settings-protocol" class="form-select">
+                  <option value="ws://" selected>ws:// (Local / Plain)</option>
+                  <option value="wss://">wss:// (Secure TLS)</option>
+                </select>
+              </div>
+
+              <div class="form-field">
+                <label for="settings-host">Host Address</label>
+                <input type="text" id="settings-host" class="form-input" value="127.0.0.1" placeholder="127.0.0.1">
+              </div>
+
+              <div class="form-field">
+                <label for="settings-port">Port</label>
+                <div class="port-input-wrapper">
+                  <button class="port-step-btn" id="btn-port-dec" aria-label="Decrease port">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">remove</span>
+                  </button>
+                  <input type="number" id="settings-port" class="form-input text-center" value="8765">
+                  <button class="port-step-btn" id="btn-port-inc" aria-label="Increase port">
+                    <span class="material-symbols-outlined" style="font-size: 16px;">add</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="form-field">
+                <label for="settings-client-id">Hardware Client ID</label>
+                <input type="text" id="settings-client-id" class="form-input" value="web_workspace" placeholder="web_workspace">
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Diagnostics -->
+          <div class="settings-card">
+            <div class="card-section-title">NODE DIAGNOSTICS</div>
+            <div class="diagnostics-row">
+              <div class="diag-col">
+                <span class="diag-label">ROUND-TRIP LATENCY</span>
+                <span class="diag-val" id="diag-latency-val">-- ms</span>
+              </div>
+              <div class="diag-col">
+                <span class="diag-label">CONNECTION STATE</span>
+                <span class="diag-val text-green" id="diag-status-val">ONLINE</span>
+              </div>
+              <button class="btn-secondary" id="btn-test-ping">TEST CONNECTION</button>
+            </div>
+          </div>
+
+          <!-- Accent Color Customization -->
+          <div class="settings-card">
+            <div class="card-section-title">ACCENT COLOR</div>
+            <p class="card-subtext">Choose your accent highlight color across bubbles, buttons, and badges.</p>
+            <div class="accent-swatches-grid" id="accent-swatches-grid">
+              <!-- Swatches generated in JS -->
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-secondary" id="btn-discard-settings">DISCARD</button>
+          <button class="btn-primary" id="btn-save-settings">APPLY &amp; RECONNECT</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <script src="/static/client.js?v=102"></script>
+</body>
+</html>

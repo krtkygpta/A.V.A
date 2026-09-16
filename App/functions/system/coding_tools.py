@@ -52,18 +52,29 @@ def _normalize_target_path(path: str, location: Optional[str] = None) -> Path:
 
 
 def read_file(
-    path: str,
+    path: Optional[str] = None,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
     max_lines: int = 400,
     location: Optional[str] = None,
+    file_path: Optional[str] = None,
+    filepath: Optional[str] = None,
+    filename: Optional[str] = None,
+    limit: Optional[int] = None,
+    **kwargs: Any,
 ) -> str:
     """
     Read the contents of a file with line numbers (1-indexed).
     Supports partial slicing with start_line and end_line.
     """
+    target = path or file_path or filepath or filename
+    if not target:
+        return json.dumps({"status": "error", "error": "Missing required path or file_path argument."})
+    if limit is not None and (end_line is None or end_line == 0):
+        end_line = (start_line or 1) + limit - 1
+
     try:
-        full_path = _normalize_target_path(path, location)
+        full_path = _normalize_target_path(target, location)
         if not full_path.exists():
             return json.dumps({
                 "status": "error",
@@ -130,18 +141,31 @@ def read_file(
 
 
 def edit_file(
-    path: str,
-    target_content: str,
-    replacement_content: str,
+    path: Optional[str] = None,
+    target_content: Optional[str] = None,
+    replacement_content: Optional[str] = None,
     allow_multiple: bool = False,
     location: Optional[str] = None,
+    file_path: Optional[str] = None,
+    filepath: Optional[str] = None,
+    target_text: Optional[str] = None,
+    replacement_text: Optional[str] = None,
+    old_content: Optional[str] = None,
+    new_content: Optional[str] = None,
+    **kwargs: Any,
 ) -> str:
     """
     Surgically replace a block of text in an existing file.
     Validates uniqueness to prevent unintended duplicate edits.
     """
+    target_file = path or file_path or filepath
+    if not target_file:
+        return json.dumps({"status": "error", "error": "Missing path or file_path argument."})
+    target = target_content if target_content is not None else (target_text if target_text is not None else old_content)
+    replacement = replacement_content if replacement_content is not None else (replacement_text if replacement_text is not None else new_content)
+
     try:
-        full_path = _normalize_target_path(path, location)
+        full_path = _normalize_target_path(target_file, location)
         if not full_path.exists():
             return json.dumps({
                 "status": "error",
@@ -149,10 +173,10 @@ def edit_file(
             })
 
         text = full_path.read_text(encoding="utf-8")
-        target = str(target_content or "")
-        replacement = str(replacement_content if replacement_content is not None else "")
+        target_str = str(target or "")
+        repl_str = str(replacement if replacement is not None else "")
 
-        if not target:
+        if not target_str:
             return json.dumps({
                 "status": "error",
                 "error": "target_content cannot be empty."
@@ -160,8 +184,8 @@ def edit_file(
 
         # Normalize carriage returns for cross-platform matching
         normalized_text = text.replace("\r\n", "\n")
-        normalized_target = target.replace("\r\n", "\n")
-        normalized_replacement = replacement.replace("\r\n", "\n")
+        normalized_target = target_str.replace("\r\n", "\n")
+        normalized_replacement = repl_str.replace("\r\n", "\n")
 
         count = normalized_text.count(normalized_target)
         if count == 0:
@@ -193,17 +217,29 @@ def edit_file(
 
 
 def write_file(
-    path: str,
-    content: str,
+    path: Optional[str] = None,
+    content: Optional[str] = None,
     overwrite: bool = True,
     location: Optional[str] = None,
+    file_path: Optional[str] = None,
+    filepath: Optional[str] = None,
+    filename: Optional[str] = None,
+    code: Optional[str] = None,
+    text: Optional[str] = None,
+    data: Optional[str] = None,
+    **kwargs: Any,
 ) -> str:
     """
     Create or overwrite a file with given content.
     Automatically creates parent directories.
     """
+    target_file = path or file_path or filepath or filename
+    if not target_file:
+        return json.dumps({"status": "error", "error": "Missing path or file_path argument."})
+    actual_content = content if content is not None else (code if code is not None else (text if text is not None else data))
+
     try:
-        full_path = _normalize_target_path(path, location)
+        full_path = _normalize_target_path(target_file, location)
         if full_path.exists() and not overwrite:
             return json.dumps({
                 "status": "error",
@@ -211,14 +247,14 @@ def write_file(
             })
 
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        text = str(content if content is not None else "")
-        full_path.write_text(text, encoding="utf-8")
-        lines = len(text.splitlines())
+        text_str = str(actual_content if actual_content is not None else "")
+        full_path.write_text(text_str, encoding="utf-8")
+        lines = len(text_str.splitlines())
         return json.dumps({
             "status": "success",
             "path": str(full_path),
             "lines_written": lines,
-            "bytes": len(text.encode("utf-8")),
+            "bytes": len(text_str.encode("utf-8")),
             "message": f"File written successfully: {full_path}"
         })
     except Exception as e:
@@ -226,23 +262,35 @@ def write_file(
 
 
 def search_code(
-    query: str,
+    query: Optional[str] = None,
     path: Optional[str] = None,
     is_regex: bool = False,
     case_sensitive: bool = False,
     max_results: int = 50,
+    pattern: Optional[str] = None,
+    search_path: Optional[str] = None,
+    dir_path: Optional[str] = None,
+    directory: Optional[str] = None,
+    location: Optional[str] = None,
+    **kwargs: Any,
 ) -> str:
     """
-    Search for query within files in a directory or single file.
+    Search for query/pattern within files in a directory or single file.
     Excludes .git, __pycache__, node_modules, .venv, etc.
     """
+    search_term = query if query is not None else pattern
+    if not search_term:
+        return json.dumps({"status": "error", "error": "Missing query or pattern to search for."})
+    target_path = path or search_path or dir_path or directory or location or "."
+
     try:
-        root = _normalize_target_path(path or ".")
+        root = _normalize_target_path(target_path)
         if not root.exists():
             return json.dumps({"status": "error", "error": f"Path does not exist: {root}"})
 
         flags = 0 if case_sensitive else re.IGNORECASE
-        pattern = re.compile(query if is_regex else re.escape(query), flags)
+        pat = re.compile(search_term if is_regex else re.escape(search_term), flags)
+        pattern = pat  # for check_file compatibility
 
         ignored_dirs = {
             ".git",
@@ -308,12 +356,17 @@ def list_dir(
     path: Optional[str] = None,
     max_depth: int = 2,
     location: Optional[str] = None,
+    dir_path: Optional[str] = None,
+    directory: Optional[str] = None,
+    folder: Optional[str] = None,
+    **kwargs: Any,
 ) -> str:
     """
     List contents of a directory with depth limit, sizes, and file types.
     """
+    target = path or dir_path or directory or folder or "."
     try:
-        root = _normalize_target_path(path or ".", location)
+        root = _normalize_target_path(target, location)
         if not root.exists():
             return json.dumps({"status": "error", "error": f"Directory not found: {root}"})
         if not root.is_dir():

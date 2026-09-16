@@ -23,17 +23,49 @@ try:
 except Exception:
     pass
 
-# Directory to store conversations
-CONVERSATIONS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "conversations")
+# Directory to store conversations — unified with Server storage for seamless sync
+_SERVER_CONV_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "Server", "data", "conversations")
+_LOCAL_CONV_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "conversations")
 
-# Groq client for naming conversations
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+if os.path.exists(os.path.dirname(_SERVER_CONV_DIR)):
+    CONVERSATIONS_DIR = _SERVER_CONV_DIR
+else:
+    CONVERSATIONS_DIR = _LOCAL_CONV_DIR
+
+# Groq client for naming conversations (lazy init)
+client = None
+
+
+def _get_groq_client():
+    global client
+    if client is None:
+        key = os.getenv("GROQ_API_KEY")
+        if key and str(key).strip() and not str(key).startswith("your_"):
+            try:
+                client = Groq(api_key=key)
+            except Exception:
+                client = None
+    return client
 
 
 def _ensure_dir():
-    """Create conversations directory if it doesn't exist."""
+    """Create conversations directory if it doesn't exist and migrate local chats."""
     if not os.path.exists(CONVERSATIONS_DIR):
-        os.makedirs(CONVERSATIONS_DIR)
+        os.makedirs(CONVERSATIONS_DIR, exist_ok=True)
+
+    # If using Server/data/conversations, copy over any historical local chats from App/data/conversations
+    if CONVERSATIONS_DIR == _SERVER_CONV_DIR and os.path.exists(_LOCAL_CONV_DIR):
+        try:
+            import shutil
+            for fname in os.listdir(_LOCAL_CONV_DIR):
+                if not fname.endswith(".json"):
+                    continue
+                src = os.path.join(_LOCAL_CONV_DIR, fname)
+                dst = os.path.join(CONVERSATIONS_DIR, fname)
+                if not os.path.exists(dst):
+                    shutil.copy2(src, dst)
+        except Exception as e:
+            print(f"[ConvMgr] Note during conversation migration: {e}")
 
 
 class Conversation:
@@ -144,15 +176,10 @@ class ConversationManager:
     
     def _backfill_from_llm_messages(self) -> int:
         """
-        If the current conversation is empty, copy dialogue from the live
-        LLM message list (core.messageHandler.messages).
-
-        The first TUI session historically never called start_new_conversation,
-        so messages lived only in the LLM list and were lost on /new.
+        Synchronize dialogue from the live LLM message list (core.messageHandler.messages)
+        into current_conversation.
         """
         if not self.current_conversation:
-            return 0
-        if self.current_conversation.messages:
             return 0
         try:
             from core.messageHandler import messages, messages_lock
@@ -162,8 +189,12 @@ class ConversationManager:
         except Exception:
             return 0
 
+        # Only process messages beyond what's already recorded
+        existing_count = len(self.current_conversation.messages)
+        slice_to_process = snapshot[existing_count:] if existing_count > 0 else snapshot
+
         added = 0
-        for m in snapshot:
+        for m in slice_to_process:
             if not isinstance(m, dict):
                 continue
             role = m.get("role")
@@ -183,8 +214,6 @@ class ConversationManager:
                 role, content_str, m.get("tool_call_id")
             )
             added += 1
-        if added:
-            print(f"[ConvMgr] Backfilled {added} message(s) from live LLM history")
         return added
 
     def ensure_current_conversation(self) -> Conversation:
@@ -233,6 +262,15 @@ class ConversationManager:
         print(f"[ConvMgr] Started: {self.current_conversation.id}")
         return self.current_conversation
 
+    @staticmethod
+    def _is_placeholder_name(name: str) -> bool:
+        if not name or str(name).strip() in ("New Conversation", "Unnamed", "Conversation"):
+            return True
+        norm = str(name).strip()
+        if re.match(r"^(?:Conversation|Chat)\b", norm, re.IGNORECASE):
+            return True
+        return False
+
     def save_conversation(self):
         """Save current conversation to disk.
 
@@ -248,7 +286,12 @@ class ConversationManager:
         if not conv or len(conv.messages) == 0:
             return
 
-        # Save conversation file immediately (with placeholder name if needed)
+        # Coerce immediate clean title so it never displays placeholder in sidebar
+        was_placeholder = self._is_placeholder_name(conv.name)
+        if was_placeholder and len(conv.messages) >= 1:
+            conv.name = self._heuristic_title(conv)
+
+        # Save conversation file immediately
         filepath = os.path.join(CONVERSATIONS_DIR, f"{conv.id}.json")
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(conv.to_dict(), f, indent=2, ensure_ascii=False)
@@ -264,12 +307,8 @@ class ConversationManager:
         self._save_index()
         print(f"[ConvMgr] Saved: {conv.id} ({len(conv.messages)} msgs)")
 
-        # Generate name + summary in background, then re-save
-        is_placeholder = (
-            conv.name in ("New Conversation", "Unnamed")
-            or bool(re.match(r"^Conversation \d{8}_\d{6}$", conv.name))
-        )
-        if is_placeholder and len(conv.messages) >= 1:
+        # Generate refined AI name + summary in background, then re-save
+        if was_placeholder and len(conv.messages) >= 1:
             def _enrich(c, fp):
                 try:
                     c.name = self._generate_name(c)
@@ -285,6 +324,23 @@ class ConversationManager:
 
             threading.Thread(target=_enrich, args=(conv, filepath), daemon=True).start()
     
+    def _heuristic_title(self, conv: Conversation) -> str:
+        """Instant heuristic title from first user query."""
+        user_text = conv.get_user_messages_text()
+        if not user_text.strip():
+            return f"Conversation {conv.id[:8]}"
+        clean_prompt = re.sub(r"^[A-Za-z0-9_\-\s]+:\s*", "", user_text.strip())
+        words = clean_prompt.split()
+        while words and words[0].lower().strip(".,!?:;") in (
+            "can", "could", "please", "hey", "ava", "tell", "show", "what", "how", "you", "me", "is", "are", "the", "uh", "uhuh", "i", "want", "to", "know"
+        ):
+            words = words[1:]
+        if words:
+            title = " ".join(words[:5]).strip(".,!?:;").title()
+            if title:
+                return title[:45]
+        return clean_prompt[:32].strip().title() or f"Conversation {conv.id[:8]}"
+
     def _generate_name(self, conv: Conversation) -> str:
         """Generate a short, descriptive name for the conversation using LLM or smart heuristics."""
         try:
@@ -292,7 +348,7 @@ class ConversationManager:
             if not user_text.strip():
                 return f"Conversation {conv.id}"
             
-            # Clean text: remove user name prefix like "User: "
+            # Clean text: remove user name prefix like "User: ", "Kartikey: "
             clean_prompt = re.sub(r"^[A-Za-z0-9_\-\s]+:\s*", "", user_text.strip())
             prompt_snippet = clean_prompt[:500]
 
@@ -314,22 +370,24 @@ class ConversationManager:
                         }
                     ],
                     tools=[],
-                    model_tier="small",
+                    model_tier="low",
+                    include_server_context=False,
+                    timeout=3.0,
                 )
                 name = (res.get("content") or "").strip()
                 name = re.sub(r'^["\']+|["\']+$', "", name).strip()
                 name = re.sub(r"^Title:\s*", "", name, flags=re.IGNORECASE).strip()
-                if name and len(name) <= 60 and "error" not in name.lower():
+                if name and len(name) <= 50 and "error" not in name.lower() and not self._is_placeholder_name(name):
                     return name
             except Exception as e:
                 print(f"[ConvMgr] Server API name generation fallback: {e}")
 
-            # 2. Try Groq with available fallback models
-            groq_key = os.getenv("GROQ_API_KEY")
-            if groq_key:
-                for g_model in ["groq/compound-mini", "qwen/qwen3.8-27b", "allam-2-7b"]:
+            # 2. Try Groq with current valid models
+            groq_c = _get_groq_client()
+            if groq_c:
+                for g_model in ["openai/gpt-oss-20b", "groq/compound-mini", "qwen/qwen3.8-27b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
                     try:
-                        response = client.chat.completions.create(
+                        response = groq_c.chat.completions.create(
                             model=g_model,
                             messages=[{
                                 "role": "user",
@@ -341,26 +399,27 @@ class ConversationManager:
                         name = response.choices[0].message.content.strip()
                         name = re.sub(r'^["\']+|["\']+$', '', name).strip()
                         name = re.sub(r"^Title:\s*", "", name, flags=re.IGNORECASE).strip()
-                        if name and len(name) <= 60:
+                        if name and len(name) <= 50 and not self._is_placeholder_name(name):
                             return name
                     except Exception:
                         continue
 
             # 3. Intelligent heuristic fallback from user message
             words = clean_prompt.split()
+            while words and words[0].lower().strip(".,!?:;") in (
+                "can", "could", "please", "hey", "ava", "tell", "show", "what", "how", "you", "me", "is", "are", "the", "uh", "uhuh"
+            ):
+                words = words[1:]
             if words:
-                if len(words) > 1 and words[0].lower() in ("can", "could", "please", "hey", "ava", "tell", "show", "what", "how"):
-                    words = words[1:]
-                if len(words) > 1 and words[0].lower() in ("you", "me", "is", "are", "the"):
-                    words = words[1:]
                 title = " ".join(words[:5]).strip(".,!?:;").title()
                 if title:
-                    return title[:50]
+                    return title[:45]
 
-            return f"Chat {conv.created_at[:10]}"
+            first_line = clean_prompt.split("\n")[0][:40].strip()
+            return first_line or f"Chat {conv.created_at[:10]}"
         except Exception as e:
             print(f"[ConvMgr] Name generation error: {e}")
-            return f"Conversation {conv.id}"
+            return f"Chat {conv.created_at[:10]}"
     
     def _generate_summary(self, conv: Conversation) -> str:
         """Generate a brief summary of the conversation."""
@@ -401,11 +460,11 @@ class ConversationManager:
                 pass
 
             # 2. Try Groq
-            groq_key = os.getenv("GROQ_API_KEY")
-            if groq_key:
-                for g_model in ["groq/compound-mini", "qwen/qwen3.8-27b", "allam-2-7b"]:
+            groq_c = _get_groq_client()
+            if groq_c:
+                for g_model in ["openai/gpt-oss-20b", "groq/compound-mini", "qwen/qwen3.8-27b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"]:
                     try:
-                        response = client.chat.completions.create(
+                        response = groq_c.chat.completions.create(
                             model=g_model,
                             messages=[{
                                 "role": "user",
@@ -428,11 +487,11 @@ class ConversationManager:
         count = 0
         for conv_id, info in reversed(list(self.conversations_index.items())):
             name = info.get("name", "")
-            if name in ("New Conversation", "Unnamed", "Conversation") or re.match(r"^Conversation \d{8}_\d{6}$", name):
+            if self._is_placeholder_name(name):
                 conv = self.load_conversation(conv_id)
                 if conv and conv.messages:
                     new_name = self._generate_name(conv)
-                    if new_name and not new_name.startswith("Conversation "):
+                    if new_name and not self._is_placeholder_name(new_name):
                         conv.name = new_name
                         if not conv.summary:
                             conv.summary = self._generate_summary(conv)
@@ -453,18 +512,101 @@ class ConversationManager:
         return count
     
     def load_conversation(self, conversation_id: str) -> Optional[Conversation]:
-        """Load a specific conversation from disk."""
+        """Load a specific conversation from disk, local fallback, or remote server."""
         filepath = os.path.join(CONVERSATIONS_DIR, f"{conversation_id}.json")
-        if not os.path.exists(filepath):
-            return None
         
+        # Check local fallback if not found in primary
+        if not os.path.exists(filepath) and os.path.exists(os.path.join(_LOCAL_CONV_DIR, f"{conversation_id}.json")):
+            filepath = os.path.join(_LOCAL_CONV_DIR, f"{conversation_id}.json")
+
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return Conversation.from_dict(data)
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"[ConvMgr] Load error: {e}")
+
+        # If not found locally, attempt to fetch from server
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return Conversation.from_dict(data)
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"[ConvMgr] Load error: {e}")
+            try:
+                from core.server_api import get_remote_conversation_history
+            except ImportError:
+                from App.core.server_api import get_remote_conversation_history
+            msgs = get_remote_conversation_history(conversation_id)
+            if msgs:
+                conv = Conversation(conversation_id)
+                meta = self.conversations_index.get(conversation_id, {})
+                conv.name = meta.get("name", "Conversation")
+                conv.summary = meta.get("summary", "")
+                conv.messages = msgs
+                target_path = os.path.join(CONVERSATIONS_DIR, f"{conversation_id}.json")
+                with open(target_path, "w", encoding="utf-8") as f:
+                    json.dump(conv.to_dict(), f, indent=2, ensure_ascii=False)
+                return conv
+        except Exception as e:
+            print(f"[ConvMgr] Remote fetch failed for {conversation_id}: {e}")
+
+        return None
+
+    def switch_to_conversation(self, conversation_id: str) -> Optional[Conversation]:
+        """Switch current conversation thread to an existing conversation."""
+        conv = self.load_conversation(conversation_id)
+        if not conv:
             return None
+        self.current_conversation = conv
+        return conv
+
+    def sync_with_server(self) -> int:
+        """Bidirectionally synchronize conversations between TUI and AVA Server."""
+        synced_count = 0
+        try:
+            from core.server_api import list_remote_conversations, get_remote_conversation_history, sync_remote_conversation
+            remote_list = list_remote_conversations(limit=100)
+            
+            # 1. Pull server conversations to local
+            for item in remote_list:
+                cid = item.get("id")
+                if not cid:
+                    continue
+                filepath = os.path.join(CONVERSATIONS_DIR, f"{cid}.json")
+                if not os.path.exists(filepath):
+                    msgs = get_remote_conversation_history(cid)
+                    if msgs:
+                        conv = Conversation(cid)
+                        conv.name = item.get("name", "Conversation")
+                        conv.summary = item.get("summary", "")
+                        conv.messages = msgs
+                        with open(filepath, "w", encoding="utf-8") as f:
+                            json.dump(conv.to_dict(), f, indent=2, ensure_ascii=False)
+                        self.conversations_index[cid] = {
+                            "name": conv.name,
+                            "created_at": conv.created_at,
+                            "updated_at": conv.updated_at,
+                            "summary": conv.summary,
+                            "message_count": len(conv.messages),
+                        }
+                        synced_count += 1
+                elif cid not in self.conversations_index:
+                    self.conversations_index[cid] = {
+                        "name": item.get("name", "Conversation"),
+                        "created_at": item.get("date", ""),
+                        "updated_at": item.get("date", ""),
+                        "summary": item.get("summary", ""),
+                    }
+
+            # 2. Push local conversations to server
+            for cid, info in list(self.conversations_index.items()):
+                if not any(r.get("id") == cid for r in remote_list):
+                    conv = self.load_conversation(cid)
+                    if conv and conv.messages:
+                        sync_remote_conversation(conv.to_dict())
+
+            if synced_count > 0:
+                self._save_index()
+        except Exception as e:
+            print(f"[ConvMgr] sync_with_server error: {e}")
+        return synced_count
     
     def get_recent_conversations(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get list of recent conversations (for LLM context)."""
@@ -475,23 +617,30 @@ class ConversationManager:
         # Ensure files on disk are indexed
         try:
             if os.path.exists(CONVERSATIONS_DIR):
-                for f in os.listdir(CONVERSATIONS_DIR):
-                    if f.endswith(".json") and f != "index.json":
-                        cid = f[:-5]
-                        if cid not in self.conversations_index:
-                            fp = os.path.join(CONVERSATIONS_DIR, f)
-                            try:
-                                with open(fp, "r", encoding="utf-8") as jf:
-                                    cdata = json.load(jf)
-                                    self.conversations_index[cid] = {
-                                        "name": cdata.get("name", "Conversation"),
-                                        "created_at": cdata.get("created_at", ""),
-                                        "updated_at": cdata.get("updated_at", ""),
-                                        "summary": cdata.get("summary", ""),
-                                        "message_count": len(cdata.get("messages", [])),
-                                    }
-                            except Exception:
-                                pass
+                disk_cids = {
+                    f[:-5] for f in os.listdir(CONVERSATIONS_DIR)
+                    if f.endswith(".json") and f != "index.json"
+                }
+                # Prune entries no longer on disk (e.g. combined into consolidated chats)
+                for cid in list(self.conversations_index.keys()):
+                    if cid not in disk_cids:
+                        self.conversations_index.pop(cid, None)
+
+                for cid in disk_cids:
+                    if cid not in self.conversations_index:
+                        fp = os.path.join(CONVERSATIONS_DIR, f"{cid}.json")
+                        try:
+                            with open(fp, "r", encoding="utf-8") as jf:
+                                cdata = json.load(jf)
+                                self.conversations_index[cid] = {
+                                    "name": cdata.get("name", "Conversation"),
+                                    "created_at": cdata.get("created_at", ""),
+                                    "updated_at": cdata.get("updated_at", ""),
+                                    "summary": cdata.get("summary", ""),
+                                    "message_count": len(cdata.get("messages", [])),
+                                }
+                        except Exception:
+                            pass
         except Exception:
             pass
 
@@ -504,6 +653,20 @@ class ConversationManager:
             reverse=True
         )
         
+        # If any recent conversation has a placeholder name, trigger background enrichment
+        try:
+            if any(self._is_placeholder_name(info.get("name", "")) for _, info in sorted_convos[:limit]):
+                if not getattr(self, "_backfill_running", False):
+                    self._backfill_running = True
+                    def _bg_backfill():
+                        try:
+                            self.backfill_unnamed_conversations(limit=30)
+                        finally:
+                            self._backfill_running = False
+                    threading.Thread(target=_bg_backfill, daemon=True).start()
+        except Exception:
+            pass
+
         result = []
         for conv_id, info in sorted_convos[:limit]:
             dt = str(info.get("created_at", "") or info.get("updated_at", ""))
@@ -833,11 +996,12 @@ def save_current_conversation():
 
     try:
         from core.TaskManager import update_conversation_state
-        update_conversation_state(
-            conv.id if conv else "",
-            conv.name if conv else "",
-            is_active=False,
-        )
+        if conv:
+            update_conversation_state(
+                conv.id,
+                conv.name or "",
+                is_active=True,
+            )
     except Exception:
         pass
 

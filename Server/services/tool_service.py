@@ -50,8 +50,8 @@ class ToolService:
     def google_ai_search(self, query: str) -> dict[str, Any]:
         return self.google_ai.execute(query=query)
 
-    def analyze_image(self, image_base64: str, query: str) -> dict[str, Any]:
-        return self.image_analysis.execute(image_base64=image_base64, query=query)
+    def analyze_image(self, image_base64: str = "", query: str = "Describe this image", image_path: Optional[str] = None) -> dict[str, Any]:
+        return self.image_analysis.execute(image_base64=image_base64, query=query, image_path=image_path)
 
     def execute_code(self, code: str, timeout: int = 5) -> dict[str, Any]:
         return self.code_sandbox.execute(code=code, timeout=timeout)

@@ -206,6 +206,11 @@ class CodingAgent:
             model_tier=self.model_tier,
         )
         self.task = self.subagent.task
+        if kwargs.get("origin"):
+            self.task.metadata = dict(self.task.metadata or {})
+            self.task.metadata["origin"] = kwargs["origin"]
+            if kwargs.get("caller_id"):
+                self.task.metadata["caller_id"] = kwargs["caller_id"]
         self.registry = self.subagent.registry
 
     def start(self):

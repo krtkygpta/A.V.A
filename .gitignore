@@ -40,6 +40,10 @@ mcp.json
 *token*.json
 **/bash_permissions*
 **/bash_permissions.json
+*.pem
+*.key
+*.crt
+Server/certs/
 
 # --- Runtime / user data (conversations, memories, recordings, tasks, OAuth) ---
 **/data/*
@@ -62,11 +66,11 @@ mcp.json
 .claude/
 .agents/
 .android/
-android/
-android_app/.gradle/
-android_app/.kotlin/
-android_app/**/build/
-android_app/local.properties
+.android/
+Clients/Android/.gradle/
+Clients/Android/.kotlin/
+Clients/Android/**/build/
+Clients/Android/local.properties
 *.apk
 *.aab
 .commandcode/
@@ -99,6 +103,7 @@ ehthumbs.db
 *.temp
 tmp/
 temp/
+scratch/
 .cache/
 
 # --- Accidental path captures ---
