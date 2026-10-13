@@ -54,6 +54,12 @@
       </div>
 
       <div class="topbar-right">
+        <!-- User Presence Toggle Button -->
+        <button class="presence-toggle-btn" id="btn-toggle-presence" title="Click to toggle: Present / Away">
+          <span class="presence-dot online" id="presence-dot"></span>
+          <span class="presence-text" id="presence-text">Present</span>
+        </button>
+
         <a href="/devices" class="icon-button" id="btn-open-devices" title="Device Manager" style="text-decoration: none; color: inherit; display: inline-flex; align-items: center; justify-content: center;">
           <span class="material-symbols-outlined">devices</span>
         </a>
@@ -61,6 +67,9 @@
           <span class="material-symbols-outlined icon-small">hub</span>
           <span id="header-client-id">client1_pc</span>
         </div>
+        <button class="icon-button" id="btn-open-sentinel" title="Sentinel Diagnostics &amp; Flight Recorder Simulator">
+          <span class="material-symbols-outlined">shield</span>
+        </button>
         <button class="icon-button" id="btn-open-settings" title="Server &amp; Theme Settings">
           <span class="material-symbols-outlined">settings</span>
         </button>
@@ -175,6 +184,10 @@
             <span class="session-hash-label" id="session-hash-label">SESSION #NEW // ACTIVE STREAM</span>
           </div>
           <div class="session-banner-right">
+            <button class="thinking-history-btn" id="btn-toggle-thinking-drawer" title="Toggle Layer 2 Thinking / Reasoning Log">
+              <span class="material-symbols-outlined" style="font-size: 15px;">psychology</span>
+              <span>Thinking Drawer</span>
+            </button>
             <span class="model-pill-badge" id="session-model-pill">AVA 4.12</span>
           </div>
         </div>
@@ -209,16 +222,38 @@
 
           </div>
 
-          <!-- Thinking / Streaming Status Bar -->
+          <!-- Thinking / Reasoning Live Status Bar -->
           <div class="thinking-strip hidden" id="thinking-strip">
-            <div class="thinking-pulse-indicator">
-              <span class="thinking-dot"></span>
-              <span class="thinking-dot"></span>
-              <span class="thinking-dot"></span>
+            <div class="thinking-beacon">
+              <span class="thinking-beacon-ping"></span>
+              <span class="thinking-beacon-core"></span>
             </div>
-            <span class="thinking-label" id="thinking-label">AVA is reasoning...</span>
+            <div class="thinking-label-group">
+              <span class="thinking-tag">L2 REASONING</span>
+              <span class="thinking-label" id="thinking-label">Synthesizing execution plan...</span>
+            </div>
+            <button class="thinking-expand-btn" id="btn-toggle-thinking" title="Inspect system reasoning trace">
+              <span class="thinking-btn-text">Trace</span>
+              <span class="material-symbols-outlined" id="thinking-expand-icon" style="font-size: 14px;">expand_more</span>
+            </button>
+          </div>
+
+          <!-- Thinking Process Live Drawer -->
+          <div class="thinking-drawer hidden" id="thinking-drawer">
+            <div class="thinking-drawer-header">
+              <div class="thinking-drawer-title">
+                <span class="material-symbols-outlined" style="font-size: 14px; opacity: 0.8;">terminal</span>
+                <span>SYSTEM 2 EXECUTION TRACE</span>
+              </div>
+              <div class="thinking-drawer-meta">
+                <span class="thinking-drawer-ticket" id="thinking-drawer-ticket">#DISPATCH</span>
+                <span class="thinking-drawer-status-badge">ACTIVE</span>
+              </div>
+            </div>
+            <div class="thinking-drawer-logs" id="thinking-drawer-logs"></div>
           </div>
         </div>
+
 
         <!-- Action Suggestion Chips -->
         <div class="suggestion-chips-row" id="suggestion-chips-row">
@@ -360,7 +395,7 @@
             </div>
           </div>
 
-          <!-- Diagnostics -->
+          <!-- Node Diagnostics -->
           <div class="settings-card">
             <div class="card-section-title">NODE DIAGNOSTICS</div>
             <div class="diagnostics-row">
@@ -376,6 +411,49 @@
             </div>
           </div>
 
+          <!-- Server Cognitive Engine (A.V.A 2.0 Dual Layer) -->
+          <div class="settings-card">
+            <div class="card-section-title">SERVER COGNITIVE ENGINE (A.V.A 2.0)</div>
+            <p class="card-subtext">Manage server-side Dual-Layer architecture and continuous sentinels via REST API.</p>
+            <div class="form-grid">
+              
+              <div class="form-field">
+                <label for="server-dual-layer-toggle">Dual-Layer Mode</label>
+                <select id="server-dual-layer-toggle" class="form-select">
+                  <option value="true">Enabled (Layer 1 Avatar + Layer 2 Swarm)</option>
+                  <option value="false">Disabled (Classic Single Agent)</option>
+                </select>
+              </div>
+
+              <div class="form-field">
+                <label for="server-sentinels-toggle">Continuous Sentinels</label>
+                <select id="server-sentinels-toggle" class="form-select">
+                  <option value="true">Enabled (System &amp; Flight Recorder)</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+
+              <div class="form-field">
+                <label for="server-model-name">Main Model</label>
+                <input type="text" id="server-model-name" class="form-input" placeholder="e.g. llama-3.3-70b-versatile">
+              </div>
+
+              <div class="form-field">
+                <label for="server-layer2-model">Layer 2 Deep Model</label>
+                <input type="text" id="server-layer2-model" class="form-input" placeholder="Optional override for Layer 2">
+              </div>
+
+            </div>
+            <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+              <button class="btn-secondary btn-small" id="btn-goto-sentinel-sim" style="font-size: 11px;">
+                <span class="material-symbols-outlined" style="font-size: 14px; margin-right: 4px;">crisis_alert</span>
+                SENTINEL SIMULATOR
+              </button>
+              <button class="btn-secondary" id="btn-save-server-config">SAVE SERVER SETTINGS</button>
+            </div>
+          </div>
+
+
           <!-- Accent Color Customization -->
           <div class="settings-card">
             <div class="card-section-title">ACCENT COLOR</div>
@@ -390,6 +468,107 @@
         <div class="modal-footer">
           <button class="btn-secondary" id="btn-discard-settings">DISCARD</button>
           <button class="btn-primary" id="btn-save-settings">APPLY &amp; RECONNECT</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Sentinel Diagnostics & Flight Recorder Simulator Modal -->
+    <div class="modal-overlay hidden" id="sentinel-modal-overlay">
+      <div class="modal-card" id="sentinel-modal-card" style="max-width: 680px;">
+        
+        <div class="modal-header">
+          <div class="modal-title-col">
+            <span class="modal-title">SENTINEL SIMULATOR &amp; FLIGHT RECORDER</span>
+            <span class="modal-sub">Simulate Catastrophic Sensor Alerts &amp; Inspect Layer 2 Diagnosis</span>
+          </div>
+          <button class="icon-button" id="btn-close-sentinel">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+
+        <div class="modal-scrollable-body">
+          
+          <!-- Event Simulation Card -->
+          <div class="settings-card">
+            <div class="card-section-title">SIMULATE SENTINEL EVENT</div>
+            <p class="card-subtext">Inject a synthetic hardware or environmental breach into the Blackboard to test live Layer 2 diagnosis and real-time client alerts.</p>
+            
+            <div class="form-field" style="margin-bottom: 12px;">
+              <label for="sim-preset">Quick Preset</label>
+              <select id="sim-preset" class="form-select">
+                <option value="thermal" selected>Thermal Runaway (CPU 98°C, 99% compute)</option>
+                <option value="memory">RAM Saturation Warning (92% memory load)</option>
+                <option value="git">Workspace Sentinel (Dirty working tree / Build fail)</option>
+                <option value="custom">Custom Payload</option>
+              </select>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="sim-sentinel">Sentinel Identifier</label>
+                <input type="text" id="sim-sentinel" class="form-input" value="system_sentinel">
+              </div>
+
+              <div class="form-field">
+                <label for="sim-severity">Severity Level</label>
+                <select id="sim-severity" class="form-select">
+                  <option value="CRITICAL" selected>CRITICAL (Catastrophic Breach)</option>
+                  <option value="WARN">WARN (Threshold Warning)</option>
+                  <option value="INFO">INFO (Normal Telemetry)</option>
+                </select>
+              </div>
+
+              <div class="form-field full-width" style="grid-column: 1 / -1;">
+                <label for="sim-title">Alert Title</label>
+                <input type="text" id="sim-title" class="form-input" value="CPU Overheat / Runaway Process">
+              </div>
+
+              <div class="form-field full-width" style="grid-column: 1 / -1;">
+                <label for="sim-message">Alert Description / Telemetry Detail</label>
+                <input type="text" id="sim-message" class="form-input" value="Core package reached 96°C with 99% sustained compute utilization.">
+              </div>
+            </div>
+
+            <div style="margin-top: 14px; display: flex; gap: 8px; justify-content: flex-end;">
+              <button class="btn-primary" id="btn-trigger-sentinel-event" style="background-color: var(--color-red); color: #fff; border: none; font-weight: 600;">
+                <span class="material-symbols-outlined" style="font-size: 16px; margin-right: 4px;">crisis_alert</span>
+                TRIGGER SENTINEL EVENT
+              </button>
+            </div>
+
+            <!-- Injected Event Diagnosis Result -->
+            <div id="sim-result-box" class="sentinel-result-box hidden">
+              <div class="sentinel-result-header">
+                <span class="sentinel-result-badge" id="sim-result-badge">CRITICAL ALERT DISPATCHED</span>
+                <span class="sentinel-result-id" id="sim-result-entry-id">rec_0000</span>
+              </div>
+              <div class="sentinel-result-diag" id="sim-result-diag">
+                <!-- Layer 2 diagnosis text -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Blackboard Flight Recorder Card -->
+          <div class="settings-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div class="card-section-title" style="margin-bottom: 0;">BLACKBOARD FLIGHT RECORDER (2,000-ENTRY RING BUFFER)</div>
+              <button class="btn-secondary" id="btn-refresh-telemetry" style="padding: 4px 10px; font-size: 11px;">
+                <span class="material-symbols-outlined" style="font-size: 14px; margin-right: 4px;">refresh</span>
+                REFRESH LOGS
+              </button>
+            </div>
+            <p class="card-subtext">Continuous high-frequency telemetry buffered for instant post-mortem analysis.</p>
+            
+            <div class="flight-recorder-feed" id="flight-recorder-feed">
+              <div class="task-empty-state">Click 'REFRESH LOGS' to query recent flight recorder records.</div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-secondary" id="btn-close-sentinel-footer">CLOSE</button>
         </div>
 
       </div>

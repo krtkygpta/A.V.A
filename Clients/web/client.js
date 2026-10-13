@@ -24,11 +24,20 @@ class AvaStitchClient {
 
     // Settings & Identity
     this.protocol = localStorage.getItem('ava_protocol') || (window.location.protocol === 'https:' ? 'wss://' : 'ws://');
-    this.host = localStorage.getItem('ava_host') || window.location.hostname || '127.0.0.1';
-    this.port = localStorage.getItem('ava_port') || window.location.port || '8765';
+    let defaultHost = window.location.hostname || '127.0.0.1';
+    if (defaultHost === 'localhost') defaultHost = '127.0.0.1';
+    this.host = localStorage.getItem('ava_host') || defaultHost;
+
+    const locPort = window.location.port;
+    const isAvaPort = (locPort === '8765' || locPort === '8766');
+    this.port = localStorage.getItem('ava_port') || (isAvaPort ? locPort : '8765');
+
     this.clientId = localStorage.getItem('ava_client_id') || 'web_workspace';
     this.deviceType = 'web';
     this.accentColor = localStorage.getItem('ava_accent_color') || '#FFFFFF';
+    this.lastHeartbeatAck = Date.now();
+    this.activeStreamingRow = null;
+    this.activeStreamingText = '';
 
     // DOM Bindings
     this.bindDOMElements();
@@ -39,6 +48,24 @@ class AvaStitchClient {
     // Init UI Listeners
     this.initEventListeners();
     this.initAttachments();
+
+    // Life-cycle / Tab Resume Handlers
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        const isDead = !this.ws || this.ws.readyState !== WebSocket.OPEN || (Date.now() - this.lastHeartbeatAck > 35000);
+        if (isDead) {
+          console.log('[AVA-WS] Tab restored and connection stale — reconnecting...');
+          this.connectWebSocket();
+        }
+      }
+    });
+    window.addEventListener('online', () => {
+      console.log('[AVA-WS] Browser online event — reconnecting...');
+      this.connectWebSocket();
+    });
+    window.addEventListener('offline', () => {
+      this.updateConnectionState(false, 'NETWORK OFFLINE');
+    });
 
     // Connect & Initial Sync
     this.connectWebSocket();
@@ -136,9 +163,51 @@ class AvaStitchClient {
     this.btnTestPing = document.getElementById('btn-test-ping');
     this.accentSwatchesGrid = document.getElementById('accent-swatches-grid');
 
+    // Server Cognitive Settings (A.V.A 2.0)
+    this.serverDualLayerToggle = document.getElementById('server-dual-layer-toggle');
+    this.serverSentinelsToggle = document.getElementById('server-sentinels-toggle');
+    this.serverModelName = document.getElementById('server-model-name');
+    this.serverLayer2Model = document.getElementById('server-layer2-model');
+    this.btnSaveServerConfig = document.getElementById('btn-save-server-config');
+
+    // User Presence Toggle
+    this.btnTogglePresence = document.getElementById('btn-toggle-presence');
+    this.presenceDot = document.getElementById('presence-dot');
+    this.presenceText = document.getElementById('presence-text');
+    this.currentUserPresence = 'present';
+
+    // Thinking Drawer & Expand Button
+    this.btnToggleThinking = document.getElementById('btn-toggle-thinking');
+    this.btnToggleThinkingDrawer = document.getElementById('btn-toggle-thinking-drawer');
+    this.thinkingDrawer = document.getElementById('thinking-drawer');
+    this.thinkingDrawerTicket = document.getElementById('thinking-drawer-ticket');
+    this.thinkingDrawerLogs = document.getElementById('thinking-drawer-logs');
+    this.thinkingExpandIcon = document.getElementById('thinking-expand-icon');
+    this.currentTurnThoughts = [];
+
+    // Sentinel Simulator & Flight Recorder
+    this.btnOpenSentinel = document.getElementById('btn-open-sentinel');
+    this.btnGotoSentinelSim = document.getElementById('btn-goto-sentinel-sim');
+    this.sentinelModalOverlay = document.getElementById('sentinel-modal-overlay');
+    this.btnCloseSentinel = document.getElementById('btn-close-sentinel');
+    this.btnCloseSentinelFooter = document.getElementById('btn-close-sentinel-footer');
+    this.simPreset = document.getElementById('sim-preset');
+    this.simSentinel = document.getElementById('sim-sentinel');
+    this.simSeverity = document.getElementById('sim-severity');
+    this.simTitle = document.getElementById('sim-title');
+    this.simMessage = document.getElementById('sim-message');
+    this.btnTriggerSentinelEvent = document.getElementById('btn-trigger-sentinel-event');
+    this.simResultBox = document.getElementById('sim-result-box');
+    this.simResultBadge = document.getElementById('sim-result-badge');
+    this.simResultEntryId = document.getElementById('sim-result-entry-id');
+    this.simResultDiag = document.getElementById('sim-result-diag');
+    this.btnRefreshTelemetry = document.getElementById('btn-refresh-telemetry');
+    this.flightRecorderFeed = document.getElementById('flight-recorder-feed');
+
     if (this.headerClientId) this.headerClientId.textContent = this.clientId;
     if (this.footerHostLabel) this.footerHostLabel.textContent = `HOST: ${this.host}:${this.port}`;
   }
+
 
   /* ── Accent Color System ─────────────────────────────────────────────────── */
   applyAccentColor(hex, save = true) {
@@ -196,14 +265,36 @@ class AvaStitchClient {
 
   /* ── WebSocket Connection & Lifecycle ────────────────────────────────────── */
   getWebSocketUrl() {
-    const proto = this.protocol || (window.location.protocol === 'https:' ? 'wss://' : 'ws://');
-    return `${proto}${this.host}:${this.port}/ws/device`;
+    let proto = this.protocol;
+    if (!proto || !proto.startsWith('ws')) {
+      proto = (window.location.protocol === 'https:' ? 'wss://' : 'ws://');
+    }
+    let host = this.host || window.location.hostname || '127.0.0.1';
+    if (!host || host === 'localhost') host = '127.0.0.1';
+    let port = this.port || '8765';
+    return `${proto}${host}:${port}/ws/device`;
   }
 
   connectWebSocket() {
+    // Clear any pending reconnect timer so it doesn't fire concurrently
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // Clean up existing socket cleanly without triggering its onclose handler
     if (this.ws) {
-      try { this.ws.close(); } catch (_) {}
+      const oldWs = this.ws;
       this.ws = null;
+      oldWs.onopen = null;
+      oldWs.onmessage = null;
+      oldWs.onerror = null;
+      oldWs.onclose = null;
+      try {
+        if (oldWs.readyState === WebSocket.OPEN || oldWs.readyState === WebSocket.CONNECTING) {
+          oldWs.close(1000, 'Reconnecting');
+        }
+      } catch (_) {}
     }
 
     const wsUrl = this.getWebSocketUrl();
@@ -212,12 +303,14 @@ class AvaStitchClient {
     try {
       this.ws = new WebSocket(wsUrl);
     } catch (err) {
+      console.warn('[AVA-WS] Failed to instantiate WebSocket:', err);
       this.scheduleReconnect();
       return;
     }
 
     this.ws.onopen = () => {
       this.reconnectAttempts = 0;
+      this.lastHeartbeatAck = Date.now();
       this.updateConnectionState(true, 'ONLINE');
       this.startHeartbeat();
 
@@ -246,30 +339,48 @@ class AvaStitchClient {
       }
     };
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
       this.stopHeartbeat();
       this.updateConnectionState(false, 'OFFLINE');
+      console.warn(`[AVA-WS] Socket closed (code: ${event?.code}, reason: '${event?.reason || ''}'). Reconnecting...`);
       this.scheduleReconnect();
     };
 
-    this.ws.onerror = () => {
-      try { this.ws.close(); } catch (_) {}
+    this.ws.onerror = (err) => {
+      console.warn('[AVA-WS] Socket error encountered:', err);
+      // Let browser fire onclose naturally to avoid dual-close races
     };
   }
 
   sendWs(data) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
-      return true;
+      try {
+        this.ws.send(JSON.stringify(data));
+        return true;
+      } catch (e) {
+        console.warn('[AVA-WS] Send error:', e);
+        return false;
+      }
     }
     return false;
   }
 
   startHeartbeat() {
     this.stopHeartbeat();
+    this.lastHeartbeatAck = Date.now();
     this.heartbeatTimer = setInterval(() => {
-      this.sendWs({ type: 'heartbeat', timestamp: Date.now() / 1000 });
-    }, 25000);
+      // Zombie socket detection: if active for >36s with no ack received, reconnect
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        if (Date.now() - this.lastHeartbeatAck > 36000) {
+          console.warn('[AVA-WS] Heartbeat timeout (zombie socket). Forcing reconnect...');
+          this.connectWebSocket();
+          return;
+        }
+        this.sendWs({ type: 'heartbeat', timestamp: Date.now() / 1000 });
+      } else if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+        this.connectWebSocket();
+      }
+    }, 12000); // 12 seconds keeps connection fresh and avoids proxy/Windows timeouts
   }
 
   stopHeartbeat() {
@@ -279,7 +390,8 @@ class AvaStitchClient {
 
   scheduleReconnect() {
     if (this.reconnectTimer) return;
-    const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 15000);
+    const baseDelay = Math.min(1000 * Math.pow(1.3, this.reconnectAttempts), 8000);
+    const delay = Math.round(baseDelay + (Math.random() * 400));
     this.reconnectAttempts++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -306,6 +418,9 @@ class AvaStitchClient {
 
     if (type === 'registered') {
       this.updateConnectionState(true, 'CONNECTED // LOCAL');
+      if (msg.presence) {
+        this.setPresence(msg.presence, false);
+      }
       // If server returns conversations on register, sync immediately
       if (Array.isArray(msg.conversations)) {
         this.syncConversationsWithServer(msg.conversations);
@@ -313,15 +428,49 @@ class AvaStitchClient {
         this.fetchConversations();
       }
     }
-    else if (type === 'heartbeat_ack') {
-      // alive
+    else if (type === 'user_presence_updated') {
+      this.setPresence(msg.presence || 'present', false);
+    }
+    else if (type === 'heartbeat_ack' || type === 'pong') {
+      this.lastHeartbeatAck = Date.now();
     }
     else if (type === 'thinking') {
       const isThinking = msg.status === 'start';
-      this.showThinking(isThinking, msg.label || 'AVA is reasoning...');
+      if (isThinking) {
+        this.currentTurnThoughts = [];
+      }
+      if (msg.label) {
+        const timeStr = new Date().toLocaleTimeString([], { hour12: false });
+        this.currentTurnThoughts.push({
+          time: timeStr,
+          stage: msg.stage || 'Thinking',
+          text: msg.label,
+        });
+      }
+      this.showThinking(isThinking, msg.label || 'AVA is reasoning...', msg.ticket_id, msg.stage);
+    }
+    else if (type === 'blackboard_event') {
+      this.handleBlackboardEvent(msg.event, msg.data);
     }
     else if (type === 'agent_step') {
-      this.handleAgentStep(msg.step || msg);
+      const st = msg.step || msg;
+      const stepText = st.title || st.last_log_line || st.status || 'Executing step';
+      const timeStr = new Date().toLocaleTimeString([], { hour12: false });
+      this.currentTurnThoughts.push({
+        time: timeStr,
+        stage: 'Action',
+        text: stepText,
+      });
+      this.handleAgentStep(st);
+    }
+    else if (type === 'sentinel_alert') {
+      if (this.sentinelModalOverlay && !this.sentinelModalOverlay.classList.contains('hidden')) {
+        this.fetchFlightRecorder();
+      }
+    }
+
+    else if (type === 'assistant_chunk') {
+      this.appendAssistantStreamChunk(msg.delta || '');
     }
     else if (type === 'assistant_response') {
       this.showThinking(false);
@@ -329,7 +478,35 @@ class AvaStitchClient {
       const content = msg.content || '';
       const convId = msg.conversation_id || this.currentConvId;
       if (convId) this.setActiveConversationId(convId);
-      this.renderAssistantMessage(content);
+      const turnThoughts = [...this.currentTurnThoughts];
+
+      if (this.activeStreamingRow) {
+        this.activeStreamingRow.classList.remove('streaming-active');
+        const bodyEl = this.activeStreamingRow.querySelector('.assistant-card-body');
+        const finalHtml = window.marked ? marked.parse(content || this.activeStreamingText) : (content || this.activeStreamingText);
+        if (bodyEl) {
+          bodyEl.innerHTML = finalHtml;
+        }
+        this.activeStreamingRow.querySelectorAll('pre code').forEach((block) => {
+          if (window.hljs) hljs.highlightElement(block);
+        });
+        if (msg.metadata && msg.metadata.is_sentinel_alert) {
+          const sev = (msg.metadata.severity || 'WARN').toUpperCase();
+          const alertBanner = document.createElement('div');
+          alertBanner.className = `assistant-alert-banner ${sev === 'CRITICAL' ? 'critical' : ''}`;
+          alertBanner.innerHTML = `
+            <span class="material-symbols-outlined" style="font-size: 16px;">${sev === 'CRITICAL' ? 'crisis_alert' : 'warning'}</span>
+            <span>${sev} Sentinel Alert // ${this.escapeHtml(msg.metadata.sentinel || 'system_sentinel')}</span>
+          `;
+          this.activeStreamingRow.insertBefore(alertBanner, bodyEl);
+        }
+        this.activeStreamingRow = null;
+        this.activeStreamingText = '';
+        this.scrollToBottom();
+      } else {
+        this.renderAssistantMessage(content, msg.metadata || {}, turnThoughts);
+      }
+      this.currentTurnThoughts = [];
       this.fetchConversations();
     }
     else if (type === 'tasks_updated') {
@@ -706,6 +883,8 @@ class AvaStitchClient {
     this.currentGroupedDot = null;
     this.currentTurnToolSteps = [];
     this.turnStartTime = null;
+    this.activeStreamingRow = null;
+    this.activeStreamingText = '';
   }
 
   setEmptyState(isEmpty) {
@@ -715,6 +894,65 @@ class AvaStitchClient {
     if (this.suggestionChipsRow) {
       this.suggestionChipsRow.classList.toggle('hidden', !isEmpty);
     }
+  }
+
+  appendAssistantStreamChunk(delta) {
+    if (!delta) return;
+    this.setEmptyState(false);
+
+    if (this.thinkingStrip) {
+      this.thinkingStrip.classList.add('hidden');
+    }
+
+    if (!this.activeStreamingRow) {
+      const row = document.createElement('div');
+      row.className = 'msg-row msg-row-assistant streaming-active';
+      const nowStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+      let thinkingAccordionHtml = '';
+      if (Array.isArray(this.currentTurnThoughts) && this.currentTurnThoughts.length > 0) {
+        const thoughts = this.currentTurnThoughts;
+        thinkingAccordionHtml = `
+          <details class="turn-thinking-details">
+            <summary class="turn-thinking-summary">
+              <span class="material-symbols-outlined turn-thinking-icon">terminal</span>
+              <span class="turn-thinking-label">Execution Trace</span>
+              <span class="turn-thinking-pill">${thoughts.length} step${thoughts.length > 1 ? 's' : ''}</span>
+              <span class="material-symbols-outlined turn-thinking-arrow">expand_more</span>
+            </summary>
+            <div class="turn-thinking-content">
+              ${thoughts.map(t => `
+                <div class="turn-thought-step">
+                  <span class="thought-time">${t.time}</span>
+                  <span class="thought-stage">${(t.stage || 'EXEC').toUpperCase()}</span>
+                  <span class="thought-text">${this.escapeHtml(t.text)}</span>
+                </div>
+              `).join('')}
+            </div>
+          </details>
+        `;
+      }
+
+      row.innerHTML = `
+        <div class="assistant-meta-strip">
+          <span>AVA</span>
+          <span>•</span>
+          <span>${nowStr}</span>
+        </div>
+        ${thinkingAccordionHtml}
+        <div class="assistant-card-body"></div>
+      `;
+      this.messageFeed.appendChild(row);
+      this.activeStreamingRow = row;
+      this.activeStreamingText = '';
+    }
+
+    this.activeStreamingText += delta;
+    const bodyEl = this.activeStreamingRow.querySelector('.assistant-card-body');
+    if (bodyEl) {
+      bodyEl.innerHTML = window.marked ? marked.parse(this.activeStreamingText) : this.escapeHtml(this.activeStreamingText);
+    }
+    this.scrollToBottom();
   }
 
   scrollToBottom() {
@@ -787,20 +1025,56 @@ class AvaStitchClient {
     this.scrollToBottom();
   }
 
-  renderAssistantMessage(markdownText) {
+  renderAssistantMessage(markdownText, metadata = {}, thoughts = []) {
     this.setEmptyState(false);
     const row = document.createElement('div');
     row.className = 'msg-row msg-row-assistant';
 
-    const nowStr = new Date().toISOString().substring(11, 19) + ' UTC';
+    const nowStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
     const renderedHtml = window.marked ? marked.parse(markdownText) : markdownText;
+
+    // Sentinel Alert Badge Banner (proactive human assistant notification)
+    const isAlert = metadata.is_sentinel_alert === true;
+    const sev = (metadata.severity || 'WARN').toUpperCase();
+    const alertBanner = isAlert ? `
+      <div class="assistant-alert-banner ${sev === 'CRITICAL' ? 'critical' : ''}">
+        <span class="material-symbols-outlined" style="font-size: 16px;">${sev === 'CRITICAL' ? 'crisis_alert' : 'warning'}</span>
+        <span>${sev} Sentinel Alert // ${this.escapeHtml(metadata.sentinel || 'system_sentinel')}</span>
+      </div>
+    ` : '';
+
+    // Collapsible Thinking Process Accordion for this turn
+    let thinkingAccordionHtml = '';
+    if (Array.isArray(thoughts) && thoughts.length > 0) {
+      thinkingAccordionHtml = `
+        <details class="turn-thinking-details">
+          <summary class="turn-thinking-summary">
+            <span class="material-symbols-outlined turn-thinking-icon">terminal</span>
+            <span class="turn-thinking-label">Execution Trace</span>
+            <span class="turn-thinking-pill">${thoughts.length} step${thoughts.length > 1 ? 's' : ''}</span>
+            <span class="material-symbols-outlined turn-thinking-arrow">expand_more</span>
+          </summary>
+          <div class="turn-thinking-content">
+            ${thoughts.map(t => `
+              <div class="turn-thought-step">
+                <span class="thought-time">${t.time}</span>
+                <span class="thought-stage">${(t.stage || 'EXEC').toUpperCase()}</span>
+                <span class="thought-text">${this.escapeHtml(t.text)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </details>
+      `;
+    }
 
     row.innerHTML = `
       <div class="assistant-meta-strip">
-        <span>AVA // Active Stream</span>
+        <span>AVA</span>
         <span>•</span>
         <span>${nowStr}</span>
       </div>
+      ${alertBanner}
+      ${thinkingAccordionHtml}
       <div class="assistant-card-body">${renderedHtml}</div>
     `;
 
@@ -812,14 +1086,54 @@ class AvaStitchClient {
     this.scrollToBottom();
   }
 
-  showThinking(show, labelText) {
+  showThinking(show, labelText, ticketId, stage) {
     if (!this.thinkingStrip) return;
-    this.thinkingStrip.classList.toggle('hidden', !show);
+    if (!show) {
+      this.thinkingStrip.classList.add('hidden');
+      if (this.thinkingDrawer) {
+        this.thinkingDrawer.classList.add('hidden');
+      }
+      if (this.thinkingExpandIcon) {
+        this.thinkingExpandIcon.textContent = 'expand_more';
+      }
+      return;
+    }
+
+    this.thinkingStrip.classList.remove('hidden');
     if (this.thinkingLabel && labelText) {
       this.thinkingLabel.textContent = labelText;
     }
-    if (show) this.scrollToBottom();
+    if (ticketId && this.thinkingDrawerTicket) {
+      this.thinkingDrawerTicket.textContent = `#${ticketId}`;
+    }
+    if (labelText && this.thinkingDrawerLogs) {
+      const timeStr = new Date().toLocaleTimeString([], { hour12: false });
+      const stageStr = (stage || 'EXEC').toUpperCase();
+      const entry = document.createElement('div');
+      entry.className = 'thinking-log-entry';
+      entry.innerHTML = `<span class="thinking-log-time">${timeStr}</span><span class="thinking-log-stage">${this.escapeHtml(stageStr)}</span><span class="thinking-log-text">${this.escapeHtml(labelText)}</span>`;
+      this.thinkingDrawerLogs.appendChild(entry);
+      this.thinkingDrawerLogs.scrollTop = this.thinkingDrawerLogs.scrollHeight;
+    }
+    this.scrollToBottom();
   }
+
+  handleBlackboardEvent(event, data) {
+    if (!data) return;
+    if (event === 'step_updated' && data.step) {
+      const s = data.step;
+      const label = `${s.assigned_worker}: ${s.last_log_line || s.title}`;
+      this.showThinking(true, label, data.ticket_id, s.status);
+    } else if (event === 'thinking') {
+      this.showThinking(true, data.text, data.ticket_id, data.stage);
+    } else if (event === 'ticket_updated' && data.ticket && data.ticket.status === 'completed') {
+      this.showThinking(false);
+      if (this.thinkingDrawerTicket) {
+        this.thinkingDrawerTicket.textContent = `#${data.ticket.ticket_id} (COMPLETED)`;
+      }
+    }
+  }
+
 
   handleAgentStep(step) {
     if (!step) return;
@@ -1219,12 +1533,18 @@ class AvaStitchClient {
     const clean = (text || '').trim();
     if (!clean && (!this.pendingAttachments || this.pendingAttachments.length === 0)) return;
 
+    this.activeStreamingRow = null;
+    this.activeStreamingText = '';
+
     const attachmentsToSend = this.pendingAttachments ? [...this.pendingAttachments] : [];
 
     this.finishActiveTurnGroup();
     this.turnStartTime = performance.now();
     this.renderUserMessage(clean, attachmentsToSend);
-    this.showThinking(true, 'AVA is analyzing instruction...');
+    if (this.thinkingStrip) {
+      this.thinkingStrip.classList.remove('hidden');
+      if (this.thinkingLabel) this.thinkingLabel.textContent = 'AVA is thinking...';
+    }
 
     const payload = {
       type: 'chat_message',
@@ -1347,6 +1667,120 @@ class AvaStitchClient {
     if (this.btnSaveSettings) {
       this.btnSaveSettings.addEventListener('click', () => this.saveSettings());
     }
+
+    if (this.btnSaveServerConfig) {
+      this.btnSaveServerConfig.addEventListener('click', () => this.saveServerSettings());
+    }
+
+    if (this.btnTogglePresence) {
+      this.btnTogglePresence.addEventListener('click', () => this.togglePresence());
+    }
+
+    if (this.btnToggleThinkingDrawer && this.thinkingDrawer) {
+      this.btnToggleThinkingDrawer.addEventListener('click', () => this.toggleThinkingDrawer());
+    }
+
+    if (this.btnToggleThinking && this.thinkingDrawer) {
+      this.btnToggleThinking.addEventListener('click', () => {
+        const isHidden = this.thinkingDrawer.classList.toggle('hidden');
+        if (this.thinkingExpandIcon) {
+          this.thinkingExpandIcon.textContent = isHidden ? 'expand_more' : 'expand_less';
+        }
+      });
+    }
+
+    if (this.btnOpenSentinel) {
+      this.btnOpenSentinel.addEventListener('click', () => this.openSentinelModal());
+    }
+    if (this.btnGotoSentinelSim) {
+      this.btnGotoSentinelSim.addEventListener('click', () => {
+        this.closeSettingsModal();
+        this.openSentinelModal();
+      });
+    }
+    if (this.btnCloseSentinel) {
+      this.btnCloseSentinel.addEventListener('click', () => this.closeSentinelModal());
+    }
+    if (this.btnCloseSentinelFooter) {
+      this.btnCloseSentinelFooter.addEventListener('click', () => this.closeSentinelModal());
+    }
+    if (this.sentinelModalOverlay) {
+      this.sentinelModalOverlay.addEventListener('click', (e) => {
+        if (e.target === this.sentinelModalOverlay) this.closeSentinelModal();
+      });
+    }
+    if (this.simPreset) {
+      this.simPreset.addEventListener('change', () => this.applySentinelPreset());
+    }
+    if (this.btnTriggerSentinelEvent) {
+      this.btnTriggerSentinelEvent.addEventListener('click', () => this.triggerSentinelEvent());
+    }
+    if (this.btnRefreshTelemetry) {
+      this.btnRefreshTelemetry.addEventListener('click', () => this.fetchFlightRecorder());
+    }
+  }
+
+  togglePresence() {
+    const next = this.currentUserPresence === 'present' ? 'away' : 'present';
+    this.setPresence(next, true);
+  }
+
+  setPresence(presence, sendToServer = false) {
+    this.currentUserPresence = presence;
+    const isPresent = presence === 'present';
+    if (this.presenceDot) {
+      this.presenceDot.className = `presence-dot ${isPresent ? 'online' : 'away'}`;
+    }
+    if (this.presenceText) {
+      this.presenceText.textContent = isPresent ? 'Present' : 'Away';
+    }
+    if (this.btnTogglePresence) {
+      this.btnTogglePresence.setAttribute('title', `Presence: ${isPresent ? 'Present' : 'Away'} (Click to toggle)`);
+    }
+    if (sendToServer) {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'user_presence', presence }));
+      } else {
+        const proto = (this.protocol === 'wss://' ? 'https://' : 'http://');
+        fetch(`${proto}${this.host}:${this.port}/api/presence`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ presence }),
+        }).catch(() => {});
+      }
+    }
+  }
+
+  toggleThinkingDrawer() {
+    if (!this.thinkingDrawer) return;
+    const isHidden = this.thinkingDrawer.classList.toggle('hidden');
+    if (!isHidden) {
+      if (this.thinkingDrawerLogs && this.thinkingDrawerLogs.children.length <= 1) {
+        this.fetchActiveJobThoughts();
+      }
+    }
+  }
+
+  async fetchActiveJobThoughts() {
+    try {
+      const proto = (this.protocol === 'wss://' ? 'https://' : 'http://');
+      const res = await fetch(`${proto}${this.host}:${this.port}/api/blackboard/jobs`);
+      if (res.ok) {
+        const data = await res.json();
+        const jobs = data.jobs || [];
+        if (jobs.length > 0 && this.thinkingDrawerLogs) {
+          const latest = jobs[0];
+          if (this.thinkingDrawerTicket) {
+            this.thinkingDrawerTicket.textContent = `#${latest.ticket_id} (${latest.status})`;
+          }
+          const html = (latest.thoughts || []).map(th => {
+            const tStr = new Date(th.timestamp * 1000).toLocaleTimeString([], { hour12: false });
+            return `<div class="thinking-log-entry"><span class="thinking-log-time">[${tStr}]</span> <span class="thinking-log-stage">${th.stage || 'Thought'}</span> ${this.escapeHtml(th.thought)}</div>`;
+          }).join('');
+          if (html) this.thinkingDrawerLogs.innerHTML = html;
+        }
+      }
+    } catch (_) {}
   }
 
   toggleMobileDrawer() {
@@ -1370,7 +1804,87 @@ class AvaStitchClient {
     this.renderAccentSwatches();
     this.settingsModalOverlay.classList.remove('hidden');
     this.testLatency();
+    this.fetchServerSettings();
   }
+
+  async fetchServerSettings() {
+    try {
+      const url = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+        ? `${window.location.origin}/api/settings`
+        : `${this.protocol === 'wss://' ? 'https://' : 'http://'}${this.host}:${this.port}/api/settings`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || !data.settings) return;
+
+      const s = data.settings;
+      if (this.serverDualLayerToggle) {
+        this.serverDualLayerToggle.value = s.dual_layer_enabled ? 'true' : 'false';
+      }
+      if (this.serverSentinelsToggle) {
+        this.serverSentinelsToggle.value = s.sentinels_enabled ? 'true' : 'false';
+      }
+      if (this.serverModelName) {
+        this.serverModelName.value = s.model_name || '';
+      }
+      if (this.serverLayer2Model) {
+        this.serverLayer2Model.value = s.layer2_model || '';
+      }
+    } catch (e) {
+      console.debug('Failed to fetch server settings:', e);
+    }
+  }
+
+  async saveServerSettings() {
+    if (!this.btnSaveServerConfig) return;
+    const origText = this.btnSaveServerConfig.textContent;
+    this.btnSaveServerConfig.textContent = 'SAVING...';
+    this.btnSaveServerConfig.disabled = true;
+
+    try {
+      const url = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+        ? `${window.location.origin}/api/settings`
+        : `${this.protocol === 'wss://' ? 'https://' : 'http://'}${this.host}:${this.port}/api/settings`;
+
+      const body = {
+        dual_layer_enabled: this.serverDualLayerToggle ? this.serverDualLayerToggle.value === 'true' : true,
+        sentinels_enabled: this.serverSentinelsToggle ? this.serverSentinelsToggle.value === 'true' : true,
+        model_name: this.serverModelName ? this.serverModelName.value.trim() : '',
+        layer2_model: this.serverLayer2Model ? this.serverLayer2Model.value.trim() : '',
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        this.btnSaveServerConfig.textContent = 'SAVED ✓';
+        setTimeout(() => {
+          this.btnSaveServerConfig.textContent = origText;
+          this.btnSaveServerConfig.disabled = false;
+        }, 1500);
+      } else {
+        const errText = await res.text();
+        console.error('Server error saving settings:', res.status, errText);
+        this.btnSaveServerConfig.textContent = 'ERROR ⚠️';
+        setTimeout(() => {
+          this.btnSaveServerConfig.textContent = origText;
+          this.btnSaveServerConfig.disabled = false;
+        }, 2000);
+      }
+    } catch (e) {
+      console.error('Failed to save server settings:', e);
+      this.btnSaveServerConfig.textContent = 'FAILED ⚠️';
+      setTimeout(() => {
+        this.btnSaveServerConfig.textContent = origText;
+        this.btnSaveServerConfig.disabled = false;
+      }, 2000);
+    }
+  }
+
+
 
   closeSettingsModal() {
     if (this.settingsModalOverlay) this.settingsModalOverlay.classList.add('hidden');
@@ -1412,6 +1926,181 @@ class AvaStitchClient {
     } catch (_) {
       this.diagLatencyVal.textContent = 'Offline';
     }
+  }
+
+  /* ── Sentinel Simulator & Flight Recorder Interface ─────────────────────── */
+  openSentinelModal() {
+    if (!this.sentinelModalOverlay) return;
+    this.sentinelModalOverlay.classList.remove('hidden');
+    this.fetchFlightRecorder();
+  }
+
+  closeSentinelModal() {
+    if (this.sentinelModalOverlay) this.sentinelModalOverlay.classList.add('hidden');
+  }
+
+  applySentinelPreset() {
+    if (!this.simPreset) return;
+    const val = this.simPreset.value;
+    if (val === 'thermal') {
+      if (this.simSentinel) this.simSentinel.value = 'system_sentinel';
+      if (this.simSeverity) this.simSeverity.value = 'CRITICAL';
+      if (this.simTitle) this.simTitle.value = 'CPU Overheat / Runaway Process';
+      if (this.simMessage) this.simMessage.value = 'Core package reached 98°C with 99% compute utilization.';
+    } else if (val === 'memory') {
+      if (this.simSentinel) this.simSentinel.value = 'system_sentinel';
+      if (this.simSeverity) this.simSeverity.value = 'WARN';
+      if (this.simTitle) this.simTitle.value = 'Memory Saturation Warning';
+      if (this.simMessage) this.simMessage.value = 'RAM utilization sustained at 92.4% for 45 seconds.';
+    } else if (val === 'git') {
+      if (this.simSentinel) this.simSentinel.value = 'workspace_sentinel';
+      if (this.simSeverity) this.simSeverity.value = 'WARN';
+      if (this.simTitle) this.simTitle.value = 'Workspace Dirty Tree / Build Divergence';
+      if (this.simMessage) this.simMessage.value = 'Uncommitted local modifications detected on main branch.';
+    }
+  }
+
+  async triggerSentinelEvent() {
+    if (!this.btnTriggerSentinelEvent) return;
+    const origText = this.btnTriggerSentinelEvent.innerHTML;
+    this.btnTriggerSentinelEvent.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px; margin-right:4px;">sync</span> DISPATCHING...';
+    this.btnTriggerSentinelEvent.disabled = true;
+
+    try {
+      const url = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+        ? `${window.location.origin}/api/events/trigger`
+        : `${this.protocol === 'wss://' ? 'https://' : 'http://'}${this.host}:${this.port}/api/events/trigger`;
+
+      const payload = {
+        sentinel: this.simSentinel ? this.simSentinel.value.trim() : 'system_sentinel',
+        severity: this.simSeverity ? this.simSeverity.value : 'CRITICAL',
+        title: this.simTitle ? this.simTitle.value.trim() : 'Simulated Alert',
+        message: this.simMessage ? this.simMessage.value.trim() : 'Test message',
+      };
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (this.simResultBox) {
+          this.simResultBox.classList.remove('hidden');
+          if (payload.severity === 'CRITICAL') {
+            this.simResultBox.classList.add('critical-breach');
+          } else {
+            this.simResultBox.classList.remove('critical-breach');
+          }
+        }
+        if (this.simResultBadge) {
+          this.simResultBadge.textContent = `${payload.severity} DISPATCHED`;
+          this.simResultBadge.style.backgroundColor = payload.severity === 'CRITICAL' ? 'var(--color-red)' : 'var(--color-amber)';
+        }
+        if (this.simResultEntryId) {
+          this.simResultEntryId.textContent = `#${data.entry_id || 'rec_telemetry'}`;
+        }
+        if (this.simResultDiag) {
+          const diag = data.diagnosis || {};
+          const diagStr = typeof diag === 'string' ? diag : (diag.diagnosis || JSON.stringify(diag, null, 2));
+          this.simResultDiag.textContent = `[LAYER 2 CHIEF OF STAFF ROOT-CAUSE DIAGNOSIS]\n${diagStr}`;
+        }
+        this.fetchFlightRecorder();
+      } else {
+        const err = await res.text();
+        alert('Failed to trigger event: ' + err);
+      }
+    } catch (e) {
+      console.error('Trigger sentinel error:', e);
+      alert('Error triggering sentinel event: ' + e.message);
+    } finally {
+      this.btnTriggerSentinelEvent.innerHTML = origText;
+      this.btnTriggerSentinelEvent.disabled = false;
+    }
+  }
+
+  async fetchFlightRecorder() {
+    if (!this.flightRecorderFeed) return;
+    try {
+      const url = (window.location && window.location.origin && window.location.origin.startsWith('http'))
+        ? `${window.location.origin}/api/blackboard/telemetry?limit=25`
+        : `${this.protocol === 'wss://' ? 'https://' : 'http://'}${this.host}:${this.port}/api/blackboard/telemetry?limit=25`;
+
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const logs = data.telemetry || [];
+
+      if (logs.length === 0) {
+        this.flightRecorderFeed.innerHTML = '<div class="task-empty-state">Flight recorder ring buffer empty.</div>';
+        return;
+      }
+
+      this.flightRecorderFeed.innerHTML = logs.map(entry => {
+        const timeStr = entry.timestamp ? new Date(entry.timestamp * 1000).toLocaleTimeString([], { hour12: false }) : '--:--:--';
+        const sev = (entry.level || 'INFO').toUpperCase();
+        const badgeClass = sev === 'CRITICAL' ? 'crit' : (sev === 'WARN' ? 'warn' : 'info');
+        const sName = entry.sentinel || 'sys';
+        const d = entry.data || {};
+        const title = d.title || d.alert_title || d.message || `${sName} reading`;
+        const detail = (d.cpu_percent !== undefined)
+          ? `CPU ${d.cpu_percent}% | RAM ${d.ram_percent}%`
+          : (entry.entry_id || '');
+
+        return `
+          <div class="flight-log-row">
+            <div class="flight-log-left">
+              <span class="flight-log-time">${timeStr}</span>
+              <span class="flight-log-badge ${badgeClass}">${sev}</span>
+              <span class="flight-log-title">${this.escapeHtml(title)}</span>
+            </div>
+            <span class="flight-log-detail">${this.escapeHtml(detail)}</span>
+          </div>
+        `;
+      }).join('');
+    } catch (e) {
+      console.debug('fetchFlightRecorder error:', e);
+    }
+  }
+
+  renderSentinelAlertCard(alertData) {
+    this.setEmptyState(false);
+    const row = document.createElement('div');
+    row.className = 'msg-row msg-row-sentinel';
+
+    const sev = (alertData.severity || 'WARN').toUpperCase();
+    const isCrit = sev === 'CRITICAL';
+    const colorClass = isCrit ? 'sentinel-badge-crit' : (sev === 'WARN' ? 'sentinel-badge-warn' : 'sentinel-badge-info');
+    const icon = isCrit ? 'crisis_alert' : (sev === 'WARN' ? 'warning' : 'info');
+    const nowStr = new Date().toLocaleTimeString([], { hour12: false });
+    
+    const diag = alertData.diagnosis || {};
+    const diagText = typeof diag === 'string' ? diag : (diag.diagnosis || '');
+
+    row.innerHTML = `
+      <div class="sentinel-feed-card ${isCrit ? 'critical' : ''}">
+        <div class="sentinel-feed-header">
+          <div class="sentinel-feed-title-col">
+            <span class="material-symbols-outlined sentinel-feed-icon ${colorClass}">${icon}</span>
+            <span class="sentinel-feed-badge ${colorClass}">${sev} // SENTINEL EVENT</span>
+            <span class="sentinel-feed-id">${this.escapeHtml(alertData.sentinel || 'system_sentinel')}</span>
+          </div>
+          <span class="sentinel-feed-time">${nowStr}</span>
+        </div>
+        <div class="sentinel-feed-title">${this.escapeHtml(alertData.title || alertData.alert_title || 'Sentinel Alert')}</div>
+        <div class="sentinel-feed-msg">${this.escapeHtml(alertData.message || '')}</div>
+        ${diagText ? `
+          <div class="sentinel-feed-diag">
+            <span class="sentinel-diag-label">LAYER 2 CHIEF OF STAFF DIAGNOSIS</span>
+            <span class="sentinel-diag-text">${this.escapeHtml(diagText)}</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    this.messageFeed.appendChild(row);
+    this.scrollToBottom();
   }
 
   escapeHtml(str) {

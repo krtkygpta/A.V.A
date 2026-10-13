@@ -196,6 +196,215 @@ html, body {
   font-size: 14px;
 }
 
+/* Presence Toggle Button */
+.presence-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  background-color: var(--bg-surface-low);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.presence-toggle-btn:hover {
+  background-color: var(--bg-surface-mid);
+  border-color: var(--border-color-hover, #3f3f46);
+}
+
+.presence-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.presence-dot.online {
+  background-color: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+}
+
+.presence-dot.away {
+  background-color: #71717a;
+  box-shadow: none;
+}
+
+/* Thinking History Button in Session Banner */
+.thinking-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background-color: rgba(168, 85, 247, 0.1);
+  border: 1px solid rgba(168, 85, 247, 0.25);
+  color: var(--accent-primary, #c084fc);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.thinking-history-btn:hover {
+  background-color: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
+/* Assistant Alert Banner (Proactive Sentinel Briefing) */
+.assistant-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background-color: rgba(245, 158, 11, 0.12);
+  border-left: 3px solid #f59e0b;
+  color: #fbbf24;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.assistant-alert-banner.critical {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-left-color: #ef4444;
+  color: #f87171;
+}
+
+/* ── In-Message Developer-Grade Thought Trace Accordion ─────────────────── */
+.turn-thinking-details {
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.turn-thinking-details:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.turn-thinking-details[open] {
+  background: rgba(14, 15, 18, 0.7);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.turn-thinking-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.turn-thinking-summary:hover {
+  color: var(--text-primary);
+}
+
+.turn-thinking-icon {
+  font-size: 14px;
+  color: var(--text-dim);
+  transition: color 0.15s ease;
+}
+
+.turn-thinking-summary:hover .turn-thinking-icon {
+  color: var(--accent-primary, #a855f7);
+}
+
+.turn-thinking-label {
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.turn-thinking-pill {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.turn-thinking-arrow {
+  font-size: 15px;
+  color: var(--text-dim);
+  margin-left: auto;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.turn-thinking-details[open] .turn-thinking-arrow {
+  transform: rotate(180deg);
+}
+
+.turn-thinking-content {
+  padding: 10px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(8, 9, 11, 0.4);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.turn-thinking-content::-webkit-scrollbar {
+  width: 4px;
+}
+.turn-thinking-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.turn-thought-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.turn-thought-step .thought-time {
+  color: var(--text-muted, #52525b);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.turn-thought-step .thought-stage {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.turn-thought-step .thought-text {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -881,6 +1090,21 @@ html, body {
   word-break: break-word;
 }
 
+.msg-row-assistant.streaming-active .assistant-card-body > :last-child::after {
+  content: '▋';
+  display: inline-block;
+  color: var(--accent-primary, #a855f7);
+  animation: streamBlink 0.8s infinite;
+  margin-left: 3px;
+  font-size: 13px;
+  vertical-align: baseline;
+}
+
+@keyframes streamBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 /* Markdown Content Styling */
 .assistant-card-body p {
   margin-bottom: 10px;
@@ -1138,69 +1362,118 @@ html, body {
   border-color: var(--text-dim);
 }
 
-/* Sleek Modern Thinking Strip */
+/* ── Sleek Executive Thinking & Telemetry Strip ───────────────────────────── */
 .thinking-strip {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.03);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  background: rgba(18, 18, 22, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  width: fit-content;
+  border-radius: 8px;
   max-width: 860px;
-  margin: 0 auto 10px 20px;
-  backdrop-filter: blur(8px);
-  animation: fadeInThinking 0.2s ease-out;
+  width: calc(100% - 40px);
+  margin: 0 auto 12px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  animation: fadeInThinking 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
 }
 
-.thinking-pulse-indicator {
+.thinking-beacon {
+  position: relative;
+  width: 8px;
+  height: 8px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.thinking-dot {
-  width: 5px;
-  height: 5px;
+.thinking-beacon-core {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--accent-color, #ffffff);
-  opacity: 0.4;
-  animation: thinkingWave 1.4s infinite ease-in-out both;
+  background: var(--accent-primary, #a855f7);
+  box-shadow: 0 0 8px var(--accent-primary, #a855f7);
 }
 
-.thinking-dot:nth-child(1) { animation-delay: -0.32s; }
-.thinking-dot:nth-child(2) { animation-delay: -0.16s; }
-.thinking-dot:nth-child(3) { animation-delay: 0s; }
+.thinking-beacon-ping {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--accent-primary, #a855f7);
+  opacity: 0.8;
+  animation: beaconPulse 1.8s infinite cubic-bezier(0.2, 0, 0, 1);
+}
 
-@keyframes thinkingWave {
-  0%, 80%, 100% {
-    transform: scale(0.7);
-    opacity: 0.3;
-  }
-  40% {
-    transform: scale(1.15);
-    opacity: 1;
-    box-shadow: 0 0 6px var(--accent-color, #ffffff);
-  }
+@keyframes beaconPulse {
+  0% { transform: scale(0.5); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.thinking-label-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.thinking-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  flex-shrink: 0;
 }
 
 .thinking-label {
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: 0.2px;
-  background: linear-gradient(90deg, #8e8e93 0%, #e5e1e4 50%, #8e8e93 100%);
-  background-size: 200% auto;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: textShimmer 2.5s linear infinite;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
 }
 
-@keyframes textShimmer {
-  to {
-    background-position: 200% center;
-  }
+.thinking-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.thinking-expand-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.thinking-btn-text {
+  text-transform: uppercase;
+  font-size: 10px;
 }
 
 @keyframes fadeInThinking {
@@ -1208,7 +1481,122 @@ html, body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Executive Reasoning Drawer (System 2 Trace) ─────────────────────────── */
+.thinking-drawer {
+  background: rgba(12, 13, 16, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  max-width: 860px;
+  width: calc(100% - 40px);
+  margin: 0 auto 12px;
+  padding: 12px 16px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  animation: fadeInThinking 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+.thinking-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.thinking-drawer-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.thinking-drawer-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thinking-drawer-ticket {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.thinking-drawer-status-badge {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  color: var(--accent-primary, #c084fc);
+  text-transform: uppercase;
+}
+
+.thinking-drawer-logs {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 4px;
+}
+
+.thinking-drawer-logs::-webkit-scrollbar {
+  width: 4px;
+}
+.thinking-drawer-logs::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.thinking-log-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.thinking-log-time {
+  color: var(--text-muted, #52525b);
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+
+.thinking-log-stage {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.thinking-log-text {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
 /* Suggestion Chips */
+
 .suggestion-chips-row {
   display: flex;
   align-items: center;
@@ -1995,4 +2383,251 @@ html, body {
     max-width: 90%;
   }
 }
+
+/* ── Sentinel Simulator & Flight Recorder Interface ─────────────────────── */
+.sentinel-result-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background-color: var(--bg-surface-low);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.sentinel-result-box.critical-breach {
+  border-color: rgba(239, 68, 68, 0.4);
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
+.sentinel-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sentinel-result-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background-color: var(--color-red);
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+
+.sentinel-result-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sentinel-result-diag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  background-color: var(--bg-surface-lowest);
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+
+.flight-recorder-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 4px 0;
+}
+
+.flight-log-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  background-color: var(--bg-surface-low);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 11.5px;
+  gap: 10px;
+}
+
+.flight-log-row:hover {
+  background-color: var(--bg-surface-container);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.flight-log-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.flight-log-time {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.flight-log-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.flight-log-badge.crit {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: var(--color-red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.flight-log-badge.warn {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: var(--color-amber);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.flight-log-badge.info {
+  background-color: var(--bg-surface-high);
+  color: var(--text-dim);
+  border: 1px solid var(--border-subtle);
+}
+
+.flight-log-title {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.flight-log-detail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Live Sentinel Alert Card in Chat Feed ─────────────────────────────────── */
+.msg-row-sentinel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.sentinel-feed-card {
+  padding: 14px 16px;
+  background-color: var(--bg-surface-low);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--color-amber);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sentinel-feed-card.critical {
+  border-left-color: var(--color-red);
+  background-color: rgba(239, 68, 68, 0.05);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.12);
+}
+
+.sentinel-feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sentinel-feed-title-col {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sentinel-feed-icon {
+  font-size: 18px;
+}
+
+.sentinel-feed-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.sentinel-feed-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sentinel-feed-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sentinel-badge-crit {
+  color: var(--color-red);
+}
+
+.sentinel-badge-warn {
+  color: var(--color-amber);
+}
+
+.sentinel-badge-info {
+  color: var(--color-cyan);
+}
+
+.sentinel-feed-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sentinel-feed-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.sentinel-feed-diag {
+  margin-top: 6px;
+  padding: 10px 12px;
+  background-color: var(--bg-surface-lowest);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sentinel-diag-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+}
+
+.sentinel-diag-text {
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
 

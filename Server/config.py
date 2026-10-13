@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger("AvaConfig")
+
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
@@ -59,6 +63,10 @@ class Settings:
     groq_api_key: str | None
     google_ai_api_key: str | None
     tavily_api_key: str | None
+    dual_layer_enabled: bool = True
+    layer1_model: str = ""
+    layer2_model: str = ""
+    sentinels_enabled: bool = True
 
 
 def get_settings() -> Settings:
@@ -66,6 +74,9 @@ def get_settings() -> Settings:
 
     keys = tuple(collect_openai_keys(env=True))
     primary = keys[0] if keys else os.getenv("OPENAI_API_KEY")
+    dual_enabled = os.getenv("DUAL_LAYER_ENABLED", "true").lower() in ("true", "1", "yes")
+    sentinels_enabled = os.getenv("SENTINELS_ENABLED", "true").lower() in ("true", "1", "yes")
+
     return Settings(
         host=os.getenv("AVA_SERVER_HOST", "127.0.0.1"),
         port=int(os.getenv("AVA_SERVER_PORT", "8765")),
@@ -86,4 +97,42 @@ def get_settings() -> Settings:
         groq_api_key=os.getenv("GROQ_API_KEY"),
         google_ai_api_key=os.getenv("GOOGLE_AI_API_KEY"),
         tavily_api_key=os.getenv("TAVILY_API_KEY"),
+        dual_layer_enabled=dual_enabled,
+        layer1_model=os.getenv("LAYER1_MODEL", os.getenv("MODEL_NAME", "")),
+        layer2_model=os.getenv("LAYER2_MODEL", os.getenv("MODEL_NAME", "")),
+        sentinels_enabled=sentinels_enabled,
     )
+
+
+def save_settings(updates: dict) -> Settings:
+    """
+    Safely update Server/settings.json, reflect changes in os.environ,
+    and return the updated Settings instance.
+    """
+    current_data = {}
+    try:
+        if _settings_path.exists():
+            with open(_settings_path, "r", encoding="utf-8") as f:
+                current_data = json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to read existing settings.json: {e}")
+
+    for k, v in updates.items():
+        if v is None:
+            continue
+        current_data[k] = v
+        if isinstance(v, list):
+            os.environ[str(k)] = ",".join(str(x).strip() for x in v if str(x).strip())
+        elif isinstance(v, bool):
+            os.environ[str(k)] = "true" if v else "false"
+        else:
+            os.environ[str(k)] = str(v)
+
+    try:
+        with open(_settings_path, "w", encoding="utf-8") as f:
+            json.dump(current_data, f, indent=2)
+    except Exception as e:
+        logger.error(f"Failed to save settings to {_settings_path}: {e}")
+
+    return get_settings()
+

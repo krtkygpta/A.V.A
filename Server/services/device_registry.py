@@ -110,6 +110,8 @@ class DeviceRegistry:
             self._persistence_file.parent.mkdir(parents=True, exist_ok=True)
             dump_data = {}
             for d_id, dev in self._devices.items():
+                if d_id.startswith(("test_", "tmp_", "sim_")):
+                    continue
                 dump_data[d_id] = {
                     "device_id": dev.device_id,
                     "name": dev.name,
@@ -181,7 +183,8 @@ class DeviceRegistry:
                 if ws is not None:
                     self._ws_to_id[ws] = clean_id
 
-        self._save_persisted()
+        if not clean_id.startswith(("test_", "tmp_", "sim_")):
+            self._save_persisted()
         logger.info(f"[DeviceRegistry] Registered device '{clean_id}' ({clean_name}, {device_type}) with tools: {caps}")
         return dev.to_dict()
 
@@ -193,7 +196,10 @@ class DeviceRegistry:
                 dev = self._devices[dev_id]
                 dev.ws = None
                 dev.last_seen = time.time()
-                self._save_persisted()
+                if dev_id.startswith(("test_", "tmp_", "sim_")):
+                    self._devices.pop(dev_id, None)
+                else:
+                    self._save_persisted()
                 logger.info(f"[DeviceRegistry] Device '{dev_id}' disconnected (marked offline)")
                 return dev_id
         return None
@@ -212,9 +218,11 @@ class DeviceRegistry:
         with self._rw_lock:
             return self._devices.get(clean_id)
 
-    def list_devices(self, online_only: bool = False) -> List[Dict[str, Any]]:
+    def list_devices(self, online_only: bool = False, include_ephemeral: bool = False) -> List[Dict[str, Any]]:
         with self._rw_lock:
             devices = list(self._devices.values())
+        if not include_ephemeral:
+            devices = [d for d in devices if not d.device_id.startswith(("test_", "tmp_", "sim_"))]
         if online_only:
             devices = [d for d in devices if d.is_online]
         return [d.to_dict() for d in devices]
@@ -402,6 +410,10 @@ class DeviceRegistry:
             return True
         except Exception as e:
             logger.warning(f"Failed to send to device '{dev.device_id}': {e}")
+            with self._rw_lock:
+                if dev.ws:
+                    self._ws_to_id.pop(dev.ws, None)
+                dev.ws = None
             return False
 
     async def execute_tool_async(

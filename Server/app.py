@@ -31,8 +31,12 @@ if str(ROOT_DIR) not in sys.path:
 if str(APP_DIR) not in sys.path:
     sys.path.append(str(APP_DIR))
 
-from config import ROOT_DIR, get_settings
+from config import ROOT_DIR, get_settings, save_settings
 from services import ConversationStore, LLMService, ToolService, TTSService, device_registry
+from services.blackboard import blackboard
+from services.layer1_avatar import layer1_avatar
+from services.layer2_orchestrator import layer2_orchestrator
+from services.observers.sys_sentinel import SystemSentinel
 from services.llm_service import get_server_system_prompt
 from services.server_tool_registry import server_tool_registry
 from services.token_usage import get_usage_summary
@@ -627,6 +631,43 @@ async def on_startup():
     except Exception as e:
         logger.warning(f"[AVA-SERVER] Note on TaskManager hook: {e}")
 
+    # Hook Blackboard thoughts and steps to live WebSocket broadcast
+    try:
+        async def _broadcast_bb_msg(ev_type: str, payload: dict):
+            msg = {
+                "type": "thinking" if ev_type == "thinking" else "blackboard_event",
+                "event": ev_type,
+                "data": payload,
+            }
+            if ev_type == "thinking":
+                msg["label"] = payload.get("text", "")
+                msg["status"] = "completed" if payload.get("stage") == "completed" else "start"
+                msg["ticket_id"] = payload.get("ticket_id")
+
+            for dev in device_registry.list_devices(online_only=True):
+                d_id = dev.get("device_id")
+                if d_id:
+                    await device_registry.send_to_device(d_id, msg)
+
+        def _on_bb_event(ev_type: str, payload: dict):
+            if loop and loop.is_running():
+                asyncio.run_coroutine_threadsafe(_broadcast_bb_msg(ev_type, payload), loop)
+
+        blackboard.add_listener(_on_bb_event)
+        logger.info("[AVA-SERVER] Hooked Blackboard event stream to device WebSocket broadcast.")
+    except Exception as e:
+        logger.warning(f"[AVA-SERVER] Note on Blackboard broadcast hook: {e}")
+
+    # Start System Sentinel if enabled
+    if get_settings().sentinels_enabled:
+        try:
+            sys_sentinel = SystemSentinel(interval_sec=15.0)
+            sys_sentinel.start()
+            logger.info("[AVA-SERVER] Continuous SystemSentinel flight recorder started.")
+        except Exception as e:
+            logger.warning(f"[AVA-SERVER] SystemSentinel start error: {e}")
+
+
 
 @app.on_event("shutdown")
 def on_shutdown():
@@ -674,6 +715,313 @@ async def serve_devices_page():
 @app.post("/health")
 async def health():
     return {"status": "ok"}
+
+
+def _mask_key(key: Optional[str]) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "..." + key[-3:]
+    return f"...{key[-4:]}"
+
+
+@app.get("/api/settings")
+async def api_get_settings():
+    """Returns current server configuration with masked sensitive secrets."""
+    s = get_settings()
+    return {
+        "ok": True,
+        "settings": {
+            "host": s.host,
+            "port": s.port,
+            "model_name": s.model_name,
+            "openai_base_url": s.openai_base_url,
+            "has_openai_key": bool(s.openai_api_key),
+            "masked_openai_key": _mask_key(s.openai_api_key),
+            "openai_key_count": len(s.openai_api_keys),
+            "tts_voice": s.tts_voice,
+            "tts_host": s.tts_host,
+            "tts_port": s.tts_port,
+            "groq_api_key": _mask_key(s.groq_api_key),
+            "tavily_api_key": _mask_key(s.tavily_api_key),
+            "google_ai_api_key": _mask_key(s.google_ai_api_key),
+            "dual_layer_enabled": s.dual_layer_enabled,
+            "layer1_model": s.layer1_model,
+            "layer2_model": s.layer2_model,
+            "sentinels_enabled": s.sentinels_enabled,
+        },
+    }
+
+
+@app.post("/api/settings")
+async def api_save_settings(request: Request):
+    """Update Server/settings.json, reload environment, and return updated settings."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON body"}, status_code=400)
+
+    if not isinstance(data, dict):
+        return JSONResponse({"ok": False, "error": "Settings must be a JSON object"}, status_code=400)
+
+    allowed_keys = {
+        "DUAL_LAYER_ENABLED", "dual_layer_enabled",
+        "LAYER1_MODEL", "layer1_model",
+        "LAYER2_MODEL", "layer2_model",
+        "SENTINELS_ENABLED", "sentinels_enabled",
+        "MODEL_NAME", "model_name",
+        "OPENAI_BASE_URL", "openai_base_url",
+        "OPENAI_API_KEY", "openai_api_key",
+        "GROQ_API_KEY", "groq_api_key",
+        "TAVILY_API_KEY", "tavily_api_key",
+        "GOOGLE_AI_API_KEY", "google_ai_api_key",
+        "tts_voice",
+    }
+
+    updates = {}
+    for k, v in data.items():
+        if k in allowed_keys:
+            norm_k = k.upper() if k.lower() in (
+                "dual_layer_enabled", "layer1_model", "layer2_model",
+                "sentinels_enabled", "model_name", "openai_base_url",
+                "openai_api_key", "groq_api_key", "tavily_api_key", "google_ai_api_key"
+            ) else k
+            updates[norm_k] = v
+
+    updated_settings = save_settings(updates)
+    logger.info(f"[ServerSettings] Updated settings: {list(updates.keys())}")
+    return {
+        "ok": True,
+        "message": "Settings updated successfully.",
+        "dual_layer_enabled": updated_settings.dual_layer_enabled,
+        "sentinels_enabled": updated_settings.sentinels_enabled,
+    }
+
+
+@app.get("/api/blackboard/jobs")
+async def api_blackboard_jobs(limit: int = 50):
+    """List recent and active background jobs from Blackboard."""
+    jobs = blackboard.list_tickets(limit=limit)
+    return {"ok": True, "count": len(jobs), "jobs": jobs}
+
+
+@app.get("/api/blackboard/jobs/{ticket_id}")
+async def api_blackboard_job_detail(ticket_id: str):
+    """Retrieve full details, steps, and live thought logs for a job ticket."""
+    ticket = blackboard.get_ticket(ticket_id)
+    if not ticket:
+        return JSONResponse({"ok": False, "error": f"Ticket {ticket_id} not found"}, status_code=404)
+    thoughts = blackboard.get_thoughts(ticket_id)
+    return {
+        "ok": True,
+        "ticket": ticket.to_dict(),
+        "thoughts": thoughts,
+    }
+
+
+@app.post("/api/blackboard/jobs/{ticket_id}/cancel")
+async def api_blackboard_job_cancel(ticket_id: str):
+    """Cancel an in-progress Layer 2 job ticket."""
+    success = blackboard.cancel_ticket(ticket_id)
+    return {"ok": success, "ticket_id": ticket_id}
+
+
+@app.get("/api/blackboard/telemetry")
+async def api_blackboard_telemetry(sentinel: Optional[str] = None, limit: int = 50):
+    """Query recent Sentinel flight-recorder telemetry entries."""
+    history = blackboard.get_telemetry_history(sentinel=sentinel, limit=limit)
+    return {"ok": True, "count": len(history), "telemetry": history}
+
+
+# User Presence State ('present' | 'away')
+CURRENT_USER_PRESENCE: str = "present"
+PENDING_AWAY_ALERTS: List[Dict[str, Any]] = []
+
+
+def get_current_user_presence() -> str:
+    global CURRENT_USER_PRESENCE
+    return CURRENT_USER_PRESENCE
+
+
+def set_current_user_presence(presence: str) -> str:
+    global CURRENT_USER_PRESENCE
+    if presence in ("present", "away"):
+        CURRENT_USER_PRESENCE = presence
+    return CURRENT_USER_PRESENCE
+
+
+async def dispatch_sentinel_alert(
+    sentinel: str,
+    title: str,
+    message: str,
+    severity: str = "WARN",
+    raw_data: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Closed-Loop Sentinel Pipeline:
+    1. Sentinel telemetry is continuously logged to Blackboard Flight Recorder.
+    2. Layer 2 Chief of Staff diagnoses the issue using flight recorder snapshots.
+    3. Layer 1 Executive Avatar checks user presence.
+    4. If present: Formats a natural assistant briefing and commits it into
+       server_core.conversations so all follow-ups ("what are the steps to fix this?")
+       have complete conversation memory and context!
+    5. If away: Queues it quietly without interrupting.
+    """
+    # 1. Flight recorder ledger
+    entry = blackboard.record_telemetry(
+        sentinel=sentinel,
+        data=raw_data or {"message": message, "title": title},
+        level=severity,
+    )
+
+    # 2. Layer 2 diagnosis
+    diagnosis = layer2_orchestrator.diagnose_sentinel_alert({
+        "sentinel": sentinel,
+        "alert_title": title,
+        "message": message,
+        "flight_recorder_snapshot": blackboard.get_telemetry_history(sentinel=sentinel, limit=10),
+    })
+
+    # 3. Layer 1 human assistant briefing format
+    report_text = layer1_avatar.format_sentinel_report(
+        alert={"title": title, "message": message, "severity": severity, "sentinel": sentinel},
+        diagnosis=diagnosis,
+    )
+
+    is_present = (get_current_user_presence() == "present")
+
+    # 4. If user is present, commit to conversation store and broadcast as assistant dialogue
+    active_conv_id = None
+    if is_present:
+        try:
+            recent_convs = server_core.conversations.list_recent(limit=1)
+            active_conv_id = recent_convs[0]["id"] if recent_convs else "default_session"
+            server_core.conversations.add_message(
+                role="assistant",
+                content=report_text,
+                conv_id=active_conv_id,
+                client_id="ava_layer1",
+            )
+        except Exception as ex:
+            logger.warning(f"Could not persist sentinel alert to conversation: {ex}")
+
+        # Broadcast assistant message to all connected clients
+        out_msg = {
+            "type": "assistant_response",
+            "conversation_id": active_conv_id,
+            "content": report_text,
+            "metadata": {
+                "cognitive_mode": "sentinel_briefing",
+                "is_sentinel_alert": True,
+                "severity": severity,
+                "sentinel": sentinel,
+                "entry_id": entry.entry_id,
+                "diagnosis": diagnosis,
+            },
+        }
+        for dev in device_registry.list_devices(online_only=True):
+            d_id = dev.get("device_id")
+            if d_id:
+                asyncio.create_task(device_registry.send_to_device(d_id, out_msg))
+    else:
+        PENDING_AWAY_ALERTS.append({
+            "sentinel": sentinel,
+            "title": title,
+            "message": message,
+            "severity": severity,
+            "diagnosis": diagnosis,
+            "report_text": report_text,
+            "timestamp": time.time(),
+        })
+        logger.info(f"[Sentinel:{sentinel}] User away. Alert queued for return briefing: {title}")
+
+    return {
+        "ok": True,
+        "entry_id": entry.entry_id,
+        "diagnosis": diagnosis,
+        "delivered_live": is_present,
+        "presence": get_current_user_presence(),
+        "report_text": report_text,
+    }
+
+
+@app.get("/api/presence")
+async def api_get_presence():
+    """Get current user presence state."""
+    return {"ok": True, "presence": get_current_user_presence()}
+
+
+@app.post("/api/presence")
+async def api_set_presence(request: Request):
+    """Set user presence ('present' | 'away') and broadcast to clients."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+
+    new_pres = str(data.get("presence", "present")).lower()
+    set_current_user_presence(new_pres)
+
+    # Broadcast to all connected devices
+    up_msg = {"type": "user_presence_updated", "presence": new_pres}
+    for dev in device_registry.list_devices(online_only=True):
+        d_id = dev.get("device_id")
+        if d_id:
+            asyncio.create_task(device_registry.send_to_device(d_id, up_msg))
+
+    logger.info(f"[Presence] User presence updated to: {new_pres}")
+    return {"ok": True, "presence": new_pres}
+
+
+@app.post("/api/events/trigger")
+async def api_events_trigger(request: Request):
+    """
+    Mock/external event injector to test how AVA reacts to sentinel alerts.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+
+    sentinel_name = str(payload.get("sentinel", "system_sentinel"))
+    severity = str(payload.get("severity", "WARN")).upper()
+    title = str(payload.get("title", f"Event from {sentinel_name}"))
+    message = str(payload.get("message", "Triggered test alert."))
+
+    res = await dispatch_sentinel_alert(
+        sentinel=sentinel_name,
+        title=title,
+        message=message,
+        severity=severity,
+        raw_data=payload,
+    )
+
+    logger.info(f"[EventTrigger] Injected {severity} event from '{sentinel_name}': {title} (delivered_live={res['delivered_live']})")
+    return res
+
+
+@app.post("/api/chat/dual_layer")
+async def api_chat_dual_layer(request: Request):
+    """Direct endpoint to route a query through Layer 1 Avatar."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Invalid JSON"}, status_code=400)
+
+    message = str(data.get("message", "")).strip()
+    client_id = str(data.get("client_id", "web_client")).strip()
+    conv_id = str(data.get("conversation_id", "")).strip()
+
+    if not message:
+        return JSONResponse({"ok": False, "error": "Message is required"}, status_code=400)
+
+    res = await layer1_avatar.route_turn(
+        user_text=message,
+        client_id=client_id,
+        conversation_id=conv_id,
+    )
+    return {"ok": True, **res}
+
 
 
 def _guess_mime(filename: str) -> str:
@@ -1739,15 +2087,17 @@ async def device_websocket_endpoint(websocket: WebSocket):
                         "type": "registered",
                         "device_id": d_id,
                         "status": "online",
+                        "presence": get_current_user_presence(),
                         "message": f"Device '{d_id}' registered successfully.",
                         "conversations": server_core.conversations.list_recent(limit=50),
                     }))
 
-            # 2. Heartbeat
-            elif msg_type == "heartbeat":
+            # 2. Heartbeat & Ping
+            elif msg_type in ("heartbeat", "ping"):
                 if current_device_id:
                     device_registry.heartbeat(current_device_id)
-                await websocket.send_text(json.dumps({"type": "heartbeat_ack", "timestamp": time.time()}))
+                ack_type = "heartbeat_ack" if msg_type == "heartbeat" else "pong"
+                await websocket.send_text(json.dumps({"type": ack_type, "timestamp": time.time()}))
 
             # 3. RPC Tool Response from Client
             elif msg_type == "tool_result":
@@ -1765,6 +2115,16 @@ async def device_websocket_endpoint(websocket: WebSocket):
             elif msg_type in ("server_task_completed", "remote_task_completed"):
                 asyncio.create_task(_handle_remote_task_completed(data))
 
+            # 6. User Presence Update from client
+            elif msg_type in ("user_presence", "presence_update"):
+                new_p = str(data.get("presence", "present")).lower()
+                set_current_user_presence(new_p)
+                up_msg = {"type": "user_presence_updated", "presence": new_p}
+                for dev in device_registry.list_devices(online_only=True):
+                    d_id = dev.get("device_id")
+                    if d_id:
+                        asyncio.create_task(device_registry.send_to_device(d_id, up_msg))
+
     except WebSocketDisconnect:
         logger.info(f"[WebSocket] Device '{current_device_id}' disconnected")
     except OSError as e:
@@ -1777,6 +2137,122 @@ async def device_websocket_endpoint(websocket: WebSocket):
             logger.warning(f"[WebSocket] OSError on device socket '{current_device_id}': {e}")
     except Exception as e:
         logger.error(f"[WebSocket] Exception on device socket {current_device_id}: {e}")
+    finally:
+        device_registry.unregister_ws(websocket)
+
+
+async def _run_layer2_delegation_turn(
+    ticket_id: str,
+    user_text: str,
+    conv_id: str,
+    caller_id: str,
+    websocket: WebSocket,
+    msgs: list,
+) -> None:
+    """
+    Executes the full Layer 2 cognitive loop for delegated objectives:
+    1. Runs real tool execution (e.g. multi-device queries, battery, web search, files) via generate_internal.
+    2. Streams live thoughts & steps to Blackboard.
+    3. Synthesizes the final output and dispatches it via WebSocket as the completed response.
+    """
+    from starlette.websockets import WebSocketState
+
+    async def _safe_send(payload: dict) -> bool:
+        try:
+            if websocket and getattr(websocket, "client_state", None) == WebSocketState.CONNECTED:
+                await websocket.send_text(json.dumps(payload))
+                return True
+        except Exception:
+            pass
+        return False
+
+    try:
+        blackboard.append_thought(
+            ticket_id,
+            f"Chief of Staff executing objective: '{user_text}'. Interrogating required tools and device nodes...",
+            stage="orchestration",
+        )
+
+        # Execute target tool loop with full device registry and server tools
+        gen_payload = {
+            "messages": msgs,
+            "caller_device_id": caller_id,
+            "auto_resolve_tools": True,
+            "ws": websocket,
+            "conversation_id": conv_id,
+        }
+
+        gen_result = await generate_internal(gen_payload)
+        final_text = (gen_result.get("content") or "").strip()
+
+        if not final_text:
+            if gen_result.get("tool_calls"):
+                final_text = "All requested device operations and queries have completed successfully, sir."
+            else:
+                final_text = "Operation completed, sir."
+
+        # Mark ticket completed on Blackboard
+        # Mark ticket completed on Blackboard
+        blackboard.update_ticket_status(
+            ticket_id,
+            status="completed",
+            progress_pct=100,
+            executive_summary=final_text[:120],
+        )
+        blackboard.append_thought(ticket_id, "Chief of Staff finalized outcome. Handing over to Layer 1 for delivery.", stage="completed")
+
+        # Layer 1 Avatar delivers the outcome directly to the user
+        delivered_text = layer1_avatar.deliver_delegation_outcome(
+            user_goal=user_text,
+            ticket_id=ticket_id,
+            layer2_result=final_text,
+            client_id=caller_id,
+        )
+
+        # Save to persistent conversation store as Layer 1 response
+        server_core.conversations.add_message(
+            role="assistant",
+            content=delivered_text,
+            conv_id=conv_id,
+            client_id="ava_layer1",
+        )
+
+        # Stop thinking indicator
+        await _safe_send({
+            "type": "thinking",
+            "status": "completed",
+            "ticket_id": ticket_id,
+        })
+
+        # Send final assistant response to client via Layer 1
+        await _safe_send({
+            "type": "assistant_response",
+            "conversation_id": conv_id,
+            "content": delivered_text,
+            "metadata": {
+                "ticket_id": ticket_id,
+                "cognitive_mode": "dual_layer_completed",
+                "origin": "layer1",
+                "sender": "layer1_avatar",
+                "tool_calls": gen_result.get("tool_calls", []),
+            },
+        })
+
+    except Exception as e:
+        logger.error(f"[Layer2] Delegation execution failed for ticket {ticket_id}: {e}", exc_info=True)
+        blackboard.update_ticket_status(ticket_id, status="failed", active_blocker=str(e))
+        err_msg = f"Layer 2 encountered an error while completing the task: {e}"
+        await _safe_send({
+            "type": "thinking",
+            "status": "completed",
+            "ticket_id": ticket_id,
+        })
+        await _safe_send({
+            "type": "assistant_response",
+            "conversation_id": conv_id,
+            "content": err_msg,
+            "metadata": {"ticket_id": ticket_id, "cognitive_mode": "dual_layer_error"},
+        })
 
 
 async def _handle_chat_message(data: dict, websocket: WebSocket, current_device_id: Optional[str]) -> None:
@@ -1836,9 +2312,6 @@ async def _handle_chat_message(data: dict, websocket: WebSocket, current_device_
             pass
         return False
 
-    # Immediately signal that thinking has started
-    await _safe_send({"type": "thinking", "status": "start"})
-
     # Track tool steps for this turn
     turn_tool_steps: list[dict[str, Any]] = []
 
@@ -1866,7 +2339,89 @@ async def _handle_chat_message(data: dict, websocket: WebSocket, current_device_
                 ],
             }
 
+        # Check Dual-Layer mode
+        if get_settings().dual_layer_enabled and not image_parts_for_turn:
+            dual_res = await layer1_avatar.route_turn(
+                user_text=user_text,
+                client_id=caller_id,
+                conversation_id=c_id,
+                conversation_history=msgs[:-1] if msgs else None,
+            )
+            res_type = dual_res.get("type")
+
+            if res_type == "status":
+                reply_text = dual_res.get("response", "")
+                server_core.conversations.add_message(
+                    role="assistant",
+                    content=reply_text,
+                    conv_id=c_id,
+                    client_id=caller_id,
+                )
+                await _safe_send({
+                    "type": "assistant_response",
+                    "conversation_id": c_id,
+                    "content": reply_text,
+                    "metadata": {"cognitive_mode": "dual_layer_status"},
+                })
+                return
+
+            elif res_type == "reflex":
+                reply_text = dual_res.get("response", "")
+                server_core.conversations.add_message(
+                    role="assistant",
+                    content=reply_text,
+                    conv_id=c_id,
+                    client_id=caller_id,
+                )
+                await _safe_send({
+                    "type": "assistant_response",
+                    "conversation_id": c_id,
+                    "content": reply_text,
+                    "metadata": {"cognitive_mode": "dual_layer_reflex"},
+                })
+                return
+
+            elif res_type == "delegation":
+                kickoff_text = dual_res.get("response", "")
+                ticket_id = dual_res.get("ticket_id")
+
+                # Step 1: Immediate Layer 1 natural spoken/text kickoff acknowledgment (<300ms)
+                server_core.conversations.add_message(
+                    role="assistant",
+                    content=kickoff_text,
+                    conv_id=c_id,
+                    client_id=caller_id,
+                )
+                await _safe_send({
+                    "type": "assistant_response",
+                    "conversation_id": c_id,
+                    "content": kickoff_text,
+                    "metadata": {"ticket_id": ticket_id, "cognitive_mode": "dual_layer_kickoff"},
+                })
+
+                # Step 2: Open thinking drawer showing Chief of Staff orchestration
+                await _safe_send({
+                    "type": "thinking",
+                    "status": "start",
+                    "label": f"Layer 2 Chief of Staff executing [{ticket_id}]...",
+                    "ticket_id": ticket_id,
+                })
+
+                # Step 3: Launch Layer 2 asynchronous tool execution and synthesis
+                asyncio.create_task(
+                    _run_layer2_delegation_turn(
+                        ticket_id=ticket_id,
+                        user_text=user_text,
+                        conv_id=c_id,
+                        caller_id=caller_id,
+                        websocket=websocket,
+                        msgs=msgs,
+                    )
+                )
+                return
+
         # Use direct LLM call
+        await _safe_send({"type": "thinking", "status": "start"})
         gen_payload = {
             "messages": msgs,
             "caller_device_id": caller_id,
@@ -1874,6 +2429,7 @@ async def _handle_chat_message(data: dict, websocket: WebSocket, current_device_
             "ws": websocket,
             "conversation_id": c_id,
         }
+
         gen_result = await generate_internal(gen_payload)
         assistant_text = gen_result.get("content")
         if not assistant_text or not str(assistant_text).strip():
@@ -2575,6 +3131,8 @@ async def _run_servers_async(host: str, http_port: int, https_port: int, cert_fi
         port=http_port,
         log_level="info",
         access_log=False,
+        ws_ping_interval=30.0,
+        ws_ping_timeout=30.0,
     )
     server_http = uvicorn.Server(config_http)
     tasks = [server_http.serve()]
@@ -2588,6 +3146,8 @@ async def _run_servers_async(host: str, http_port: int, https_port: int, cert_fi
             ssl_keyfile=key_file,
             log_level="info",
             access_log=False,
+            ws_ping_interval=30.0,
+            ws_ping_timeout=30.0,
         )
         server_https = uvicorn.Server(config_https)
         # Avoid signal capture collision with primary HTTP server
@@ -2636,6 +3196,8 @@ def run_server() -> None:
         port=settings.port,
         log_level="info",
         access_log=False,
+        ws_ping_interval=30.0,
+        ws_ping_timeout=30.0,
     )
 
 
